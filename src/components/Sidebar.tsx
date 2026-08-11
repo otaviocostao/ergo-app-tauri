@@ -26,7 +26,7 @@ export default function Sidebar() {
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                     isActive
-                      ? "bg-blue-50 text-blue-600 font-semibold dark:bg-blue-950/50 dark:text-blue-400"
+                      ? "bg-primary-50 text-primary-700 font-semibold dark:bg-primary-950/60 dark:text-primary-400"
                       : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                   }`
                 }

@@ -2,6 +2,17 @@
 
 @variant dark (&:where(.dark, .dark *));
 
+@theme {
+  --color-primary-50: #e6f8f5;
+  --color-primary-100: #c2efea;
+  --color-primary-400: #26d0b2;
+  --color-primary-500: #13b89a;
+  --color-primary-600: #0e9980;
+  --color-primary-700: #0b7c68;
+  --color-primary-800: #0b6253;
+  --color-primary-950: #032d26;
+}
+
 @layer base {
   body {
     @apply bg-slate-50 text-slate-900 antialiased select-none dark:bg-slate-950 dark:text-slate-100;
