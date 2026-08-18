@@ -24,6 +24,7 @@ export interface ReminderItem {
     interval: string;
     period: string;
     frequency: string;
+    notificationTone: boolean;
     status: "ativo" | "inativo";
 }
 
@@ -37,6 +38,7 @@ const INITIAL_REMINDERS: ReminderItem[] = [
         interval: "45 min",
         period: "08:00 - 18:00",
         frequency: "Segunda a Sexta",
+        notificationTone: true,
         status: "ativo",
     },
     {
@@ -48,6 +50,7 @@ const INITIAL_REMINDERS: ReminderItem[] = [
         interval: "1 hora",
         period: "08:00 - 18:00",
         frequency: "Diariamente",
+        notificationTone: false,
         status: "ativo",
     },
     {
@@ -59,6 +62,7 @@ const INITIAL_REMINDERS: ReminderItem[] = [
         interval: "30 min",
         period: "09:00 - 17:00",
         frequency: "Segunda a Sexta",
+        notificationTone: true,
         status: "ativo",
     },
     {
@@ -70,6 +74,7 @@ const INITIAL_REMINDERS: ReminderItem[] = [
         interval: "2 horas",
         period: "08:00 - 18:00",
         frequency: "Dias Úteis",
+        notificationTone: false,
         status: "inativo",
     },
 ];
