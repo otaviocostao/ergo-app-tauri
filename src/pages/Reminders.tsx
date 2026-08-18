@@ -2,6 +2,7 @@ import { useState } from "react";
 import Header from "../components/Header";
 import Table, { ColumnDef } from "../components/Table";
 import Button from "../components/Button";
+import ReminderDetailModal from "../components/ReminderDetailModal";
 import {
     Clock,
     Calendar,
@@ -77,6 +78,7 @@ export default function Reminders() {
     const [reminders, setReminders] = useState<ReminderItem[]>(INITIAL_REMINDERS);
     const [searchTerm, setSearchTerm] = useState("");
     const [categoryFilter, setCategoryFilter] = useState<string>("todos");
+    const [selectedReminder, setSelectedReminder] = useState<ReminderItem | null>(null);
 
     const toggleStatus = (id: string) => {
         setReminders((prev) =>
@@ -106,7 +108,7 @@ export default function Reminders() {
             header: "Título",
             cell: (item) => (
                 <div className="flex items-center gap-3">
-                    <span className="text-sm text-slate-600 dark:text-slate-300">
+                    <span className="text-sm text-slate-600 dark:text-slate-300 font-medium">
                         {item.title}
                     </span>
                 </div>
@@ -182,8 +184,12 @@ export default function Reminders() {
             cell: (item) => (
                 <div className="flex items-center justify-end gap-1">
                     <button
-                        title="Editar lembrete"
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors"
+                        title="Editar / Ver detalhes"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedReminder(item);
+                        }}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors cursor-pointer"
                     >
                         <Edit2 size={16} />
                     </button>
@@ -193,7 +199,7 @@ export default function Reminders() {
                             e.stopPropagation();
                             deleteReminder(item.id);
                         }}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 transition-colors"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 transition-colors cursor-pointer"
                     >
                         <Trash2 size={16} />
                     </button>
@@ -238,7 +244,7 @@ export default function Reminders() {
                                 <button
                                     key={cat}
                                     onClick={() => setCategoryFilter(cat)}
-                                    className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap transition-all ${categoryFilter === cat
+                                    className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap transition-all cursor-pointer ${categoryFilter === cat
                                         ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
                                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
                                         }`}
@@ -255,8 +261,16 @@ export default function Reminders() {
                 data={filteredReminders}
                 columns={columns}
                 keyExtractor={(item) => item.id}
+                onRowClick={(item) => setSelectedReminder(item)}
                 emptyMessage="Nenhum lembrete encontrado."
+            />
+
+            <ReminderDetailModal
+                isOpen={Boolean(selectedReminder)}
+                reminder={selectedReminder}
+                onClose={() => setSelectedReminder(null)}
             />
         </div>
     );
 }
+
