@@ -2,7 +2,7 @@ import { useState } from "react";
 import Header from "../components/Header";
 import Table, { ColumnDef } from "../components/Table";
 import Button from "../components/Button";
-import ReminderDetailModal from "../components/ReminderDetailModal";
+import ReminderDetailModal from "../components/Reminder/ReminderDetailModal";
 import ReminderFormModal from "../components/Reminder/ReminderFormModal";
 import ReminderDeleteModal from "../components/Reminder/ReminderDeleteModal";
 import {

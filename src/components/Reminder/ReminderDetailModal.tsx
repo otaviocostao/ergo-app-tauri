@@ -1,6 +1,6 @@
-import Modal from "./Modal";
-import Button from "./Button";
-import { ReminderItem } from "../pages/Reminders";
+import Modal from "../Modal";
+import Button from "../Button";
+import { ReminderItem } from "../../pages/Reminders";
 import {
   Clock,
   Calendar,
