@@ -4,6 +4,7 @@ import Table, { ColumnDef } from "../components/Table";
 import Button from "../components/Button";
 import ReminderDetailModal from "../components/ReminderDetailModal";
 import ReminderFormModal from "../components/Reminder/ReminderFormModal";
+import ReminderDeleteModal from "../components/Reminder/ReminderDeleteModal";
 import {
     Clock,
     Calendar,
@@ -88,7 +89,15 @@ export default function Reminders() {
     const [categoryFilter, setCategoryFilter] = useState<string>("todos");
     const [selectedReminder, setSelectedReminder] = useState<ReminderItem | null>(null);
     const [editingReminder, setEditingReminder] = useState<ReminderItem | null>(null);
+    const [deletingReminder, setDeletingReminder] = useState<ReminderItem | null>(null);
     const [isOpenFormReminderModal, setIsOpenFormReminderModal] = useState(false);
+
+    const handleConfirmDelete = () => {
+        if (deletingReminder) {
+            deleteReminder(deletingReminder.id);
+            setDeletingReminder(null);
+        }
+    };
 
     const handleOpenNewReminderModal = () => {
         setEditingReminder(null);
@@ -229,7 +238,7 @@ export default function Reminders() {
                         title="Excluir lembrete"
                         onClick={(e) => {
                             e.stopPropagation();
-                            deleteReminder(item.id);
+                            setDeletingReminder(item);
                         }}
                         className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 transition-colors cursor-pointer"
                     >
@@ -311,6 +320,13 @@ export default function Reminders() {
                     setEditingReminder(null);
                 }}
                 onSave={handleSaveReminder}
+            />
+
+            <ReminderDeleteModal
+                isOpen={Boolean(deletingReminder)}
+                reminderTitle={deletingReminder?.title}
+                onClose={() => setDeletingReminder(null)}
+                onConfirm={handleConfirmDelete}
             />
         </div>
     );
