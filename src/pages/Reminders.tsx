@@ -3,7 +3,7 @@ import Header from "../components/Header";
 import Table, { ColumnDef } from "../components/Table";
 import Button from "../components/Button";
 import ReminderDetailModal from "../components/ReminderDetailModal";
-import NewReminderModal from "../components/Reminder/ReminderFormModal";
+import ReminderFormModal from "../components/Reminder/ReminderFormModal";
 import {
     Clock,
     Calendar,
@@ -87,7 +87,30 @@ export default function Reminders() {
     const [searchTerm, setSearchTerm] = useState("");
     const [categoryFilter, setCategoryFilter] = useState<string>("todos");
     const [selectedReminder, setSelectedReminder] = useState<ReminderItem | null>(null);
+    const [editingReminder, setEditingReminder] = useState<ReminderItem | null>(null);
     const [isOpenFormReminderModal, setIsOpenFormReminderModal] = useState(false);
+
+    const handleOpenNewReminderModal = () => {
+        setEditingReminder(null);
+        setIsOpenFormReminderModal(true);
+    };
+
+    const handleOpenEditReminderModal = (item: ReminderItem) => {
+        setEditingReminder(item);
+        setIsOpenFormReminderModal(true);
+    };
+
+    const handleSaveReminder = (savedReminder: ReminderItem) => {
+        setReminders((prev) => {
+            const exists = prev.some((item) => item.id === savedReminder.id);
+            if (exists) {
+                return prev.map((item) =>
+                    item.id === savedReminder.id ? savedReminder : item
+                );
+            }
+            return [savedReminder, ...prev];
+        });
+    };
 
     const toggleStatus = (id: string) => {
         setReminders((prev) =>
@@ -196,7 +219,7 @@ export default function Reminders() {
                         title="Editar / Ver detalhes"
                         onClick={(e) => {
                             e.stopPropagation();
-                            setIsOpenFormReminderModal(true);
+                            handleOpenEditReminderModal(item);
                         }}
                         className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors cursor-pointer"
                     >
@@ -223,7 +246,7 @@ export default function Reminders() {
                 title="Lembretes Personalizados"
                 subtitle="Gerencie seu envio de lembretes"
                 action={
-                    <Button variant="primary" size="md" onClick={() => setIsOpenFormReminderModal(true)}>
+                    <Button variant="primary" size="md" onClick={handleOpenNewReminderModal}>
                         <Plus size={18} />
                         <span>Novo Lembrete</span>
                     </Button>
@@ -280,9 +303,15 @@ export default function Reminders() {
                 onClose={() => setSelectedReminder(null)}
             />
 
-            <NewReminderModal
+            <ReminderFormModal
                 isOpen={isOpenFormReminderModal}
-                onClose={() => setIsOpenFormReminderModal(false)} reminder={null} />
+                reminder={editingReminder}
+                onClose={() => {
+                    setIsOpenFormReminderModal(false);
+                    setEditingReminder(null);
+                }}
+                onSave={handleSaveReminder}
+            />
         </div>
     );
 }
