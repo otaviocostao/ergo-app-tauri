@@ -1,9 +1,10 @@
 import { NavLink } from "react-router-dom";
-import { Home, Settings, Bell } from "lucide-react";
+import { Home, Settings, Bell, Video } from "lucide-react";
 
 export default function Sidebar() {
   const navItems = [
     { label: "Início", path: "/", icon: Home },
+    { label: "Monitoramento", path: "/monitoring", icon: Video },
     { label: "Lembretes", path: "/reminders", icon: Bell },
     { label: "Configurações", path: "/settings", icon: Settings },
   ];

@@ -21,6 +21,7 @@ export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElemen
     errorClassName?: string;
     helperClassName?: string;
     selectClassName?: string;
+    optionClassName?: string;
 }
 
 const Select = forwardRef<HTMLSelectElement, SelectProps>(
@@ -40,6 +41,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
             selectClassName = "",
             errorClassName = "",
             helperClassName = "",
+            optionClassName = "",
             className = "",
             disabled = false,
             required = false,
@@ -88,7 +90,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
             default:
                 "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10",
             filled:
-                "bg-slate-100 dark:bg-slate-800/60 border-transparent text-slate-900 dark:text-slate-100 focus:bg-white dark:focus:bg-slate-900 focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10",
+                "bg-slate-100 dark:bg-slate-800/60 border-transparent text-slate-900 dark:text-slate-100 focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10",
             borderless:
                 "bg-transparent border-transparent text-slate-900 dark:text-slate-100 focus:border-primary-500 focus:ring-0",
         };
@@ -139,9 +141,8 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
                         required={required}
                         aria-invalid={Boolean(error)}
                         aria-describedby={error ? errorId : helperText ? helperId : undefined}
-                        className={`${baseSelectStyles} ${currentSize.select} ${paddingClass} ${variants[variant]} ${
-                            isPlaceholderSelected ? "text-slate-400 dark:text-slate-500" : ""
-                        } ${errorStyles} ${className} ${selectClassName}`}
+                        className={`${baseSelectStyles} ${currentSize.select} ${paddingClass} ${variants[variant]} ${isPlaceholderSelected ? "text-slate-400 dark:text-slate-500" : ""
+                            } ${errorStyles} ${className} ${selectClassName}`}
                         {...props}
                     >
                         {placeholder && (
@@ -151,15 +152,15 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
                         )}
                         {options
                             ? options.map((opt) => (
-                                  <option
-                                      key={opt.value}
-                                      value={opt.value}
-                                      disabled={opt.disabled}
-                                      className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
-                                  >
-                                      {opt.label}
-                                  </option>
-                              ))
+                                <option
+                                    key={opt.value}
+                                    value={opt.value}
+                                    disabled={opt.disabled}
+                                    className={`bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 ${optionClassName}`}
+                                >
+                                    {opt.label}
+                                </option>
+                            ))
                             : children}
                     </select>
 
