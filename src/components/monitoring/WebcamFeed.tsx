@@ -2,8 +2,6 @@ import { useState, useEffect, useRef } from "react";
 import {
   Video,
   VideoOff,
-  Eye,
-  EyeOff,
   Crosshair,
   Sparkles,
 } from "lucide-react";
@@ -38,7 +36,7 @@ export default function WebcamFeed({
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
-  const [showOverlay, setShowOverlay] = useState<boolean>(true);
+  const [showOverlay] = useState<boolean>(true);
   const [isSimulatedMode, setIsSimulatedMode] = useState<boolean>(false);
 
   useEffect(() => {
@@ -289,21 +287,10 @@ export default function WebcamFeed({
               />
             </div>
           )}
-
-          <button
-            onClick={() => setShowOverlay(!showOverlay)}
-            className={`p-2 rounded-lg text-xs font-medium transition-colors ${showOverlay
-              ? "bg-primary-500/20 text-primary-400 border border-primary-500/30"
-              : "bg-slate-800 text-slate-400 hover:text-white"
-              }`}
-            title="Exibir pontos corporais"
-          >
-            {showOverlay ? <Eye size={16} /> : <EyeOff size={16} />}
-          </button>
         </div>
       </div>
 
-      <div className="relative w-full aspect-video min-h-[320px] max-h-[460px] bg-slate-950 flex items-center justify-center overflow-hidden">
+      <div className="relative w-full aspect-video min-h-[320px] max-h-[460px] flex items-center justify-center overflow-hidden">
         <video
           ref={videoRef}
           playsInline
