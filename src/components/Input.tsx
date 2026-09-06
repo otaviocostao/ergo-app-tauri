@@ -182,7 +182,8 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
                             <button
                                 type="button"
                                 onClick={() => setShowPassword((prev) => !prev)}
-                                tabIndex={-1}
+                                aria-label={showPassword ? "Ocultar senha" : "Exibir senha"}
+                                aria-pressed={showPassword}
                                 className="p-0.5 rounded hover:text-slate-700 dark:hover:text-slate-200 transition-colors focus:outline-none"
                                 title={showPassword ? "Ocultar senha" : "Exibir senha"}
                             >
