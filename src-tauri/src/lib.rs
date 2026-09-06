@@ -1,4 +1,6 @@
-use tauri_plugin_sql::{Migration, MigrationKind};
+mod auth;
+
+use tauri::Manager;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -8,17 +10,25 @@ fn greet(name: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let migrations: Vec<Migration> = vec![];
-
     tauri::Builder::default()
-        .plugin(
-            tauri_plugin_sql::Builder::default()
-                .add_migrations("sqlite:ergo.db", migrations)
-                .build(),
-        )
+        .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .setup(|app| {
+            let directory = app.path().app_config_dir()?;
+            std::fs::create_dir_all(&directory)?;
+            let store =
+                tauri::async_runtime::block_on(auth::AuthStore::open(&directory.join("ergo.db")))?;
+            app.manage(store);
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            auth::register_local,
+            auth::login_local,
+            auth::get_session,
+            auth::continue_offline,
+            auth::logout,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-
