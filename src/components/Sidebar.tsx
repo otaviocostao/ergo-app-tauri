@@ -1,7 +1,20 @@
 import { NavLink } from "react-router-dom";
-import { Home, Settings, Bell, Video } from "lucide-react";
+import { Home, Settings, Bell, Video, LogOut } from "lucide-react";
+import { useState } from "react";
+import { useAuth } from "../auth/AuthContext";
+import { authErrorMessage } from "../auth/authService";
 
 export default function Sidebar() {
+  const { session, logout } = useAuth();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const user = session.kind === "authenticated" ? session.user : null;
+  async function signOut() {
+    setPending(true);
+    try { await logout(); }
+    catch (error) { setError(authErrorMessage(error)); }
+    finally { setPending(false); }
+  }
   const navItems = [
     { label: "Início", path: "/", icon: Home },
     { label: "Monitoramento", path: "/monitoring", icon: Video },
@@ -43,17 +56,21 @@ export default function Sidebar() {
       <div className="p-3 border-t border-slate-200 dark:border-slate-800">
         <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
           <div className="w-8 h-8 rounded-full bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200 flex items-center justify-center font-semibold text-xs shrink-0">
-            U
+            {user?.fullName.charAt(0).toUpperCase() || "V"}
           </div>
-          <div className="flex flex-col leading-tight">
-            <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-              Usuário
+          <div className="flex flex-col leading-tight min-w-0">
+            <span className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate" title={user?.fullName}>
+              {user?.fullName || "Visitante"}
             </span>
             <span className="text-xs text-slate-500 dark:text-slate-400">
-              Online
+              {user ? "Conta local" : "Modo offline"}
             </span>
           </div>
         </div>
+        <button onClick={signOut} disabled={pending} className="flex items-center gap-3 w-full rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50">
+          <LogOut size={16} /> {pending ? "Saindo…" : user ? "Sair da conta" : "Voltar ao login"}
+        </button>
+        {error && <p role="alert" className="text-xs text-red-600 p-2">{error}</p>}
       </div>
     </aside>
   );
