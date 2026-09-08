@@ -62,7 +62,7 @@ export default function ReminderDetailModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      maxWidth="2xl"
+      maxWidth="3xl"
       title={
         <div className="flex items-center gap-2">
           <div>
@@ -105,7 +105,7 @@ export default function ReminderDetailModal({
             Título do Lembrete
           </span>
           <div className="text-left sm:text-right">
-            <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 text-base">
+            <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
               {reminder.title}
             </span>
             {reminder.description && reminder.description !== reminder.message && (
@@ -180,7 +180,6 @@ export default function ReminderDetailModal({
           </span>
         </div>
 
-
         <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
             {reminder.status === "ativo" ? (
@@ -192,10 +191,11 @@ export default function ReminderDetailModal({
           </span>
           <div>
             <span
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${reminder.status === "ativo"
-                ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800"
-                : "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
-                }`}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${
+                reminder.status === "ativo"
+                  ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800"
+                  : "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
+              }`}
             >
               {reminder.status === "ativo" ? "Ativo" : "Inativo"}
             </span>
