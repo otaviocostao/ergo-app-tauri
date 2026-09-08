@@ -7,7 +7,7 @@ export interface ModalProps {
   title?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
-  maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl";
+  maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "5xl";
 }
 
 export default function Modal({
@@ -16,7 +16,7 @@ export default function Modal({
   title,
   children,
   footer,
-  maxWidth = "md",
+  maxWidth = "xl",
 }: ModalProps) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -44,6 +44,9 @@ export default function Modal({
     lg: "max-w-lg",
     xl: "max-w-xl",
     "2xl": "max-w-2xl",
+    "3xl": "max-w-3xl",
+    "4xl": "max-w-4xl",
+    "5xl": "max-w-5xl",
   };
 
   return (
@@ -75,7 +78,7 @@ export default function Modal({
         <div className="px-6 py-3 overflow-y-auto max-h-[80vh]">{children}</div>
 
         {footer && (
-          <div className="flex items-center justify-end gap-3 px-6 py-4  border-t border-slate-100 dark:border-slate-800">
+          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100 dark:border-slate-800">
             {footer}
           </div>
         )}
