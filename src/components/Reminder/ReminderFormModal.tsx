@@ -113,7 +113,7 @@ export default function ReminderFormModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      maxWidth="2xl"
+      maxWidth="3xl"
       title={
         <div className="flex items-center gap-2">
           <div>
