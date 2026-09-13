@@ -26,7 +26,7 @@ Este projeto é uma aplicação Desktop construída com **Tauri v2**, **React** 
 ## Login e cadastro local
 
 - Ao abrir o app, a tela inicial é o login (`/login`).
-- **Cadastrar-se** abre o modal da plataforma online. Como ainda não há backend remoto, **Cadastrar neste computador** leva ao cadastro offline (`/cadastro`).
+- **Cadastrar-se** abre o modal da plataforma online. Como ainda não há backend remoto, **Cadastrar online** leva temporariamente ao cadastro no próprio app (`/cadastro`).
 - O cadastro pede nome, e-mail, senha de 8 a 128 caracteres e confirmação da senha. Após o sucesso, o usuário retorna ao login.
 - **Continuar offline** entra como visitante, sem criar conta. A barra lateral diferencia **Conta local** de **Modo offline** e permite sair/voltar ao login.
 - A conta permanece no SQLite após fechar o app. A sessão fica somente na memória do processo Rust: recarregar a tela mantém a sessão, mas fechar e reabrir o app exige novo login.

@@ -72,7 +72,7 @@ export default function Login() {
       <Button variant="secondary" className="auth-button auth-button--secondary" disabled={Boolean(pending)} isLoading={pending === "guest"} onClick={enterGuest}>Continuar offline</Button>
       <AuthDialog open={onlineDialog} onClose={() => setOnlineDialog(false)} title="Cadastre-se na nossa plataforma on-line."
         actions={<>
-          <Button className="auth-button auth-button--primary" onClick={() => { setOnlineDialog(false); navigate("/cadastro"); }}>Cadastrar neste computador</Button>
+          <Button className="auth-button auth-button--primary" onClick={() => { setOnlineDialog(false); navigate("/cadastro"); }}>Cadastrar online</Button>
           <Button variant="secondary" className="auth-button auth-button--secondary" onClick={() => setOnlineDialog(false)}>Voltar</Button>
         </>}>
         <p>Cadastrando-se pela plataforma on-line você terá acesso a:</p>
@@ -81,7 +81,7 @@ export default function Login() {
           <li>Dashboard interativo com insights detalhados.</li>
           <li>Permissão para o time de RH acompanhar os resultados da sua saúde no ambiente de trabalho.</li>
         </ul>
-        <p className="auth-dialog-note">A plataforma on-line ainda não está disponível. Por enquanto, crie sua conta apenas neste computador, sem envio de dados.</p>
+        <p className="auth-dialog-note">A plataforma on-line ainda não está disponível. Por enquanto, o cadastro será realizado no próprio app, sem envio de dados.</p>
       </AuthDialog>
       <AuthDialog open={registrationComplete} variant="success" title="Cadastro realizado com sucesso!" onClose={closeSuccess}
         actions={<Button className="auth-button auth-button--primary" onClick={closeSuccess}>Fazer login</Button>}>
