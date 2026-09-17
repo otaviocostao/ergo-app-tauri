@@ -1,10 +1,18 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Header from "../components/Header";
 import Table, { ColumnDef } from "../components/Table";
 import Button from "../components/Button";
 import ReminderDetailModal from "../components/Reminder/ReminderDetailModal";
 import ReminderFormModal from "../components/Reminder/ReminderFormModal";
 import ReminderDeleteModal from "../components/Reminder/ReminderDeleteModal";
+import {
+    reminderService,
+    ReminderItem,
+} from "../services/reminderService";
+import {
+    ReminderFrequency,
+    REMINDER_FREQUENCY_LABELS,
+} from "../enums";
 import {
     Clock,
     Calendar,
@@ -15,76 +23,17 @@ import {
     CheckCircle2,
     XCircle,
     Filter,
+    Loader2,
+    AlertCircle,
+    RotateCw,
 } from "lucide-react";
 
-export interface ReminderItem {
-    id: string;
-    title: string;
-    message: string;
-    description?: string;
-    category: "Postura" | "Hidratação" | "Pausa Visual" | "Exercício";
-    interval: string;
-    period: string;
-    frequency: string;
-    notificationTone: boolean;
-    status: "ativo" | "inativo";
-    startTime?: string;
-    endTime?: string;
-}
-
-const INITIAL_REMINDERS: ReminderItem[] = [
-    {
-        id: "1",
-        title: "Ajuste de Postura",
-        message: "Mantenha a coluna reta e os pés apoiados no chão.",
-        description: "Mantenha a coluna reta e os pés apoiados no chão.",
-        category: "Postura",
-        interval: "45 min",
-        period: "08:00 - 18:00",
-        frequency: "Segunda a Sexta",
-        notificationTone: true,
-        status: "ativo",
-    },
-    {
-        id: "2",
-        title: "Beber Água",
-        message: "Beba 250ml de água para se manter hidratado.",
-        description: "Beba 250ml de água para se manter hidratado.",
-        category: "Hidratação",
-        interval: "1 hora",
-        period: "08:00 - 18:00",
-        frequency: "Diariamente",
-        notificationTone: false,
-        status: "ativo",
-    },
-    {
-        id: "3",
-        title: "Pausa para os Olhos",
-        message: "Olhe para um objeto distante por 20 segundos.",
-        description: "Olhe para um objeto distante por 20 segundos.",
-        category: "Pausa Visual",
-        interval: "30 min",
-        period: "09:00 - 17:00",
-        frequency: "Segunda a Sexta",
-        notificationTone: true,
-        status: "ativo",
-    },
-    {
-        id: "4",
-        title: "Alongamento dos Punhos",
-        message: "Realize exercícios leves de rotação nos punhos.",
-        description: "Realize exercícios leves de rotação nos punhos.",
-        category: "Exercício",
-        interval: "2 horas",
-        period: "08:00 - 18:00",
-        frequency: "Dias Úteis",
-        notificationTone: false,
-        status: "inativo",
-    },
-];
+export type { ReminderItem };
 
 export default function Reminders() {
-    const [reminders, setReminders] = useState<ReminderItem[]>(INITIAL_REMINDERS);
+    const [reminders, setReminders] = useState<ReminderItem[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState("");
     const [categoryFilter, setCategoryFilter] = useState<string>("todos");
     const [selectedReminder, setSelectedReminder] = useState<ReminderItem | null>(null);
@@ -92,10 +41,36 @@ export default function Reminders() {
     const [deletingReminder, setDeletingReminder] = useState<ReminderItem | null>(null);
     const [isOpenFormReminderModal, setIsOpenFormReminderModal] = useState(false);
 
-    const handleConfirmDelete = () => {
-        if (deletingReminder) {
-            deleteReminder(deletingReminder.id);
+    const loadReminders = useCallback(async () => {
+        try {
+            setIsLoading(true);
+            setErrorMessage(null);
+            const data = await reminderService.getAll();
+            setReminders(data);
+        } catch (err) {
+            console.error("Failed to load reminders from backend:", err);
+            setErrorMessage("Não foi possível carregar os lembretes. Tente novamente.");
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        loadReminders();
+    }, [loadReminders]);
+
+    const handleConfirmDelete = async () => {
+        if (!deletingReminder) return;
+        try {
+            await reminderService.delete(deletingReminder.id);
+            setReminders((prev) => prev.filter((item) => item.id !== deletingReminder.id));
+            if (selectedReminder?.id === deletingReminder.id) {
+                setSelectedReminder(null);
+            }
             setDeletingReminder(null);
+        } catch (err) {
+            console.error("Failed to delete reminder:", err);
+            setErrorMessage("Erro ao excluir lembrete. Tente novamente.");
         }
     };
 
@@ -109,30 +84,65 @@ export default function Reminders() {
         setIsOpenFormReminderModal(true);
     };
 
-    const handleSaveReminder = (savedReminder: ReminderItem) => {
-        setReminders((prev) => {
-            const exists = prev.some((item) => item.id === savedReminder.id);
-            if (exists) {
-                return prev.map((item) =>
-                    item.id === savedReminder.id ? savedReminder : item
-                );
+    const handleSaveReminder = async (item: ReminderItem) => {
+        if (editingReminder && editingReminder.id) {
+            const updated = await reminderService.update({
+                id: editingReminder.id,
+                title: item.title,
+                message: item.message,
+                description: item.description,
+                category: item.category,
+                interval: item.interval,
+                period: item.period,
+                frequency: item.frequency,
+                notificationTone: item.notificationTone,
+                status: item.status,
+                startTime: item.startTime,
+                endTime: item.endTime,
+                reminderDate: item.reminderDate,
+            });
+
+            setReminders((prev) =>
+                prev.map((r) => (r.id === updated.id ? updated : r))
+            );
+
+            if (selectedReminder?.id === updated.id) {
+                setSelectedReminder(updated);
             }
-            return [savedReminder, ...prev];
-        });
+        } else {
+            const created = await reminderService.create({
+                title: item.title,
+                message: item.message,
+                description: item.description,
+                category: item.category,
+                interval: item.interval,
+                period: item.period,
+                frequency: item.frequency,
+                notificationTone: item.notificationTone,
+                status: item.status,
+                startTime: item.startTime,
+                endTime: item.endTime,
+                reminderDate: item.reminderDate,
+            });
+
+            setReminders((prev) => [created, ...prev]);
+        }
     };
 
-    const toggleStatus = (id: string) => {
-        setReminders((prev) =>
-            prev.map((item) =>
-                item.id === id
-                    ? { ...item, status: item.status === "ativo" ? "inativo" : "ativo" }
-                    : item
-            )
-        );
-    };
+    const toggleStatus = async (id: string) => {
+        try {
+            const updated = await reminderService.toggleStatus(id);
+            setReminders((prev) =>
+                prev.map((item) => (item.id === id ? updated : item))
+            );
 
-    const deleteReminder = (id: string) => {
-        setReminders((prev) => prev.filter((item) => item.id !== id));
+            if (selectedReminder?.id === id) {
+                setSelectedReminder(updated);
+            }
+        } catch (err) {
+            console.error("Failed to toggle reminder status:", err);
+            setErrorMessage("Erro ao alterar o status do lembrete.");
+        }
     };
 
     const filteredReminders = reminders.filter((item) => {
@@ -171,7 +181,7 @@ export default function Reminders() {
             cell: (item) => (
                 <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
                     <Clock size={14} className="text-slate-400" />
-                    <span>{item.interval}</span>
+                    <span>{item.interval} min</span>
                 </div>
             ),
         },
@@ -186,11 +196,25 @@ export default function Reminders() {
         },
         {
             header: "Frequência",
-            cell: (item) => (
-                <span className="text-xs font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                    {item.frequency}
-                </span>
-            ),
+            cell: (item) => {
+                const label = REMINDER_FREQUENCY_LABELS[item.frequency] || item.frequency;
+                const formattedDate = item.reminderDate
+                    ? item.reminderDate.split("-").reverse().join("/")
+                    : null;
+
+                return (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-xs font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                            {label}
+                        </span>
+                        {(item.frequency === ReminderFrequency.ONCE || item.reminderDate) && formattedDate && (
+                            <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                                {formattedDate}
+                            </span>
+                        )}
+                    </div>
+                );
+            },
         },
         {
             header: "Status",
@@ -262,6 +286,22 @@ export default function Reminders() {
                 }
             />
 
+            {errorMessage && (
+                <div className="flex items-center justify-between p-3 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-sm">
+                    <div className="flex items-center gap-2">
+                        <AlertCircle size={18} className="shrink-0" />
+                        <span>{errorMessage}</span>
+                    </div>
+                    <button
+                        onClick={loadReminders}
+                        className="flex items-center gap-1 text-xs font-semibold underline hover:text-rose-800 dark:hover:text-rose-200 cursor-pointer"
+                    >
+                        <RotateCw size={13} />
+                        <span>Recarregar</span>
+                    </button>
+                </div>
+            )}
+
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
                 <div className="relative w-full sm:w-80">
                     <Search
@@ -298,13 +338,20 @@ export default function Reminders() {
                 </div>
             </div>
 
-            <Table
-                data={filteredReminders}
-                columns={columns}
-                keyExtractor={(item) => item.id}
-                onRowClick={(item) => setSelectedReminder(item)}
-                emptyMessage="Nenhum lembrete encontrado."
-            />
+            {isLoading ? (
+                <div className="flex flex-col items-center justify-center py-20 text-slate-500">
+                    <Loader2 size={32} className="animate-spin text-emerald-500 mb-3" />
+                    <span className="text-sm">Carregando lembretes...</span>
+                </div>
+            ) : (
+                <Table
+                    data={filteredReminders}
+                    columns={columns}
+                    keyExtractor={(item) => item.id}
+                    onRowClick={(item) => setSelectedReminder(item)}
+                    emptyMessage="Nenhum lembrete encontrado."
+                />
+            )}
 
             <ReminderDetailModal
                 isOpen={Boolean(selectedReminder)}
@@ -331,4 +378,3 @@ export default function Reminders() {
         </div>
     );
 }
-
