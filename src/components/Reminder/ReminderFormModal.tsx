@@ -4,12 +4,16 @@ import Button from "../Button";
 import Input from "../Input";
 import Select from "../Select";
 import { ReminderItem } from "../../pages/Reminders";
+import {
+  ReminderFrequency,
+  REMINDER_FREQUENCY_OPTIONS,
+} from "../../enums";
 import { Tag, Calendar } from "lucide-react";
 
 interface ReminderFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave?: (reminder: ReminderItem) => void;
+  onSave?: (reminder: ReminderItem) => Promise<void> | void;
   reminder: ReminderItem | null;
 }
 
@@ -22,6 +26,35 @@ const WEEK_DAYS = [
   { id: "Sex", label: "Sex" },
   { id: "Sab", label: "Sab" },
 ];
+
+function parseIntervalToMinutes(val?: string | number): string {
+  if (val === undefined || val === null || val === "") return "";
+  if (typeof val === "number") return isNaN(val) ? "" : val.toString();
+  const cleaned = val.trim().toLowerCase();
+
+  const hourMatch = cleaned.match(/^(\d+)\s*hora/);
+  if (hourMatch) {
+    const hours = parseInt(hourMatch[1], 10);
+    return isNaN(hours) ? "" : (hours * 60).toString();
+  }
+
+  const digitsMatch = cleaned.match(/^(\d+)/);
+  if (digitsMatch) {
+    return digitsMatch[1];
+  }
+
+  return "";
+}
+
+function calculatePeriodDuration(start?: string, end?: string): number | null {
+  if (!start || !end) return null;
+  const [startH, startM] = start.split(":").map((v) => parseInt(v, 10));
+  const [endH, endM] = end.split(":").map((v) => parseInt(v, 10));
+  if (isNaN(startH) || isNaN(startM) || isNaN(endH) || isNaN(endM)) return null;
+  const startTotal = startH * 60 + startM;
+  const endTotal = endH * 60 + endM;
+  return endTotal - startTotal;
+}
 
 export default function ReminderFormModal({
   isOpen,
@@ -37,17 +70,24 @@ export default function ReminderFormModal({
   const [interval, setIntervalVal] = useState("");
   const [startTime, setStartTime] = useState("08:00");
   const [endTime, setEndTime] = useState("18:00");
-  const [frequency, setFrequency] = useState("Segunda a Sexta");
+  const [frequency, setFrequency] = useState<string>(ReminderFrequency.BUSINESS_DAYS);
+  const [reminderDate, setReminderDate] = useState<string>(() =>
+    new Date().toISOString().split("T")[0]
+  );
   const [customDays, setCustomDays] = useState<string[]>([]);
   const [silentNotification, setSilentNotification] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
+      setSubmitError(null);
+      setIsSaving(false);
       if (reminder) {
         setTitle(reminder.title || "");
         setMessage(reminder.message || reminder.description || "");
         setCategory(reminder.category || "Postura");
-        setIntervalVal(reminder.interval || "");
+        setIntervalVal(parseIntervalToMinutes(reminder.interval));
 
         let start = reminder.startTime || "";
         let end = reminder.endTime || "";
@@ -61,7 +101,10 @@ export default function ReminderFormModal({
         setStartTime(start || "08:00");
         setEndTime(end || "18:00");
 
-        setFrequency(reminder.frequency || "Segunda a Sexta");
+        setFrequency(reminder.frequency || ReminderFrequency.BUSINESS_DAYS);
+        setReminderDate(
+          reminder.reminderDate || new Date().toISOString().split("T")[0]
+        );
         setSilentNotification(!reminder.notificationTone);
       } else {
         setTitle("");
@@ -70,7 +113,8 @@ export default function ReminderFormModal({
         setIntervalVal("");
         setStartTime("08:00");
         setEndTime("18:00");
-        setFrequency("Segunda a Sexta");
+        setFrequency(ReminderFrequency.BUSINESS_DAYS);
+        setReminderDate(new Date().toISOString().split("T")[0]);
         setCustomDays([]);
         setSilentNotification(false);
       }
@@ -83,30 +127,73 @@ export default function ReminderFormModal({
     );
   };
 
-  const handleSubmit = (e?: React.FormEvent) => {
+  const periodDuration = calculatePeriodDuration(startTime, endTime);
+  const parsedMinutes = parseInt(interval, 10);
+  const isIntervalInvalid =
+    interval.trim() !== "" &&
+    (!isNaN(parsedMinutes) && periodDuration !== null && (parsedMinutes <= 0 || parsedMinutes >= periodDuration));
+  const isTimeOrderInvalid = periodDuration !== null && periodDuration <= 0;
+
+  const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!title.trim() || !message.trim()) return;
+    if (!title.trim() || !message.trim()) {
+      setSubmitError("Preencha o título e a mensagem do lembrete.");
+      return;
+    }
 
-    const savedReminder: ReminderItem = {
-      id: reminder?.id || Date.now().toString(),
-      title: title.trim(),
-      message: message.trim(),
-      description: message.trim(),
-      category,
-      interval: interval.trim() || "30 min",
-      period: `${startTime} - ${endTime}`,
-      startTime,
-      endTime,
-      frequency:
-        frequency === "Personalizado" && customDays.length > 0
-          ? customDays.join(", ")
-          : frequency,
-      notificationTone: !silentNotification,
-      status: reminder?.status || "ativo",
-    };
+    const minutes = parseInt(interval, 10);
+    if (isNaN(minutes) || minutes < 1) {
+      setSubmitError("Informe um intervalo válido de pelo menos 1 minuto.");
+      return;
+    }
 
-    onSave?.(savedReminder);
-    onClose();
+    const duration = calculatePeriodDuration(startTime, endTime);
+    if (duration !== null && duration <= 0) {
+      setSubmitError("O horário de término deve ser posterior ao horário de início.");
+      return;
+    }
+
+    if (duration !== null && minutes >= duration) {
+      setSubmitError(
+        `O intervalo (${minutes} min) deve ser menor que a duração do período (${duration} min).`
+      );
+      return;
+    }
+
+    if (frequency === ReminderFrequency.ONCE && !reminderDate) {
+      setSubmitError("Informe a data do lembrete.");
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      setSubmitError(null);
+
+      const savedReminder: ReminderItem = {
+        id: reminder?.id || "",
+        title: title.trim(),
+        message: message.trim(),
+        description: message.trim(),
+        category,
+        interval: minutes,
+        period: `${startTime} - ${endTime}`,
+        startTime,
+        endTime,
+        frequency: frequency as ReminderFrequency,
+        reminderDate:
+          frequency === ReminderFrequency.ONCE ? reminderDate : undefined,
+        notificationTone: !silentNotification,
+        status: reminder?.status || "ativo",
+      };
+
+      await onSave?.(savedReminder);
+      onClose();
+    } catch (err) {
+      console.error("Failed to save reminder:", err);
+      setSubmitError("Erro ao salvar lembrete. Tente novamente.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -130,12 +217,15 @@ export default function ReminderFormModal({
       }
       footer={
         <div className="flex items-center justify-between w-full">
+          {submitError && (
+            <span className="text-xs text-rose-500 font-medium">{submitError}</span>
+          )}
           <div className="flex items-center gap-2 ml-auto">
-            <Button variant="secondary" size="md" onClick={onClose} type="button">
+            <Button variant="secondary" size="md" onClick={onClose} type="button" disabled={isSaving}>
               Fechar
             </Button>
-            <Button variant="primary" size="md" onClick={() => handleSubmit()}>
-              <span>Salvar</span>
+            <Button variant="primary" size="md" onClick={() => handleSubmit()} disabled={isSaving || isIntervalInvalid || isTimeOrderInvalid}>
+              <span>{isSaving ? "Salvando..." : "Salvar"}</span>
             </Button>
           </div>
         </div>
@@ -179,44 +269,84 @@ export default function ReminderFormModal({
 
         <div className="grid grid-cols-3 gap-4">
           <Input
-            label="Intervalo"
-            type="text"
-            placeholder="Ex: 45 min"
+            label="Intervalo (minutos)"
+            type="number"
+            min={1}
+            max={periodDuration && periodDuration > 1 ? periodDuration - 1 : undefined}
+            step={1}
+            placeholder="Ex: 10"
             value={interval}
-            onChange={(e) => setIntervalVal(e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value.replace(/[^0-9]/g, "");
+              setIntervalVal(val);
+              if (submitError) setSubmitError(null);
+            }}
+            rightIcon={<span className="text-xs text-slate-400 font-medium mr-1 select-none">min</span>}
+            error={
+              isIntervalInvalid
+                ? parsedMinutes <= 0
+                  ? "Mínimo de 1 min"
+                  : `Deve ser menor que o intervalo entre início e fim (${periodDuration} min).`
+                : undefined
+            }
+            required
           />
           <Input
             label="Início"
             type="time"
             value={startTime}
-            onChange={(e) => setStartTime(e.target.value)}
+            onChange={(e) => {
+              setStartTime(e.target.value);
+              if (submitError) setSubmitError(null);
+            }}
           />
           <Input
             label="Fim"
             type="time"
             value={endTime}
-            onChange={(e) => setEndTime(e.target.value)}
+            onChange={(e) => {
+              setEndTime(e.target.value);
+              if (submitError) setSubmitError(null);
+            }}
+            error={isTimeOrderInvalid ? "Deve ser posterior ao início" : undefined}
           />
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-4">
+        <div className="flex flex-col sm:flex-row gap-4 items-start">
           <Select
             label="Frequência"
             leftIcon={<Calendar size={16} />}
             value={frequency}
-            onChange={(e) => setFrequency(e.target.value)}
-            options={[
-              { label: "Segunda a Sexta", value: "Segunda a Sexta" },
-              { label: "Diariamente", value: "Diariamente" },
-              { label: "Dias Úteis", value: "Dias Úteis" },
-              { label: "Finais de Semana", value: "Finais de Semana" },
-              { label: "Personalizado", value: "Personalizado" },
-            ]}
-            containerClassName={frequency === "Personalizado" ? "sm:w-1/3" : "w-full"}
+            onChange={(e) => {
+              setFrequency(e.target.value);
+              if (submitError) setSubmitError(null);
+            }}
+            options={REMINDER_FREQUENCY_OPTIONS}
+            containerClassName={
+              frequency === ReminderFrequency.ONCE ||
+              frequency === ReminderFrequency.CUSTOM
+                ? "w-full sm:w-1/2"
+                : "w-full"
+            }
           />
 
-          {frequency === "Personalizado" && (
-            <div className="flex flex-col sm:w-1/2 justify-center">
+          {frequency === ReminderFrequency.ONCE && (
+            <div className="w-full sm:w-1/2">
+              <Input
+                label="Data do Lembrete"
+                type="date"
+                value={reminderDate}
+                onChange={(e) => {
+                  setReminderDate(e.target.value);
+                  if (submitError) setSubmitError(null);
+                }}
+                required
+              />
+            </div>
+          )}
+
+          {frequency === ReminderFrequency.CUSTOM && (
+            <div className="flex flex-col w-full sm:w-1/2 justify-center">
               <label className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                 Dias da semana
               </label>
