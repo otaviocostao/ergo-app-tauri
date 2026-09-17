@@ -3,12 +3,18 @@ import {
   ReminderFrequency,
   REMINDER_FREQUENCY_LABELS,
   REMINDER_FREQUENCY_OPTIONS,
+  WeekDay,
+  WEEK_DAY_LABELS,
+  WEEK_DAYS_OPTIONS,
 } from "../enums";
 
 export {
   ReminderFrequency,
   REMINDER_FREQUENCY_LABELS,
   REMINDER_FREQUENCY_OPTIONS,
+  WeekDay,
+  WEEK_DAY_LABELS,
+  WEEK_DAYS_OPTIONS,
 };
 
 export interface ReminderItem {
@@ -25,6 +31,7 @@ export interface ReminderItem {
   startTime?: string;
   endTime?: string;
   reminderDate?: string;
+  customDays?: string[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -42,6 +49,7 @@ export interface CreateReminderPayload {
   startTime?: string;
   endTime?: string;
   reminderDate?: string;
+  customDays?: string[];
 }
 
 export interface UpdateReminderPayload {
@@ -58,6 +66,7 @@ export interface UpdateReminderPayload {
   startTime?: string;
   endTime?: string;
   reminderDate?: string;
+  customDays?: string[];
 }
 
 export const reminderService = {

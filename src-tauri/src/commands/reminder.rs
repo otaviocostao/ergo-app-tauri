@@ -4,10 +4,18 @@ use tauri::State;
 use uuid::Uuid;
 
 use crate::db::AppState;
-use crate::models::reminder::{CreateReminderPayload, Reminder, UpdateReminderPayload};
+use crate::models::reminder::{
+    CreateReminderPayload, Reminder, ReminderFrequency, UpdateReminderPayload,
+};
 
 fn map_reminder_row(row: &rusqlite::Row<'_>) -> Result<Reminder, rusqlite::Error> {
     let notification_tone_int: i32 = row.get(8)?;
+    let custom_days_raw: Option<String> = row.get(13)?;
+    let custom_days: Option<Vec<String>> = match custom_days_raw {
+        Some(ref raw) if !raw.trim().is_empty() => serde_json::from_str(raw).ok(),
+        _ => None,
+    };
+
     Ok(Reminder {
         id: row.get(0)?,
         title: row.get(1)?,
@@ -22,12 +30,13 @@ fn map_reminder_row(row: &rusqlite::Row<'_>) -> Result<Reminder, rusqlite::Error
         start_time: row.get(10)?,
         end_time: row.get(11)?,
         reminder_date: row.get(12)?,
-        created_at: row.get(13)?,
-        updated_at: row.get(14)?,
+        custom_days,
+        created_at: row.get(14)?,
+        updated_at: row.get(15)?,
     })
 }
 
-const SELECT_REMINDER_FIELDS: &str = "id, title, message, description, category, interval, period, frequency, notification_tone, status, start_time, end_time, reminder_date, created_at, updated_at";
+const SELECT_REMINDER_FIELDS: &str = "id, title, message, description, category, interval, period, frequency, notification_tone, status, start_time, end_time, reminder_date, custom_days, created_at, updated_at";
 
 fn parse_time_to_minutes(time_str: &str) -> Option<i32> {
     let parts: Vec<&str> = time_str.split(':').collect();
@@ -124,6 +133,20 @@ pub fn create_reminder(
         payload.interval,
     )?;
 
+    if payload.frequency == ReminderFrequency::Once {
+        match &payload.reminder_date {
+            Some(date) if !date.trim().is_empty() => (),
+            _ => return Err("Reminder date is required for once frequency".to_string()),
+        }
+    }
+
+    if payload.frequency == ReminderFrequency::Custom {
+        match &payload.custom_days {
+            Some(days) if !days.is_empty() => (),
+            _ => return Err("At least one day must be selected for custom frequency".to_string()),
+        }
+    }
+
     let conn = state.db.lock().map_err(|e| e.to_string())?;
 
     let reminder_id = Uuid::new_v4().to_string();
@@ -132,11 +155,26 @@ pub fn create_reminder(
     let status = payload.status.unwrap_or_else(|| "ativo".to_string());
     let description = payload.description.or_else(|| Some(payload.message.clone()));
 
+    let reminder_date: Option<String> = if payload.frequency == ReminderFrequency::Once {
+        payload.reminder_date
+    } else {
+        None
+    };
+
+    let custom_days_json: Option<String> = if payload.frequency == ReminderFrequency::Custom {
+        payload
+            .custom_days
+            .as_ref()
+            .and_then(|days| serde_json::to_string(days).ok())
+    } else {
+        None
+    };
+
     conn.execute(
         "INSERT INTO reminders (
             id, title, message, description, category, interval, period,
-            frequency, notification_tone, status, start_time, end_time, reminder_date, created_at, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            frequency, notification_tone, status, start_time, end_time, reminder_date, custom_days, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
         params![
             reminder_id,
             payload.title,
@@ -150,7 +188,8 @@ pub fn create_reminder(
             status,
             payload.start_time,
             payload.end_time,
-            payload.reminder_date,
+            reminder_date,
+            custom_days_json,
             now,
             now,
         ],
@@ -199,7 +238,31 @@ pub fn update_reminder(
     let updated_status = payload.status.unwrap_or(existing_reminder.status);
     let updated_start_time = payload.start_time.or(existing_reminder.start_time);
     let updated_end_time = payload.end_time.or(existing_reminder.end_time);
-    let updated_reminder_date = payload.reminder_date.or(existing_reminder.reminder_date);
+    let updated_reminder_date: Option<String> = if updated_frequency == ReminderFrequency::Once {
+        payload.reminder_date.or(existing_reminder.reminder_date)
+    } else {
+        None
+    };
+    let updated_custom_days: Option<Vec<String>> = if updated_frequency == ReminderFrequency::Custom {
+        payload.custom_days.or(existing_reminder.custom_days)
+    } else {
+        None
+    };
+
+    if updated_frequency == ReminderFrequency::Once {
+        match &updated_reminder_date {
+            Some(date) if !date.trim().is_empty() => (),
+            _ => return Err("Reminder date is required for once frequency".to_string()),
+        }
+    }
+
+    if updated_frequency == ReminderFrequency::Custom {
+        match &updated_custom_days {
+            Some(days) if !days.is_empty() => (),
+            _ => return Err("At least one day must be selected for custom frequency".to_string()),
+        }
+    }
+
     let updated_period = payload.period.unwrap_or_else(|| {
         if let (Some(s), Some(e)) = (updated_start_time.as_deref(), updated_end_time.as_deref()) {
             format!("{} - {}", s, e)
@@ -215,8 +278,14 @@ pub fn update_reminder(
     )?;
 
     let now = Utc::now().to_rfc3339();
-
     let notification_tone_int = if updated_notification_tone { 1 } else { 0 };
+    let custom_days_json: Option<String> = if updated_frequency == ReminderFrequency::Custom {
+        updated_custom_days
+            .as_ref()
+            .and_then(|days| serde_json::to_string(days).ok())
+    } else {
+        None
+    };
 
     conn.execute(
         "UPDATE reminders SET
@@ -232,8 +301,9 @@ pub fn update_reminder(
             start_time = ?10,
             end_time = ?11,
             reminder_date = ?12,
-            updated_at = ?13
-        WHERE id = ?14",
+            custom_days = ?13,
+            updated_at = ?14
+        WHERE id = ?15",
         params![
             updated_title,
             updated_message,
@@ -247,6 +317,7 @@ pub fn update_reminder(
             updated_start_time,
             updated_end_time,
             updated_reminder_date,
+            custom_days_json,
             now,
             payload.id,
         ],
@@ -334,6 +405,7 @@ mod tests {
                 start_time TEXT,
                 end_time TEXT,
                 reminder_date TEXT,
+                custom_days TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );",
@@ -350,12 +422,12 @@ mod tests {
 
         let test_id = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
 
-        // 1. Insert
+        // 1. Insert with CUSTOM frequency and custom_days
         conn.execute(
             "INSERT INTO reminders (
                 id, title, message, description, category, interval, period,
-                frequency, notification_tone, status, start_time, end_time, reminder_date, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                frequency, notification_tone, status, start_time, end_time, reminder_date, custom_days, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 test_id,
                 "Drink Water",
@@ -364,12 +436,13 @@ mod tests {
                 "Hidratação",
                 60,
                 "08:00 - 18:00",
-                "DAILY",
+                "CUSTOM",
                 1,
                 "ativo",
                 Some("08:00"),
                 Some("18:00"),
-                Some("2026-09-16"),
+                None::<&str>,
+                Some(r#"["MON","WED","FRI"]"#),
                 now,
                 now,
             ],
@@ -390,15 +463,22 @@ mod tests {
         assert_eq!(reminder.id, test_id);
         assert_eq!(reminder.title, "Drink Water");
         assert_eq!(reminder.interval, 60);
-        assert_eq!(reminder.frequency, ReminderFrequency::Daily);
-        assert_eq!(reminder.reminder_date, Some("2026-09-16".to_string()));
+        assert_eq!(reminder.frequency, ReminderFrequency::Custom);
+        assert_eq!(
+            reminder.custom_days,
+            Some(vec![
+                "MON".to_string(),
+                "WED".to_string(),
+                "FRI".to_string()
+            ])
+        );
         assert_eq!(reminder.notification_tone, true);
         assert_eq!(reminder.status, "ativo");
 
-        // 3. Update
+        // 3. Update to ONCE (clearing custom_days)
         conn.execute(
-            "UPDATE reminders SET title = ?1, status = ?2, frequency = ?3 WHERE id = ?4",
-            params!["Drink More Water", "inativo", "ONCE", test_id],
+            "UPDATE reminders SET title = ?1, status = ?2, frequency = ?3, custom_days = NULL, reminder_date = ?4 WHERE id = ?5",
+            params!["Drink More Water", "inativo", "ONCE", "2026-09-16", test_id],
         )
         .unwrap();
 
@@ -408,8 +488,24 @@ mod tests {
         assert_eq!(updated_reminder.title, "Drink More Water");
         assert_eq!(updated_reminder.status, "inativo");
         assert_eq!(updated_reminder.frequency, ReminderFrequency::Once);
+        assert_eq!(updated_reminder.custom_days, None);
+        assert_eq!(updated_reminder.reminder_date, Some("2026-09-16".to_string()));
 
-        // 4. Delete
+        // 4. Update to DAILY (clearing reminder_date)
+        conn.execute(
+            "UPDATE reminders SET title = ?1, status = ?2, frequency = ?3, custom_days = NULL, reminder_date = NULL WHERE id = ?4",
+            params!["Drink More Water", "ativo", "DAILY", test_id],
+        )
+        .unwrap();
+
+        let updated_to_daily = stmt
+            .query_row(params![test_id], |row| map_reminder_row(row))
+            .unwrap();
+        assert_eq!(updated_to_daily.frequency, ReminderFrequency::Daily);
+        assert_eq!(updated_to_daily.custom_days, None);
+        assert_eq!(updated_to_daily.reminder_date, None);
+
+        // 5. Delete
         let rows = conn
             .execute("DELETE FROM reminders WHERE id = ?1", params![test_id])
             .unwrap();

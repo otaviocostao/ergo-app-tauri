@@ -12,6 +12,8 @@ import {
 import {
     ReminderFrequency,
     REMINDER_FREQUENCY_LABELS,
+    WeekDay,
+    WEEK_DAY_LABELS,
 } from "../enums";
 import {
     Clock,
@@ -100,6 +102,7 @@ export default function Reminders() {
                 startTime: item.startTime,
                 endTime: item.endTime,
                 reminderDate: item.reminderDate,
+                customDays: item.customDays,
             });
 
             setReminders((prev) =>
@@ -123,6 +126,7 @@ export default function Reminders() {
                 startTime: item.startTime,
                 endTime: item.endTime,
                 reminderDate: item.reminderDate,
+                customDays: item.customDays,
             });
 
             setReminders((prev) => [created, ...prev]);
@@ -207,6 +211,11 @@ export default function Reminders() {
                         <span className="text-xs font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                             {label}
                         </span>
+                        {item.frequency === ReminderFrequency.CUSTOM && item.customDays && item.customDays.length > 0 && (
+                            <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                                {item.customDays.map((d) => WEEK_DAY_LABELS[d as WeekDay] || d).join(", ")}
+                            </span>
+                        )}
                         {(item.frequency === ReminderFrequency.ONCE || item.reminderDate) && formattedDate && (
                             <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
                                 {formattedDate}

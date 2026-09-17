@@ -7,6 +7,7 @@ import { ReminderItem } from "../../pages/Reminders";
 import {
   ReminderFrequency,
   REMINDER_FREQUENCY_OPTIONS,
+  WEEK_DAYS_OPTIONS,
 } from "../../enums";
 import { Tag, Calendar } from "lucide-react";
 
@@ -16,16 +17,6 @@ interface ReminderFormModalProps {
   onSave?: (reminder: ReminderItem) => Promise<void> | void;
   reminder: ReminderItem | null;
 }
-
-const WEEK_DAYS = [
-  { id: "Dom", label: "Dom" },
-  { id: "Seg", label: "Seg" },
-  { id: "Ter", label: "Ter" },
-  { id: "Qua", label: "Qua" },
-  { id: "Qui", label: "Qui" },
-  { id: "Sex", label: "Sex" },
-  { id: "Sab", label: "Sab" },
-];
 
 function parseIntervalToMinutes(val?: string | number): string {
   if (val === undefined || val === null || val === "") return "";
@@ -105,6 +96,7 @@ export default function ReminderFormModal({
         setReminderDate(
           reminder.reminderDate || new Date().toISOString().split("T")[0]
         );
+        setCustomDays(reminder.customDays || []);
         setSilentNotification(!reminder.notificationTone);
       } else {
         setTitle("");
@@ -165,6 +157,11 @@ export default function ReminderFormModal({
       return;
     }
 
+    if (frequency === ReminderFrequency.CUSTOM && customDays.length === 0) {
+      setSubmitError("Selecione pelo menos um dia da semana.");
+      return;
+    }
+
     try {
       setIsSaving(true);
       setSubmitError(null);
@@ -182,15 +179,21 @@ export default function ReminderFormModal({
         frequency: frequency as ReminderFrequency,
         reminderDate:
           frequency === ReminderFrequency.ONCE ? reminderDate : undefined,
+        customDays:
+          frequency === ReminderFrequency.CUSTOM ? customDays : undefined,
         notificationTone: !silentNotification,
         status: reminder?.status || "ativo",
       };
 
       await onSave?.(savedReminder);
       onClose();
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Failed to save reminder:", err);
-      setSubmitError("Erro ao salvar lembrete. Tente novamente.");
+      const errorMessage =
+        typeof err === "string"
+          ? err
+          : (err as Error)?.message || "Erro ao salvar lembrete. Tente novamente.";
+      setSubmitError(errorMessage);
     } finally {
       setIsSaving(false);
     }
@@ -351,7 +354,7 @@ export default function ReminderFormModal({
                 Dias da semana
               </label>
               <div className="flex gap-2 items-center flex-wrap">
-                {WEEK_DAYS.map((day) => (
+                {WEEK_DAYS_OPTIONS.map((day) => (
                   <label
                     key={day.id}
                     className="flex items-center gap-1 cursor-pointer select-none"

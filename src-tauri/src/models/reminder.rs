@@ -77,6 +77,7 @@ pub struct Reminder {
     pub start_time: Option<String>,
     pub end_time: Option<String>,
     pub reminder_date: Option<String>,
+    pub custom_days: Option<Vec<String>>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }
@@ -96,6 +97,7 @@ pub struct CreateReminderPayload {
     pub start_time: Option<String>,
     pub end_time: Option<String>,
     pub reminder_date: Option<String>,
+    pub custom_days: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -114,4 +116,5 @@ pub struct UpdateReminderPayload {
     pub start_time: Option<String>,
     pub end_time: Option<String>,
     pub reminder_date: Option<String>,
+    pub custom_days: Option<Vec<String>>,
 }
