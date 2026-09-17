@@ -195,7 +195,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
                 </div>
 
                 {error ? (
-                    <p id={errorId} className={`text-xs font-medium text-red-500 dark:text-red-400 flex items-center gap-1 ${errorClassName}`}>
+                    <p id={errorId} className={`text-xs text-red-500 dark:text-red-400 flex items-center gap-1 ${errorClassName}`}>
                         {error}
                     </p>
                 ) : helperText ? (
