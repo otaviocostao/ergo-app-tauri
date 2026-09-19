@@ -1,6 +1,8 @@
 pub mod commands;
 pub mod db;
 pub mod models;
+pub mod repositories;
+pub mod services;
 
 use tauri::Manager;
 use tauri_plugin_sql::Migration;
