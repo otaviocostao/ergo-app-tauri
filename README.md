@@ -39,7 +39,7 @@ Compartilhe código, `package-lock.json`, `src-tauri/Cargo.lock` e migrações p
 
 No PowerShell, se `npm.ps1` estiver bloqueado, use `npm.cmd ci` e `npm.cmd run tauri dev`.
 
-`npm run dev` abre apenas a prévia web: é possível conferir as telas e navegar como visitante, mas login/cadastro reais exigem o app Tauri. A prévia não simula um cadastro bem-sucedido. A fonte Inter é empacotada no app e funciona sem internet.
+`npm run dev` abre apenas a prévia web: é possível conferir as telas e navegar como visitante, mas login/cadastro reais exigem o app Tauri. A prévia não simula um cadastro bem-sucedido. A interface usa a pilha de fontes do sistema e não depende do download de fontes.
 
 ## 🗄️ Configuração do Banco de Dados SQLite Local
 

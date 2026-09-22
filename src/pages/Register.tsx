@@ -48,18 +48,21 @@ export default function Register() {
   ];
 
   return (
-    <section className="auth-content" aria-labelledby="register-title">
-      <h1 id="register-title" className="auth-title">Cadastre-se de maneira off-line</h1>
-      <form className="auth-form" onSubmit={submit} noValidate aria-busy={pending}>
+    <section className="flex w-full max-w-md flex-col items-center gap-6" aria-labelledby="register-title">
+      <h1 id="register-title" className="w-full text-center text-2xl font-semibold leading-9 tracking-tight">Cadastre-se de maneira off-line</h1>
+      <form className="flex w-full flex-col gap-4" onSubmit={submit} noValidate aria-busy={pending}>
         {inputs.map(({ field, ...input }) => (
           <Input key={field} {...input} value={fields[field]} onChange={(event) => update(field, event.target.value)}
             error={errors[field]} disabled={pending} aria-required="true" title={field === "password" ? "Use entre 8 e 128 caracteres." : undefined}
-            containerClassName="auth-field" labelClassName="auth-label" inputClassName="auth-input" errorClassName="auth-error" />
+            inputSize="lg" containerClassName="gap-4" labelClassName="text-base! font-normal! leading-6 text-black! dark:text-black!"
+            inputClassName="h-10 bg-white py-2! text-black select-text dark:border-slate-200! dark:bg-white! dark:text-black! dark:disabled:border-slate-200! dark:disabled:bg-slate-50! dark:disabled:text-slate-400! dark:aria-invalid:border-red-500!" />
         ))}
-        {feedback && <p role="alert" className="auth-feedback">{feedback}</p>}
-        <Button type="submit" className="auth-button auth-button--primary" isLoading={pending}>{pending ? "Cadastrando…" : "Cadastrar"}</Button>
+        {feedback && (
+          <p role="alert" className="w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm leading-5 text-red-800">{feedback}</p>
+        )}
+        <Button type="submit" size="lg" className="w-full shadow-none" isLoading={pending}>{pending ? "Cadastrando…" : "Cadastrar"}</Button>
       </form>
-      <Button variant="secondary" className="auth-button auth-button--secondary" disabled={pending} onClick={() => navigate("/login")}>Voltar</Button>
+      <Button variant="secondary" size="lg" className="w-full shadow-none dark:bg-slate-100! dark:text-slate-700! dark:hover:bg-slate-200! dark:active:bg-slate-300!" disabled={pending} onClick={() => navigate("/login")}>Voltar</Button>
     </section>
   );
 }
