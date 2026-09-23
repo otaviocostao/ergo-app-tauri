@@ -1,4 +1,9 @@
 mod auth;
+pub mod commands;
+pub mod db;
+pub mod models;
+pub mod repositories;
+pub mod services;
 
 use tauri::Manager;
 
@@ -19,6 +24,8 @@ pub fn run() {
             let store =
                 tauri::async_runtime::block_on(auth::AuthStore::open(&directory.join("ergo.db")))?;
             app.manage(store);
+            let app_state = db::init_database(app.handle())?;
+            app.manage(app_state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -28,6 +35,12 @@ pub fn run() {
             auth::get_session,
             auth::continue_offline,
             auth::logout,
+            commands::reminder::get_reminders,
+            commands::reminder::get_reminder_by_id,
+            commands::reminder::create_reminder,
+            commands::reminder::update_reminder,
+            commands::reminder::delete_reminder,
+            commands::reminder::toggle_reminder_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

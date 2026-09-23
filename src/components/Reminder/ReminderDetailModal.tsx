@@ -2,6 +2,12 @@ import Modal from "../Modal";
 import Button from "../Button";
 import { ReminderItem } from "../../pages/Reminders";
 import {
+  ReminderFrequency,
+  REMINDER_FREQUENCY_LABELS,
+  WeekDay,
+  WEEK_DAY_LABELS,
+} from "../../enums";
+import {
   Clock,
   Calendar,
   Repeat,
@@ -9,7 +15,6 @@ import {
   CheckCircle2,
   XCircle,
   MessageSquare,
-  Edit2,
   Text,
   Bell,
 } from "lucide-react";
@@ -18,7 +23,6 @@ interface ReminderDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   reminder: ReminderItem | null;
-  onEdit?: (reminder: ReminderItem) => void;
 }
 
 const CATEGORY_COLORS: Record<ReminderItem["category"], { bg: string; text: string; border: string }> = {
@@ -47,8 +51,7 @@ const CATEGORY_COLORS: Record<ReminderItem["category"], { bg: string; text: stri
 export default function ReminderDetailModal({
   isOpen,
   onClose,
-  reminder,
-  onEdit,
+  reminder
 }: ReminderDetailModalProps) {
   if (!reminder) return null;
 
@@ -62,7 +65,7 @@ export default function ReminderDetailModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      maxWidth="2xl"
+      maxWidth="3xl"
       title={
         <div className="flex items-center gap-2">
           <div>
@@ -78,20 +81,7 @@ export default function ReminderDetailModal({
       footer={
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-2 ml-auto">
-            {onEdit && (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  onEdit(reminder);
-                  onClose();
-                }}
-              >
-                <Edit2 size={14} />
-                <span>Editar</span>
-              </Button>
-            )}
-            <Button variant="secondary" size="sm" onClick={onClose}>
+            <Button variant="secondary" size="md" onClick={onClose}>
               Fechar
             </Button>
           </div>
@@ -105,7 +95,7 @@ export default function ReminderDetailModal({
             Título do Lembrete
           </span>
           <div className="text-left sm:text-right">
-            <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 text-base">
+            <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
               {reminder.title}
             </span>
             {reminder.description && reminder.description !== reminder.message && (
@@ -146,7 +136,7 @@ export default function ReminderDetailModal({
             Intervalo
           </span>
           <span className="font-semibold text-slate-900 dark:text-slate-100">
-            {reminder.interval}
+            {reminder.interval} min
           </span>
         </div>
 
@@ -166,9 +156,42 @@ export default function ReminderDetailModal({
             Frequência
           </span>
           <span className="font-semibold text-slate-900 dark:text-slate-100">
-            {reminder.frequency}
+            {REMINDER_FREQUENCY_LABELS[reminder.frequency] || reminder.frequency}
           </span>
         </div>
+
+        {reminder.frequency === ReminderFrequency.CUSTOM && reminder.customDays && reminder.customDays.length > 0 && (
+          <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
+              <Calendar size={15} className="text-slate-500 dark:text-slate-400" />
+              Dias da Semana
+            </span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {reminder.customDays.map((dayKey) => (
+                <span
+                  key={dayKey}
+                  className="text-xs font-medium px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                >
+                  {WEEK_DAY_LABELS[dayKey as WeekDay] || dayKey}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {(reminder.frequency === ReminderFrequency.ONCE || reminder.reminderDate) && (
+          <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
+              <Calendar size={15} className="text-slate-500 dark:text-slate-400" />
+              Data do Lembrete
+            </span>
+            <span className="font-semibold text-slate-900 dark:text-slate-100">
+              {reminder.reminderDate
+                ? reminder.reminderDate.split("-").reverse().join("/")
+                : "Hoje"}
+            </span>
+          </div>
+        )}
 
         <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
@@ -179,7 +202,6 @@ export default function ReminderDetailModal({
             {reminder.notificationTone === true ? "Sim" : "Não"}
           </span>
         </div>
-
 
         <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">

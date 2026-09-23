@@ -1,18 +1,15 @@
 import { useState } from "react";
 import Header from "../components/Header";
-import Button from "../components/Button";
-import Modal from "../components/Modal";
 import WebcamFeed from "../components/monitoring/WebcamFeed";
 import ErgoMetricsCard from "../components/monitoring/ErgoMetricsCard";
 import KeyboardMonitorCard from "../components/monitoring/KeyboardMonitorCard";
 import PostureHistoryLog, { LogEvent } from "../components/monitoring/PostureHistoryLog";
+import WorkspaceCalibrationModal from "../components/monitoring/WorkspaceCalibrationModal";
 
 import {
   Compass,
   Sliders,
-  Sparkles,
   UserCheck,
-  CheckCircle2,
   Eye,
   Volume2,
   VolumeX,
@@ -96,7 +93,7 @@ export default function Monitoring() {
   return (
     <div className="w-full h-full flex flex-col gap-6 pb-8">
       <Header
-        title="Monitoramento Ao Vivo"
+        title="Monitoramento Em Tempo Real"
         subtitle="Supervisão contínua em tempo real da sua postura corporal e atividade no computador"
         action={
           <div className="flex items-center gap-3">
@@ -141,7 +138,7 @@ export default function Monitoring() {
           <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-2xl p-5 text-white border border-slate-800 shadow-md flex flex-col justify-between gap-4">
             <div className="flex gap-4">
               <div className="flex gap-2">
-                <h2 className="text-base font-bold text-white">Resumo da sua ergonômia</h2>
+                <h2 className="text-base font-bold text-white">Resumo da sua ergonomia</h2>
                 <span
                   className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${healthScore >= 85
                     ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
@@ -239,57 +236,17 @@ export default function Monitoring() {
             />
           </div>
 
-          <PostureHistoryLog
-            logs={logs}
-            onClearLogs={() => setLogs([])}
-          />
+          <PostureHistoryLog logs={logs} onClearLogs={() => setLogs([])} />
         </div>
       </div>
 
-      <Modal
+      <WorkspaceCalibrationModal
         isOpen={isCalibrationOpen}
         onClose={() => setIsCalibrationOpen(false)}
-        title="Calibrar Postura de Referência"
-        footer={
-          <div className="flex items-center justify-end gap-3 w-full">
-            <Button
-              variant="secondary"
-              onClick={() => setIsCalibrationOpen(false)}
-            >
-              Cancelar
-            </Button>
-            <Button variant="primary" onClick={handleCalibrateSubmit}>
-              <CheckCircle2 size={16} /> Salvar Calibração
-            </Button>
-          </div>
-        }
-      >
-        <div className="space-y-4 py-2">
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Sente-se de forma ergonômica, ereta e olhe para o centro da tela para definir a postura ideal benchmark.
-          </p>
-          <div className="p-4 rounded-xl bg-primary-50 dark:bg-primary-950/40 border border-primary-100 dark:border-primary-900/50 flex items-start gap-3">
-            <Sparkles className="text-primary-500 shrink-0 mt-0.5" size={20} />
-            <div className="text-xs text-slate-700 dark:text-slate-300">
-              <p className="font-semibold text-slate-900 dark:text-white mb-1">
-                Instruções de Calibração Ergonômica:
-              </p>
-              <ul className="list-disc pl-4 space-y-1 text-slate-600 dark:text-slate-400">
-                <li>Mantenha a cabeça ereta com os olhos na altura do terço superior da tela.</li>
-                <li>Mantenha os ombros relaxados e na mesma linha horizontal.</li>
-                <li>Certifique-se de que a iluminação do ambiente esteja adequada para a câmera.</li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700 text-xs flex justify-between">
-            <span className="text-slate-500">Ângulo Atual Capturado:</span>
-            <span className="font-bold text-slate-900 dark:text-white">
-              Pescoço: {neckAngle}° | Ombros: {shoulderBalance}%
-            </span>
-          </div>
-        </div>
-      </Modal>
+        onCalibrateSubmit={handleCalibrateSubmit}
+        neckAngle={neckAngle}
+        shoulderBalance={shoulderBalance}
+      />
     </div>
   );
 }
