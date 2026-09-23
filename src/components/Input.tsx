@@ -126,7 +126,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
         }
 
         const baseInputStyles =
-            "w-full border font-normal outline-none transition-all duration-150 ease-in-out disabled:bg-slate-50 dark:disabled:bg-slate-800/40 disabled:text-slate-400 dark:disabled:text-slate-500 disabled:cursor-not-allowed disabled:border-slate-200 dark:disabled:border-slate-800";
+            "w-full border font-normal outline-none transition-all duration-150 ease-in-out [&::-ms-clear]:hidden [&::-ms-reveal]:hidden disabled:bg-slate-50 dark:disabled:bg-slate-800/40 disabled:text-slate-400 dark:disabled:text-slate-500 disabled:cursor-not-allowed disabled:border-slate-200 dark:disabled:border-slate-800";
 
         return (
             <div className={`flex flex-col gap-1.5 w-full ${containerClassName}`}>
@@ -182,7 +182,8 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
                             <button
                                 type="button"
                                 onClick={() => setShowPassword((prev) => !prev)}
-                                tabIndex={-1}
+                                aria-label={showPassword ? "Ocultar senha" : "Exibir senha"}
+                                aria-pressed={showPassword}
                                 className="p-0.5 rounded hover:text-slate-700 dark:hover:text-slate-200 transition-colors focus:outline-none"
                                 title={showPassword ? "Ocultar senha" : "Exibir senha"}
                             >
