@@ -153,9 +153,14 @@ Para manter compatibilidade perfeita entre o camelCase do JavaScript/TypeScript 
 
 Quando for criar uma nova entidade (ex: `Notification`, `Tag`, `Profile`):
 
-### Passo 1: Banco de Dados (`src-tauri/src/db.rs`)
-1. Adicionar o script `CREATE TABLE IF NOT EXISTS <table_name> (...)` em `init_database`.
-2. Se necessário, adicionar dados iniciais na função de seed.
+### Passo 1: Banco de Dados e Migration Única
+1. Manter **uma única migration inicial** como fonte completa do schema: `src-tauri/migrations/0001_create_users.sql`.
+2. Ao criar uma entidade, adicionar sua tabela, índices, chaves estrangeiras e demais objetos SQL nessa migration já existente, sempre usando instruções idempotentes quando aplicável, como `CREATE TABLE IF NOT EXISTS` e `CREATE INDEX IF NOT EXISTS`.
+3. **Não criar novas migrations** (`0002_*.sql`, `0003_*.sql`, etc.) sem uma solicitação explícita. Durante a fase atual do projeto, todas as tabelas devem permanecer na migration inicial.
+4. Considerar o build incompleto se alguma tabela usada pelo backend estiver criada apenas em `db.rs` ou em outro ponto do código e não estiver declarada na migration inicial.
+5. Manter a execução de `sqlx::migrate!("./migrations")` na inicialização do banco. O build deve incorporar essa migration única, e a inicialização do aplicativo deve executá-la para criar todas as tabelas em um banco vazio.
+6. Ordenar as definições SQL de modo que tabelas referenciadas por chaves estrangeiras sejam criadas antes das tabelas dependentes.
+7. Se necessário, manter dados iniciais em funções de seed separadas da definição do schema.
 
 ### Passo 2: Camada de Model (`src-tauri/src/models/<entity>.rs`)
 1. Criar a struct principal `<Entity>` com `#[serde(rename_all = "camelCase")]`.
