@@ -35,7 +35,7 @@ export default function Register() {
     try {
       await authService.register({ fullName: fields.fullName, email: fields.email, password: fields.password });
       setFields({ fullName: "", email: "", password: "", confirmation: "" });
-      navigate("/login", { replace: true, state: { registrationComplete: true } });
+      navigate("/login", { replace: true, state: { registrationComplete: true }, viewTransition: true });
     } catch (error) { setFeedback(authErrorMessage(error)); }
     finally { setPending(false); }
   }
@@ -62,7 +62,7 @@ export default function Register() {
         )}
         <Button type="submit" size="lg" className="w-full shadow-none" isLoading={pending}>{pending ? "Cadastrando…" : "Cadastrar"}</Button>
       </form>
-      <Button variant="secondary" size="lg" className="w-full shadow-none dark:bg-slate-100! dark:text-slate-700! dark:hover:bg-slate-200! dark:active:bg-slate-300!" disabled={pending} onClick={() => navigate("/login")}>Voltar</Button>
+      <Button variant="secondary" size="lg" className="w-full shadow-none dark:bg-slate-100! dark:text-slate-700! dark:hover:bg-slate-200! dark:active:bg-slate-300!" disabled={pending} onClick={() => navigate("/login", { viewTransition: true })}>Voltar</Button>
     </section>
   );
 }

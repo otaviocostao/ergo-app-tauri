@@ -26,9 +26,8 @@ Este projeto é uma aplicação Desktop construída com **Tauri v2**, **React** 
 ## Login e cadastro local
 
 - Ao abrir o app, a tela inicial é o login (`/login`).
-- **Cadastrar-se** abre o modal da plataforma online. Como ainda não há backend remoto, **Cadastrar online** leva temporariamente ao cadastro no próprio app (`/cadastro`).
-- O cadastro pede nome, e-mail, senha de 8 a 128 caracteres e confirmação da senha. Após o sucesso, o usuário retorna ao login.
-- **Continuar offline** entra como visitante, sem criar conta. A barra lateral diferencia **Conta local** de **Modo offline** e permite sair/voltar ao login.
+- **Cadastrar** abre um modal para escolher entre o cadastro on-line de empresas e o cadastro off-line. Como ainda não há backend remoto, a opção **Cadastrar online** exibe o aviso de indisponibilidade; **Cadastrar offline** abre o cadastro no próprio app (`/cadastro`).
+- O cadastro local pede nome, e-mail, senha de 8 a 128 caracteres e confirmação da senha. Após o sucesso, uma animação de verificação é exibida antes do retorno ao login.
 - A conta permanece no SQLite após fechar o app. A sessão fica somente na memória do processo Rust: recarregar a tela mantém a sessão, mas fechar e reabrir o app exige novo login.
 - Senhas são armazenadas como hash **Argon2id**, com salt aleatório por cadastro. O hash nunca é retornado ao frontend. Após cinco tentativas de login em 30 segundos, novas tentativas aguardam o fim dessa janela.
 - Não há envio de dados, confirmação de e-mail, recuperação de senha ou sincronização online nesta versão. O SQLite não é criptografado; o login não substitui as permissões de acesso aos arquivos do sistema operacional.

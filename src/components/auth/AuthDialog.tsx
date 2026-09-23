@@ -6,10 +6,11 @@ interface AuthDialogProps {
   title: string;
   children: ReactNode;
   actions: ReactNode;
+  illustration?: ReactNode;
   variant?: "online" | "success";
 }
 
-export default function AuthDialog({ open, onClose, title, children, actions, variant = "online" }: AuthDialogProps) {
+export default function AuthDialog({ open, onClose, title, children, actions, illustration, variant = "online" }: AuthDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const descriptionId = useId();
@@ -29,12 +30,13 @@ export default function AuthDialog({ open, onClose, title, children, actions, va
   return (
     <dialog
       ref={dialogRef}
-      className="fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-4xl overflow-y-auto rounded-lg border-0 bg-white p-0 text-black [color-scheme:light] backdrop:bg-black/30"
+      className="fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-4xl overflow-y-auto rounded-lg border-0 bg-white p-0 text-black [color-scheme:light] motion-safe:animate-dialog-enter backdrop:bg-black/30"
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
       onCancel={(event) => { event.preventDefault(); onClose(); }}
     >
       <div className={`mx-auto flex min-h-[34rem] w-[calc(100%-3rem)] ${contentWidth} flex-col justify-center gap-2 py-10`}>
+        {illustration}
         <h2 id={titleId} className="text-center text-3xl font-semibold leading-12 tracking-tight">
           {title}
         </h2>

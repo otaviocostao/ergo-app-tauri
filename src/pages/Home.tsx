@@ -13,8 +13,8 @@ export default function Home() {
         <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{name ? "Você entrou com sua conta local. Não há sincronização com outros computadores." : "Explore o app sem criar uma conta. Use “Voltar ao login” no menu para entrar ou se cadastrar."}</p>
       </div>
       <div className="flex flex-wrap items-center gap-3">
-        <Link to="/monitoring" className="rounded-lg bg-primary-500 px-4 py-2 text-sm font-medium text-white hover:bg-primary-600">Abrir monitoramento</Link>
-        <Link to="/reminders" className="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300 dark:bg-slate-800 dark:text-slate-200">Ver lembretes</Link>
+        <Link to="/monitoring" viewTransition className="rounded-lg bg-primary-500 px-4 py-2 text-sm font-medium text-white hover:bg-primary-600">Abrir monitoramento</Link>
+        <Link to="/reminders" viewTransition className="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300 dark:bg-slate-800 dark:text-slate-200">Ver lembretes</Link>
       </div>
     </div>
   );

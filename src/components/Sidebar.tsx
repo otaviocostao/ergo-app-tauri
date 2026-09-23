@@ -38,6 +38,7 @@ export default function Sidebar() {
               <NavLink
                 key={item.path}
                 to={item.path}
+                viewTransition
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${isActive
                     ? "bg-primary-50 text-primary-700 font-semibold dark:bg-primary-950/60 dark:text-primary-400"
