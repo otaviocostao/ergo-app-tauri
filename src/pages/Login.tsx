@@ -68,7 +68,7 @@ export default function Login() {
         Ainda não tem uma conta?
         <span aria-hidden="true" className="h-px flex-1 bg-slate-200" />
       </div>
-      <Button variant="secondary" size="lg" className="w-full shadow-none dark:bg-slate-100! dark:text-slate-700! dark:hover:bg-slate-200! dark:active:bg-slate-300!" disabled={pending} onClick={() => setRegistrationDialog("options")}>Cadastrar</Button>
+      <Button variant="secondary" size="lg" className="w-full shadow-none dark:bg-slate-100! dark:text-slate-700! dark:hover:bg-slate-200! dark:active:bg-slate-300!" disabled={pending} onClick={() => setRegistrationDialog("options")}>Cadastre-se</Button>
       <AuthDialog
         open={registrationDialog === "options"}
         onClose={() => setRegistrationDialog(null)}
