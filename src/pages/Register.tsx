@@ -23,14 +23,23 @@ export default function Register() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
+
     const validation: Errors = {};
+
     if (fields.fullName.trim().length < 2) validation.fullName = "Informe seu nome completo.";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email.trim())) validation.email = "Informe um e-mail válido.";
-    if (Array.from(fields.password).length < 8 || Array.from(fields.password).length > 128) validation.password = "A senha deve ter entre 8 e 128 caracteres.";
+    if (Array.from(fields.password).length < 8) validation.password = "A senha deve ter no mínimo 8 caracteres.";
+    if (Array.from(fields.password).length > 128) validation.password = "A senha excede o limite de caracteres.";
     if (!fields.confirmation || fields.confirmation !== fields.password) validation.confirmation = "As senhas devem ser iguais.";
-    setErrors(validation);
+
+    const validationMessages = Object.values(validation).filter(Boolean) as string[];
+
+    if (validationMessages.length > 0) {
+      setFeedback(validationMessages.join("\n"));
+      return;
+    }
+
     setFeedback("");
-    if (Object.keys(validation).length) return;
     setPending(true);
     try {
       await authService.register({ fullName: fields.fullName, email: fields.email, password: fields.password });
@@ -58,7 +67,7 @@ export default function Register() {
             inputClassName="h-10 bg-white py-2! text-black select-text dark:border-slate-200! dark:bg-white! dark:text-black! dark:disabled:border-slate-200! dark:disabled:bg-slate-50! dark:disabled:text-slate-400! dark:aria-invalid:border-red-500!" />
         ))}
         {feedback && (
-          <p role="alert" className="w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm leading-5 text-red-800">{feedback}</p>
+          <p role="alert" className="w-full whitespace-pre-line rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm leading-5 text-red-800">{feedback}</p>
         )}
         <Button type="submit" size="lg" className="w-full shadow-none" isLoading={pending}>{pending ? "Cadastrando…" : "Cadastrar"}</Button>
       </form>
