@@ -25,7 +25,7 @@ export default function VerifiedAnimation({ active }: VerifiedAnimationProps) {
       const [drawableCircle] = svg.createDrawable(circle);
       const [drawableCheck] = svg.createDrawable(check);
 
-      timeline = createTimeline({ loop: true, loopDelay: 900 })
+      timeline = createTimeline()
         .set(root, { opacity: 0, scale: 0.72, rotate: -8, y: 8 })
         .set(halo, { opacity: 0, scale: 0.65 })
         .add(root, { opacity: 1, scale: 1, rotate: 0, y: 0, duration: 420, ease: "outExpo" })
