@@ -245,28 +245,8 @@ mod tests {
 
     fn setup_test_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute(
-            "CREATE TABLE reminders (
-                id TEXT PRIMARY KEY NOT NULL,
-                title TEXT NOT NULL,
-                message TEXT NOT NULL,
-                description TEXT,
-                category TEXT NOT NULL,
-                interval INTEGER NOT NULL,
-                period TEXT NOT NULL,
-                frequency TEXT NOT NULL,
-                notification_tone INTEGER NOT NULL DEFAULT 1,
-                status TEXT NOT NULL DEFAULT 'ativo',
-                start_time TEXT,
-                end_time TEXT,
-                reminder_date TEXT,
-                custom_days TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );",
-            [],
-        )
-        .unwrap();
+        conn.execute_batch(include_str!("../../migrations/0001_initial_migration.sql"))
+            .unwrap();
         conn
     }
 

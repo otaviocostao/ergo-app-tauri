@@ -23,32 +23,6 @@ pub fn init_database(app_handle: &tauri::AppHandle) -> Result<AppState, Box<dyn 
          PRAGMA foreign_keys = ON;",
     )?;
 
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS reminders (
-            id TEXT PRIMARY KEY NOT NULL,
-            title TEXT NOT NULL,
-            message TEXT NOT NULL,
-            description TEXT,
-            category TEXT NOT NULL,
-            interval INTEGER NOT NULL,
-            period TEXT NOT NULL,
-            frequency TEXT NOT NULL,
-            notification_tone INTEGER NOT NULL DEFAULT 1,
-            status TEXT NOT NULL DEFAULT 'ativo',
-            start_time TEXT,
-            end_time TEXT,
-            reminder_date TEXT,
-            custom_days TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );",
-        [],
-    )?;
-
-    // Ensure columns exist if table was created previously without them
-    let _ = conn.execute("ALTER TABLE reminders ADD COLUMN reminder_date TEXT", []);
-    let _ = conn.execute("ALTER TABLE reminders ADD COLUMN custom_days TEXT", []);
-
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM reminders", [], |row| row.get(0))?;
 
     if count == 0 {
