@@ -35,12 +35,19 @@ pub fn run() {
             auth::get_session,
             auth::continue_offline,
             auth::logout,
+            // Reminders
             commands::reminder::get_reminders,
             commands::reminder::get_reminder_by_id,
             commands::reminder::create_reminder,
             commands::reminder::update_reminder,
             commands::reminder::delete_reminder,
             commands::reminder::toggle_reminder_status,
+            // Companies
+            commands::company::get_companies,
+            commands::company::get_company_by_id,
+            commands::company::create_company,
+            commands::company::update_company,
+            commands::company::delete_company,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
