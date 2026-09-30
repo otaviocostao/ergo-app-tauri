@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Local accounts and SQLite journals are never shared through Git.
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

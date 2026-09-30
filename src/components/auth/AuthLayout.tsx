@@ -1,0 +1,17 @@
+import { Outlet } from "react-router-dom";
+
+export default function AuthLayout() {
+  return (
+    <main className="relative flex min-h-dvh items-center justify-center bg-white px-6 pb-6 pt-24 text-black [color-scheme:light]">
+      <div
+        className="absolute left-1/2 top-6 -translate-x-1/2 text-3xl font-semibold leading-12 tracking-tight"
+        aria-label="Ergo"
+      >
+        Ergo
+      </div>
+      <div className="flex w-full justify-center">
+        <Outlet />
+      </div>
+    </main>
+  );
+}
