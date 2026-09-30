@@ -1,8 +1,6 @@
-import { Outlet, useLocation } from "react-router-dom";
+import { Outlet } from "react-router-dom";
 
 export default function AuthLayout() {
-  const location = useLocation();
-
   return (
     <main className="relative flex min-h-dvh items-center justify-center bg-white px-6 pb-6 pt-24 text-black [color-scheme:light]">
       <div
@@ -11,7 +9,7 @@ export default function AuthLayout() {
       >
         Ergo
       </div>
-      <div key={location.pathname} className="flex w-full justify-center motion-safe:animate-page-enter">
+      <div className="flex w-full justify-center">
         <Outlet />
       </div>
     </main>

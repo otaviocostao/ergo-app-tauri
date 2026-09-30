@@ -30,7 +30,7 @@ export default function AuthDialog({ open, onClose, title, children, actions, il
   return (
     <dialog
       ref={dialogRef}
-      className="fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-4xl overflow-y-auto rounded-lg border-0 bg-white p-0 text-black [color-scheme:light] motion-safe:animate-dialog-enter backdrop:bg-black/30"
+      className="fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-4xl overflow-y-auto rounded-lg border-0 bg-white p-0 text-black [color-scheme:light] animate-modal-content backdrop:bg-black/30 backdrop:animate-modal-backdrop"
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
       onCancel={(event) => { event.preventDefault(); onClose(); }}
