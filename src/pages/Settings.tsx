@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState, type ChangeEvent } from "react";
 import Header from "../components/Header";
 import Button from "../components/Button";
 import Input from "../components/Input";
@@ -40,7 +40,19 @@ function ThemePreview({ theme }: { theme: ThemeOption }) {
 export default function Settings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("usuario");
   const [theme, setTheme] = useState<ThemeOption>("Claro");
-  const [saved, setSaved] = useState(false);
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
+  const handlePhotoChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => setProfilePhoto(reader.result as string);
+    reader.readAsDataURL(file);
+    event.target.value = "";
+  };
 
   return (
     <div className="w-full min-h-full bg-[#f4f6f9] pb-8 dark:bg-slate-950">
@@ -74,23 +86,39 @@ export default function Settings() {
       {activeTab === "usuario" && (
         <section className="rounded-xl border border-[#e6eaf0] bg-white p-5 shadow-sm sm:p-6 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="text-base font-bold text-[#101a2e] dark:text-white">Informações do usuário</h2>
-          <p className="mb-5 mt-1 text-sm text-[#64748b]">Dados usados na sua conta e no monitoramento.</p>
+          <p className="mb-5 mt-1 text-sm text-[#64748b]">Dados da conta disponíveis somente para leitura.</p>
 
           <div className="mb-5 flex items-center gap-3.5">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#e6fbf7] text-lg font-bold text-[#14b8a6]">LC</div>
-            <Button variant="secondary" size="sm" type="button">Alterar foto</Button>
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#e6fbf7] text-lg font-bold text-[#14b8a6]">
+              {profilePhoto ? (
+                <img className="h-full w-full object-cover" src={profilePhoto} alt="Foto do perfil" />
+              ) : (
+                "LC"
+              )}
+            </div>
+            <input
+              ref={photoInputRef}
+              className="hidden"
+              type="file"
+              accept="image/*"
+              onChange={handlePhotoChange}
+              aria-label="Selecionar foto do perfil"
+            />
+            <Button
+              variant="secondary"
+              size="sm"
+              type="button"
+              onClick={() => photoInputRef.current?.click()}
+            >
+              Alterar foto
+            </Button>
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Input label="Nome completo" defaultValue="Lucas Costa" />
-            <Input label="Cargo" defaultValue="Analista de Operações" />
-            <Input label="E-mail" type="email" defaultValue="lucas.costa@empresa.com" />
-            <Input label="Telefone" defaultValue="(75) 99xxx-xxxx" />
-          </div>
-
-          <div className="mt-5 flex items-center gap-3">
-            <Button type="button" onClick={() => setSaved(true)}>Salvar alterações</Button>
-            {saved && <span className="text-xs font-medium text-[#14b8a6]">Alterações salvas</span>}
+            <Input label="Nome completo" defaultValue="Lucas Costa" disabled />
+            <Input label="Cargo" defaultValue="Analista de Operações" disabled />
+            <Input label="E-mail" type="email" defaultValue="lucas.costa@empresa.com" disabled />
+            <Input label="Telefone" defaultValue="(75) 99xxx-xxxx" disabled />
           </div>
         </section>
       )}
