@@ -24,3 +24,25 @@ CREATE TABLE IF NOT EXISTS reminders (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+
+CREATE TABLE IF NOT EXISTS companies (
+    id TEXT PRIMARY KEY NOT NULL,
+    external_id TEXT,
+    legal_name TEXT,
+    trade_name TEXT,
+    cnpj TEXT,
+    department TEXT,
+    email TEXT,
+    phone TEXT,
+    street TEXT,
+    neighborhood TEXT,
+    number TEXT,
+    city TEXT,
+    state TEXT,
+    zipcode TEXT,
+    country TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    deleted_at TEXT
+);
