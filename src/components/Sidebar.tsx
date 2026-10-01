@@ -9,6 +9,7 @@ export default function Sidebar() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const user = session.kind === "authenticated" ? session.user : null;
+  const userFullName = user ? `${user.firstName} ${user.lastName}` : "";
   async function signOut() {
     setPending(true);
     try { await logout(); }
@@ -57,11 +58,11 @@ export default function Sidebar() {
       <div className="p-3 border-t border-slate-200 dark:border-slate-800">
         <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
           <div className="w-8 h-8 rounded-full bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200 flex items-center justify-center font-semibold text-xs shrink-0">
-            {user?.fullName.charAt(0).toUpperCase() || "V"}
+            {user?.firstName.charAt(0).toUpperCase() || "V"}
           </div>
           <div className="flex flex-col leading-tight min-w-0">
-            <span className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate" title={user?.fullName}>
-              {user?.fullName || "Visitante"}
+            <span className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate" title={userFullName || undefined}>
+              {userFullName || "Visitante"}
             </span>
             <span className="text-xs text-slate-500 dark:text-slate-400">
               {user ? "Conta local" : "Modo offline"}

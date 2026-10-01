@@ -2,8 +2,16 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 
 export interface LocalUser {
   id: number;
-  fullName: string;
+  externalId: string | null;
+  firstName: string;
+  lastName: string;
+  birthDate: string;
   email: string;
+  phone: string;
+  position: string | null;
+  photo: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type Session =
@@ -12,8 +20,14 @@ export type Session =
   | { kind: "authenticated"; user: LocalUser };
 
 export interface Registration {
-  fullName: string;
+  externalId?: string;
+  firstName: string;
+  lastName: string;
+  birthDate: string;
   email: string;
+  phone: string;
+  position?: string;
+  photo?: string;
   password: string;
 }
 
@@ -36,7 +50,7 @@ export const authService = {
   getSession: (): Promise<Session> => isTauri() ? invoke("get_session") : Promise.resolve({ kind: "anonymous" }),
   async register(data: Registration): Promise<LocalUser> {
     requireDesktop();
-    return invoke("register_local", { ...data });
+    return invoke("register_local", { payload: data });
   },
   async login(email: string, password: string): Promise<Session> {
     requireDesktop();

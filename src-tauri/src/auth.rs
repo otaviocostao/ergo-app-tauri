@@ -2,6 +2,7 @@ use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
+use chrono::{NaiveDate, Utc};
 use rand_core::OsRng;
 use serde::Serialize;
 use sqlx::{sqlite::SqliteConnectOptions, sqlite::SqlitePoolOptions, SqlitePool};
@@ -12,12 +13,42 @@ use std::{
 };
 use tauri::State;
 
-#[derive(Clone, Debug, Serialize, sqlx::FromRow)]
-#[serde(rename_all = "camelCase")]
-pub struct User {
+use crate::models::user::{CreateUserPayload, User};
+
+const USER_SELECT_FIELDS: &str = "id, external_id, first_name, last_name, birth_date, password_hash, email, phone, position, photo, created_at, updated_at";
+
+#[derive(sqlx::FromRow)]
+struct StoredUser {
     pub id: i64,
-    pub full_name: String,
+    pub external_id: Option<String>,
+    pub first_name: String,
+    pub last_name: String,
+    pub birth_date: String,
+    pub password_hash: String,
     pub email: String,
+    pub phone: String,
+    pub position: Option<String>,
+    pub photo: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl StoredUser {
+    fn into_user(self) -> User {
+        User {
+            id: self.id,
+            external_id: self.external_id,
+            first_name: self.first_name,
+            last_name: self.last_name,
+            birth_date: self.birth_date,
+            email: self.email,
+            phone: self.phone,
+            position: self.position,
+            photo: self.photo,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -90,6 +121,22 @@ fn normalize_email(email: &str) -> Result<String, AuthError> {
     Ok(email)
 }
 
+fn normalize_optional(
+    value: Option<String>,
+    max_length: usize,
+) -> Result<Option<String>, AuthError> {
+    match value
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+    {
+        Some(item) if item.chars().count() > max_length => Err(AuthError::new(
+            "invalid_optional_field",
+            "Um dos campos opcionais excede o limite permitido.",
+        )),
+        value => Ok(value),
+    }
+}
+
 impl AuthStore {
     pub async fn open(path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
         let pool = SqlitePoolOptions::new()
@@ -112,42 +159,101 @@ impl AuthStore {
         })
     }
 
-    async fn register(
-        &self,
-        full_name: String,
-        email: String,
-        password: String,
-    ) -> Result<User, AuthError> {
-        let full_name = full_name.split_whitespace().collect::<Vec<_>>().join(" ");
-        if !(2..=120).contains(&full_name.chars().count()) {
+    async fn register(&self, payload: CreateUserPayload) -> Result<User, AuthError> {
+        let first_name = payload
+            .first_name
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let last_name = payload
+            .last_name
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        if !(2..=60).contains(&first_name.chars().count()) {
             return Err(AuthError::new(
-                "invalid_name",
-                "Informe seu nome completo (2 a 120 caracteres).",
+                "invalid_first_name",
+                "Informe seu nome (2 a 60 caracteres).",
             ));
         }
-        let email = normalize_email(&email)?;
-        if !(8..=128).contains(&password.chars().count()) {
+        if !(2..=60).contains(&last_name.chars().count()) {
+            return Err(AuthError::new(
+                "invalid_last_name",
+                "Informe seu sobrenome (2 a 60 caracteres).",
+            ));
+        }
+
+        let birth_date = payload.birth_date.trim().to_string();
+        let parsed_birth_date =
+            NaiveDate::parse_from_str(&birth_date, "%Y-%m-%d").map_err(|_| {
+                AuthError::new(
+                    "invalid_birth_date",
+                    "Informe uma data de nascimento válida.",
+                )
+            })?;
+        if parsed_birth_date > Utc::now().date_naive() {
+            return Err(AuthError::new(
+                "invalid_birth_date",
+                "A data de nascimento não pode estar no futuro.",
+            ));
+        }
+
+        let email = normalize_email(&payload.email)?;
+        let phone = payload.phone.trim().to_string();
+        let phone_digit_count = phone
+            .chars()
+            .filter(|character| character.is_ascii_digit())
+            .count();
+        if !(8..=15).contains(&phone_digit_count) || phone.chars().count() > 30 {
+            return Err(AuthError::new(
+                "invalid_phone",
+                "Informe um telefone válido.",
+            ));
+        }
+
+        let external_id = normalize_optional(payload.external_id, 255)?;
+        let position = normalize_optional(payload.position, 120)?;
+        let photo = normalize_optional(payload.photo, 2048)?;
+
+        if !(8..=128).contains(&payload.password.chars().count()) {
             return Err(AuthError::new(
                 "invalid_password",
                 "A senha deve ter entre 8 e 128 caracteres.",
             ));
         }
-        let password_hash = tauri::async_runtime::spawn_blocking(move || hash_password(&password))
-            .await
-            .map_err(|_| AuthError::internal())??;
-        let result =
-            sqlx::query("INSERT INTO users (full_name, email, password_hash) VALUES (?, ?, ?)")
-                .bind(&full_name)
-                .bind(&email)
-                .bind(password_hash)
-                .execute(&self.pool)
-                .await;
+        let password_hash =
+            tauri::async_runtime::spawn_blocking(move || hash_password(&payload.password))
+                .await
+                .map_err(|_| AuthError::internal())??;
+
+        let result = sqlx::query(
+            "INSERT INTO users (
+                external_id, first_name, last_name, birth_date, password_hash,
+                email, phone, position, photo
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&external_id)
+        .bind(&first_name)
+        .bind(&last_name)
+        .bind(&birth_date)
+        .bind(password_hash)
+        .bind(&email)
+        .bind(&phone)
+        .bind(&position)
+        .bind(&photo)
+        .execute(&self.pool)
+        .await;
+
         match result {
-            Ok(row) => Ok(User {
-                id: row.last_insert_rowid(),
-                full_name,
-                email,
-            }),
+            Ok(row) => {
+                let query = format!("SELECT {} FROM users WHERE id = ?", USER_SELECT_FIELDS);
+                let stored_user = sqlx::query_as::<_, StoredUser>(&query)
+                    .bind(row.last_insert_rowid())
+                    .fetch_one(&self.pool)
+                    .await
+                    .map_err(|_| AuthError::internal())?;
+                Ok(stored_user.into_user())
+            }
             Err(sqlx::Error::Database(error)) if error.is_unique_violation() => {
                 Err(AuthError::new(
                     "email_in_use",
@@ -185,15 +291,15 @@ impl AuthStore {
         if password.is_empty() || password.chars().count() > 128 {
             return Err(AuthError::invalid_credentials());
         }
-        let row: Option<(i64, String, String, String)> =
-            sqlx::query_as("SELECT id, full_name, email, password_hash FROM users WHERE email = ?")
-                .bind(email)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|_| AuthError::internal())?;
+        let query = format!("SELECT {} FROM users WHERE email = ?", USER_SELECT_FIELDS);
+        let row = sqlx::query_as::<_, StoredUser>(&query)
+            .bind(email)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| AuthError::internal())?;
         let hash = row
             .as_ref()
-            .map(|row| &row.3)
+            .map(|row| &row.password_hash)
             .unwrap_or(&self.dummy_hash)
             .clone();
         let verified = tauri::async_runtime::spawn_blocking(move || {
@@ -206,13 +312,9 @@ impl AuthStore {
         .await
         .map_err(|_| AuthError::internal())?;
         match row {
-            Some((id, full_name, email, _)) if verified => {
+            Some(stored_user) if verified => {
                 let session = Session::Authenticated {
-                    user: User {
-                        id,
-                        full_name,
-                        email,
-                    },
+                    user: stored_user.into_user(),
                 };
                 self.set_session(session.clone())?;
                 *self.attempts.lock().map_err(|_| AuthError::internal())? =
@@ -240,11 +342,9 @@ impl AuthStore {
 #[tauri::command]
 pub async fn register_local(
     store: State<'_, AuthStore>,
-    full_name: String,
-    email: String,
-    password: String,
+    payload: CreateUserPayload,
 ) -> Result<User, AuthError> {
-    store.register(full_name, email, password).await
+    store.register(payload).await
 }
 
 #[tauri::command]
@@ -276,6 +376,25 @@ pub fn logout(store: State<'_, AuthStore>) -> Result<(), AuthError> {
 mod tests {
     use super::*;
 
+    fn registration_payload(
+        first_name: &str,
+        last_name: &str,
+        email: &str,
+        password: &str,
+    ) -> CreateUserPayload {
+        CreateUserPayload {
+            external_id: None,
+            first_name: first_name.into(),
+            last_name: last_name.into(),
+            birth_date: "1995-05-20".into(),
+            password: password.into(),
+            email: email.into(),
+            phone: "(75) 99999-9999".into(),
+            position: None,
+            photo: None,
+        }
+    }
+
     #[test]
     fn registration_login_and_persistence() {
         tauri::async_runtime::block_on(async {
@@ -283,15 +402,22 @@ mod tests {
             let path = directory.path().join("ergo.db");
             let store = AuthStore::open(&path).await.unwrap();
             let user = store
-                .register(
-                    "  Ana   Silva ".into(),
-                    " ANA@example.com ".into(),
-                    "senha-segura-123".into(),
-                )
+                .register(registration_payload(
+                    "  Ana ",
+                    " Silva ",
+                    " ANA@example.com ",
+                    "senha-segura-123",
+                ))
                 .await
                 .unwrap();
-            assert_eq!(user.full_name, "Ana Silva");
+            assert_eq!(user.first_name, "Ana");
+            assert_eq!(user.last_name, "Silva");
+            assert_eq!(user.birth_date, "1995-05-20");
             assert_eq!(user.email, "ana@example.com");
+            assert_eq!(user.phone, "(75) 99999-9999");
+            assert_eq!(user.external_id, None);
+            assert_eq!(user.position, None);
+            assert_eq!(user.photo, None);
             assert!(matches!(store.session().unwrap(), Session::Anonymous));
             let hash: String = sqlx::query_scalar("SELECT password_hash FROM users")
                 .fetch_one(&store.pool)
@@ -302,11 +428,12 @@ mod tests {
             assert!(!serde_json::to_string(&user).unwrap().contains("password"));
             assert_eq!(
                 store
-                    .register(
-                        "Outra Ana".into(),
-                        "ANA@example.com".into(),
-                        "outra-senha".into()
-                    )
+                    .register(registration_payload(
+                        "Outra",
+                        "Ana",
+                        "ANA@example.com",
+                        "outra-senha",
+                    ))
                     .await
                     .unwrap_err()
                     .code,
@@ -350,15 +477,25 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 store
-                    .register("A".into(), "ana@example.com".into(), "senha-segura".into())
+                    .register(registration_payload(
+                        "A",
+                        "Silva",
+                        "ana@example.com",
+                        "senha-segura",
+                    ))
                     .await
                     .unwrap_err()
                     .code,
-                "invalid_name"
+                "invalid_first_name"
             );
             assert_eq!(
                 store
-                    .register("Ana".into(), "email-invalido".into(), "senha-segura".into())
+                    .register(registration_payload(
+                        "Ana",
+                        "Silva",
+                        "email-invalido",
+                        "senha-segura",
+                    ))
                     .await
                     .unwrap_err()
                     .code,
@@ -366,7 +503,12 @@ mod tests {
             );
             assert_eq!(
                 store
-                    .register("Ana".into(), "ana@example.com".into(), "1234567".into())
+                    .register(registration_payload(
+                        "Ana",
+                        "Silva",
+                        "ana@example.com",
+                        "1234567",
+                    ))
                     .await
                     .unwrap_err()
                     .code,
