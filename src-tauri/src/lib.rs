@@ -41,6 +41,11 @@ pub fn run() {
             commands::reminder::update_reminder,
             commands::reminder::delete_reminder,
             commands::reminder::toggle_reminder_status,
+            commands::workspace::get_workspaces,
+            commands::workspace::get_workspace_by_id,
+            commands::workspace::create_workspace,
+            commands::workspace::update_workspace,
+            commands::workspace::delete_workspace,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
