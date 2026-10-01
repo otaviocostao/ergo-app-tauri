@@ -8,7 +8,6 @@ export interface LocalUser {
   birthDate: string;
   email: string;
   phone: string;
-  position: string | null;
   photo: string | null;
   createdAt: string;
   updatedAt: string;
@@ -26,7 +25,6 @@ export interface Registration {
   birthDate: string;
   email: string;
   phone: string;
-  position?: string;
   photo?: string;
   password: string;
 }

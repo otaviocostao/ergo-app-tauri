@@ -15,7 +15,7 @@ use tauri::State;
 
 use crate::models::user::{CreateUserPayload, User};
 
-const USER_SELECT_FIELDS: &str = "id, external_id, first_name, last_name, birth_date, password_hash, email, phone, position, photo, created_at, updated_at";
+const USER_SELECT_FIELDS: &str = "id, external_id, first_name, last_name, birth_date, password_hash, email, phone, photo, created_at, updated_at";
 
 #[derive(sqlx::FromRow)]
 struct StoredUser {
@@ -27,7 +27,6 @@ struct StoredUser {
     pub password_hash: String,
     pub email: String,
     pub phone: String,
-    pub position: Option<String>,
     pub photo: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -43,7 +42,6 @@ impl StoredUser {
             birth_date: self.birth_date,
             email: self.email,
             phone: self.phone,
-            position: self.position,
             photo: self.photo,
             created_at: self.created_at,
             updated_at: self.updated_at,
@@ -212,7 +210,6 @@ impl AuthStore {
         }
 
         let external_id = normalize_optional(payload.external_id, 255)?;
-        let position = normalize_optional(payload.position, 120)?;
         let photo = normalize_optional(payload.photo, 2048)?;
 
         if !(8..=128).contains(&payload.password.chars().count()) {
@@ -229,8 +226,8 @@ impl AuthStore {
         let result = sqlx::query(
             "INSERT INTO users (
                 external_id, first_name, last_name, birth_date, password_hash,
-                email, phone, position, photo
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                email, phone, photo
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&external_id)
         .bind(&first_name)
@@ -239,7 +236,6 @@ impl AuthStore {
         .bind(password_hash)
         .bind(&email)
         .bind(&phone)
-        .bind(&position)
         .bind(&photo)
         .execute(&self.pool)
         .await;
@@ -390,7 +386,6 @@ mod tests {
             password: password.into(),
             email: email.into(),
             phone: "(75) 99999-9999".into(),
-            position: None,
             photo: None,
         }
     }
@@ -416,7 +411,6 @@ mod tests {
             assert_eq!(user.email, "ana@example.com");
             assert_eq!(user.phone, "(75) 99999-9999");
             assert_eq!(user.external_id, None);
-            assert_eq!(user.position, None);
             assert_eq!(user.photo, None);
             assert!(matches!(store.session().unwrap(), Session::Anonymous));
             let hash: String = sqlx::query_scalar("SELECT password_hash FROM users")

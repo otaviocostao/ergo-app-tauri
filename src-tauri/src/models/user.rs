@@ -10,7 +10,6 @@ pub struct User {
     pub birth_date: String,
     pub email: String,
     pub phone: String,
-    pub position: Option<String>,
     pub photo: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -26,6 +25,5 @@ pub struct CreateUserPayload {
     pub password: String,
     pub email: String,
     pub phone: String,
-    pub position: Option<String>,
     pub photo: Option<String>,
 }

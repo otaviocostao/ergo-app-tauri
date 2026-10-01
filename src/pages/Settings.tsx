@@ -124,7 +124,6 @@ export default function Settings() {
             <Input label="Nome" defaultValue={user?.firstName ?? "Visitante"} disabled />
             <Input label="Sobrenome" defaultValue={user?.lastName ?? ""} disabled />
             <Input label="Data de nascimento" type="date" defaultValue={user?.birthDate ?? ""} disabled />
-            <Input label="Cargo" defaultValue={user?.position ?? "Não informado"} disabled />
             <Input label="E-mail" type="email" defaultValue={user?.email ?? ""} disabled />
             <Input label="Telefone" defaultValue={user?.phone ?? ""} disabled />
           </div>
