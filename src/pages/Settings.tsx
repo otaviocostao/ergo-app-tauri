@@ -11,7 +11,7 @@ import { userService } from "../services/userService";
 import { workspaceService, type WorkspaceItem } from "../services/workspaceService";
 import { FormatterHelper } from "../helpers/FormatterHelper";
 
-type SettingsTab = "usuario" | "empresa" | "tema" | "dispositivos";
+type SettingsTab = "user" | "company" | "theme" | "workspace";
 type ThemeOption = "Claro" | "Escuro" | "Automático";
 
 const yesNoOptions = [
@@ -34,7 +34,7 @@ function ThemePreview({ theme }: { theme: ThemeOption }) {
 export default function Settings() {
   const { session, refreshSession } = useAuth();
   const user = session.kind === "authenticated" ? session.user : null;
-  const [activeTab, setActiveTab] = useState<SettingsTab>("usuario");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("user");
   const [theme, setTheme] = useState<ThemeOption>("Claro");
   const [company, setCompany] = useState<CompanyItem | null>(null);
   const [isLoadingCompany, setIsLoadingCompany] = useState<boolean>(true);
@@ -152,8 +152,8 @@ export default function Settings() {
   }, []);
 
   useEffect(() => {
-    if (!isLoadingCompany && !company && activeTab === "empresa") {
-      setActiveTab("usuario");
+    if (!isLoadingCompany && !company && activeTab === "company") {
+      setActiveTab("user");
     }
   }, [isLoadingCompany, company, activeTab]);
 
@@ -202,10 +202,10 @@ export default function Settings() {
   }, [deviceType]);
 
   const tabs: Array<{ id: SettingsTab; label: string }> = [
-    { id: "usuario", label: "Usuário" },
-    ...(company ? [{ id: "empresa" as const, label: "Empresa" }] : []),
-    { id: "tema", label: "Tema" },
-    { id: "dispositivos", label: "Dispositivos" },
+    { id: "user", label: "Usuário" },
+    ...(company ? [{ id: "company" as const, label: "Empresa" }] : []),
+    { id: "theme", label: "Tema" },
+    { id: "workspace", label: "Ambiente de Trabalho" },
   ];
 
   const handlePhotoChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -368,10 +368,10 @@ export default function Settings() {
       setWorkspace(savedWorkspace);
       setWorkspaceFeedback({
         type: "success",
-        message: "Configurações de dispositivos salvas com sucesso!",
+        message: "Configurações do ambiente de trabalho salvas com sucesso!",
       });
     } catch (error: unknown) {
-      console.error("Erro ao salvar configurações de dispositivos:", error);
+      console.error("Erro ao salvar configurações do ambiente de trabalho:", error);
       const message =
         typeof error === "string"
           ? error
@@ -410,7 +410,7 @@ export default function Settings() {
         ))}
       </div>
 
-      {activeTab === "usuario" && (
+      {activeTab === "user" && (
         <section className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
             <div>
@@ -570,7 +570,7 @@ export default function Settings() {
       )}
 
 
-      {activeTab === "empresa" && company && (
+      {activeTab === "company" && company && (
         <section className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="text-base font-bold text-slate-800 dark:text-white">Informações da empresa</h2>
           <p className="mb-5 mt-1 text-sm text-gray-500">Dados da sua empresa cadastrados na plataforma online</p>
@@ -597,7 +597,7 @@ export default function Settings() {
         </section>
       )}
 
-      {activeTab === "tema" && (
+      {activeTab === "theme" && (
         <section className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="text-base font-bold text-slate-800 dark:text-white">Tema</h2>
           <p className="mb-5 mt-1 text-sm text-gray-500">Escolha como o Ergo aparece para você</p>
@@ -621,10 +621,10 @@ export default function Settings() {
         </section>
       )}
 
-      {activeTab === "dispositivos" && (
+      {activeTab === "workspace" && (
         <section className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
           <div className="mb-4">
-            <h2 className="text-base font-bold text-slate-800 dark:text-white">Dispositivos</h2>
+            <h2 className="text-base font-bold text-slate-800 dark:text-white">Ambiente de Trabalho</h2>
             <p className="mt-1 text-sm text-gray-500">
               Informações do seu ambiente de trabalho e periféricos usadas para calibrar o monitoramento ergonômico.
             </p>
