@@ -1,19 +1,13 @@
-import { useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import Header from "../components/Header";
 import Button from "../components/Button";
 import Input from "../components/Input";
 import Select from "../components/Select";
 import { useAuth } from "../auth/AuthContext";
+import { companyService, type CompanyItem } from "../services/companyService";
 
 type SettingsTab = "usuario" | "empresa" | "tema" | "dispositivos";
 type ThemeOption = "Claro" | "Escuro" | "Automático";
-
-const tabs: Array<{ id: SettingsTab; label: string }> = [
-  { id: "usuario", label: "Usuário" },
-  { id: "empresa", label: "Empresa" },
-  { id: "tema", label: "Tema" },
-  { id: "dispositivos", label: "Dispositivos" },
-];
 
 const yesNoOptions = [
   { label: "Sim", value: "sim" },
@@ -43,11 +37,59 @@ export default function Settings() {
   const user = session.kind === "authenticated" ? session.user : null;
   const [activeTab, setActiveTab] = useState<SettingsTab>("usuario");
   const [theme, setTheme] = useState<ThemeOption>("Claro");
+  const [company, setCompany] = useState<CompanyItem | null>(null);
+  const [isLoadingCompany, setIsLoadingCompany] = useState<boolean>(true);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const initials = user
     ? `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase()
     : "V";
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadCompany() {
+      try {
+        const companies = await companyService.getAll();
+        if (!isMounted) return;
+
+        if (companies && companies.length > 0) {
+          const currentCompany = companies.find((c) => c.active) ?? companies[0];
+          setCompany(currentCompany);
+        } else {
+          setCompany(null);
+        }
+      } catch (error) {
+        console.error("Erro ao carregar dados da empresa:", error);
+        if (isMounted) {
+          setCompany(null);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingCompany(false);
+        }
+      }
+    }
+
+    loadCompany();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isLoadingCompany && !company && activeTab === "empresa") {
+      setActiveTab("usuario");
+    }
+  }, [isLoadingCompany, company, activeTab]);
+
+  const tabs: Array<{ id: SettingsTab; label: string }> = [
+    { id: "usuario", label: "Usuário" },
+    ...(company ? [{ id: "empresa" as const, label: "Empresa" }] : []),
+    { id: "tema", label: "Tema" },
+    { id: "dispositivos", label: "Dispositivos" },
+  ];
 
   const handlePhotoChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -124,16 +166,29 @@ export default function Settings() {
         </section>
       )}
 
-      {activeTab === "empresa" && (
+      {activeTab === "empresa" && company && (
         <section className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="text-base font-bold text-slate-800 dark:text-white">Informações da empresa</h2>
           <p className="mb-5 mt-1 text-sm text-gray-500">Dados gerenciados pelo administrador — somente leitura.</p>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Input label="Empresa" defaultValue="Ergo Tecnologia Ltda." disabled />
-            <Input label="Plano" defaultValue="Corporate — 250 licenças" disabled />
-            <Input label="Departamento" defaultValue="Operações — Unidade Feira de Santana" disabled />
-            <Input label="Administrador da conta" defaultValue="ti@empresa.com" disabled />
+            <Input label="Razão Social" value={company.legalName ?? ""} disabled />
+            <Input label="Nome Fantasia" value={company.tradeName ?? ""} disabled />
+            <Input label="CNPJ" value={company.cnpj ?? ""} disabled />
+            <Input label="Departamento" value={company.department ?? ""} disabled />
+            <Input label="E-mail" type="email" value={company.email ?? ""} disabled />
+            <Input label="Telefone" value={company.phone ?? ""} disabled />
+            <Input label="CEP" value={company.zipcode ?? ""} disabled />
+            <Input label="Logradouro" value={company.street ?? ""} disabled />
+            <Input label="Número" value={company.number ?? ""} disabled />
+            <Input label="Bairro" value={company.neighborhood ?? ""} disabled />
+            <Input label="Cidade" value={company.city ?? ""} disabled />
+            <Input label="Estado" value={company.state ?? ""} disabled />
+            <Input label="País" value={company.country ?? ""} disabled />
+            <Input label="Status" value={company.active ? "Ativo" : "Inativo"} disabled />
+            {company.externalId && (
+              <Input label="Código Externo" value={company.externalId} disabled />
+            )}
           </div>
         </section>
       )}
