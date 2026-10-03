@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct User {
     pub id: i64,
@@ -15,7 +15,7 @@ pub struct User {
     pub updated_at: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateUserPayload {
     pub external_id: Option<String>,
@@ -23,6 +23,24 @@ pub struct CreateUserPayload {
     pub last_name: String,
     pub birth_date: String,
     pub password: String,
+    pub email: String,
+    pub phone: String,
+    pub photo: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct StoredUser {
+    pub user: User,
+    pub password_hash: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct NewUser {
+    pub external_id: Option<String>,
+    pub first_name: String,
+    pub last_name: String,
+    pub birth_date: String,
+    pub password_hash: String,
     pub email: String,
     pub phone: String,
     pub photo: Option<String>,

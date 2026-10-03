@@ -1,10 +1,10 @@
-mod auth;
 pub mod commands;
 pub mod db;
 pub mod models;
 pub mod repositories;
 pub mod services;
 
+use services::auth_service::AuthState;
 use tauri::Manager;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -19,22 +19,20 @@ pub fn run() {
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            let directory = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&directory)?;
-            let store =
-                tauri::async_runtime::block_on(auth::AuthStore::open(&directory.join("ergo.db")))?;
-            app.manage(store);
             let app_state = db::init_database(app.handle())?;
             app.manage(app_state);
+            let auth_state = AuthState::new()
+                .map_err(|_| std::io::Error::other("Failed to initialize authentication"))?;
+            app.manage(auth_state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             greet,
-            auth::register_local,
-            auth::login_local,
-            auth::get_session,
-            auth::continue_offline,
-            auth::logout,
+            commands::auth::register_local,
+            commands::auth::login_local,
+            commands::auth::get_session,
+            commands::auth::continue_offline,
+            commands::auth::logout,
             commands::reminder::get_reminders,
             commands::reminder::get_reminder_by_id,
             commands::reminder::create_reminder,

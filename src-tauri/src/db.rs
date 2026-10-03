@@ -1,5 +1,7 @@
 use chrono::Utc;
 use rusqlite::{params, Connection};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use std::path::Path;
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -7,7 +9,32 @@ pub struct AppState {
     pub db: Mutex<Connection>,
 }
 
-pub fn init_database(app_handle: &tauri::AppHandle) -> Result<AppState, Box<dyn std::error::Error>> {
+fn run_migrations(db_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let result = tauri::async_runtime::block_on(async {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(db_path)
+                    .create_if_missing(true),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .map_err(|error| error.to_string())?;
+        pool.close().await;
+        Ok::<(), String>(())
+    });
+
+    result.map_err(|error| std::io::Error::other(error).into())
+}
+
+pub fn init_database(
+    app_handle: &tauri::AppHandle,
+) -> Result<AppState, Box<dyn std::error::Error>> {
     let app_data_dir = app_handle
         .path()
         .app_data_dir()
@@ -15,6 +42,8 @@ pub fn init_database(app_handle: &tauri::AppHandle) -> Result<AppState, Box<dyn 
 
     std::fs::create_dir_all(&app_data_dir)?;
     let db_path = app_data_dir.join("ergo.db");
+
+    run_migrations(&db_path)?;
 
     let conn = Connection::open(&db_path)?;
 
