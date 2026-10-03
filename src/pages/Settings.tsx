@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { Cloud, ShieldCheck } from "lucide-react";
+import { Cloud, Laptop, Monitor, ShieldCheck } from "lucide-react";
 import Header from "../components/Header";
 import Button from "../components/Button";
 import Input from "../components/Input";
@@ -8,6 +8,7 @@ import Toastr, { type ToastrType } from "../components/Toastr";
 import { useAuth } from "../auth/AuthContext";
 import { companyService, type CompanyItem } from "../services/companyService";
 import { userService } from "../services/userService";
+import { workspaceService, type WorkspaceItem } from "../services/workspaceService";
 import { FormatterHelper } from "../helpers/FormatterHelper";
 
 type SettingsTab = "usuario" | "empresa" | "tema" | "dispositivos";
@@ -16,12 +17,6 @@ type ThemeOption = "Claro" | "Escuro" | "Automático";
 const yesNoOptions = [
   { label: "Sim", value: "sim" },
   { label: "Não", value: "nao" },
-];
-
-const deviceOptions = [
-  { label: "Notebook", value: "notebook" },
-  { label: "Desktop", value: "desktop" },
-  { label: "Tablet", value: "tablet" },
 ];
 
 function ThemePreview({ theme }: { theme: ThemeOption }) {
@@ -56,6 +51,19 @@ export default function Settings() {
   const [isCheckingLocalUser, setIsCheckingLocalUser] = useState<boolean>(true);
   const [isSavingUser, setIsSavingUser] = useState<boolean>(false);
   const [userFeedback, setUserFeedback] = useState<{ type: ToastrType; message: string } | null>(null);
+
+  // Estados do formulário de dispositivos/workspace
+  const [workspace, setWorkspace] = useState<WorkspaceItem | null>(null);
+  const [, setIsLoadingWorkspace] = useState<boolean>(true);
+  const [deviceType, setDeviceType] = useState<"desktop" | "notebook">("notebook");
+  const [isWebcamFront, setIsWebcamFront] = useState<boolean>(true);
+  const [hasExternalKeyboard, setHasExternalKeyboard] = useState<boolean>(true);
+  const [hasExternalMouse, setHasExternalMouse] = useState<boolean>(true);
+  const [adjustableDesk, setAdjustableDesk] = useState<boolean>(false);
+  const [adjustableChair, setAdjustableChair] = useState<boolean>(true);
+  const [adjustableMonitor, setAdjustableMonitor] = useState<boolean>(true);
+  const [isSavingWorkspace, setIsSavingWorkspace] = useState<boolean>(false);
+  const [workspaceFeedback, setWorkspaceFeedback] = useState<{ type: ToastrType; message: string } | null>(null);
 
   const photoInputRef = useRef<HTMLInputElement>(null);
   const initials = user
@@ -149,6 +157,50 @@ export default function Settings() {
     }
   }, [isLoadingCompany, company, activeTab]);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadWorkspace() {
+      try {
+        const workspaces = await workspaceService.getAll();
+        if (!isMounted) return;
+
+        if (workspaces && workspaces.length > 0) {
+          const current = workspaces[0];
+          setWorkspace(current);
+          setDeviceType(current.deviceType);
+          setIsWebcamFront(current.isWebcamFront);
+          setHasExternalKeyboard(current.hasExternalKeyboard);
+          setHasExternalMouse(current.hasExternalMouse);
+          setAdjustableDesk(current.adjustableDesk);
+          setAdjustableChair(current.adjustableChair);
+          setAdjustableMonitor(current.adjustableMonitor);
+        } else {
+          setWorkspace(null);
+        }
+      } catch (error) {
+        console.error("Erro ao carregar dados do workspace:", error);
+      } finally {
+        if (isMounted) {
+          setIsLoadingWorkspace(false);
+        }
+      }
+    }
+
+    loadWorkspace();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (deviceType === "desktop") {
+      setHasExternalKeyboard(true);
+      setHasExternalMouse(true);
+    }
+  }, [deviceType]);
+
   const tabs: Array<{ id: SettingsTab; label: string }> = [
     { id: "usuario", label: "Usuário" },
     ...(company ? [{ id: "empresa" as const, label: "Empresa" }] : []),
@@ -237,6 +289,103 @@ export default function Settings() {
       (profilePhoto ?? null) !== (user.photo ?? null)
     )
   );
+
+  const isWorkspaceFormDirty = Boolean(
+    workspace
+      ? (
+        deviceType !== workspace.deviceType ||
+        isWebcamFront !== workspace.isWebcamFront ||
+        hasExternalKeyboard !== workspace.hasExternalKeyboard ||
+        hasExternalMouse !== workspace.hasExternalMouse ||
+        adjustableDesk !== workspace.adjustableDesk ||
+        adjustableChair !== workspace.adjustableChair ||
+        adjustableMonitor !== workspace.adjustableMonitor
+      )
+      : (
+        deviceType !== "notebook" ||
+        isWebcamFront !== true ||
+        hasExternalKeyboard !== true ||
+        hasExternalMouse !== true ||
+        adjustableDesk !== false ||
+        adjustableChair !== true ||
+        adjustableMonitor !== true
+      )
+  );
+
+  const handleResetWorkspaceForm = () => {
+    if (workspace) {
+      setDeviceType(workspace.deviceType);
+      setIsWebcamFront(workspace.isWebcamFront);
+      setHasExternalKeyboard(workspace.hasExternalKeyboard);
+      setHasExternalMouse(workspace.hasExternalMouse);
+      setAdjustableDesk(workspace.adjustableDesk);
+      setAdjustableChair(workspace.adjustableChair);
+      setAdjustableMonitor(workspace.adjustableMonitor);
+    } else {
+      setDeviceType("notebook");
+      setIsWebcamFront(true);
+      setHasExternalKeyboard(true);
+      setHasExternalMouse(true);
+      setAdjustableDesk(false);
+      setAdjustableChair(true);
+      setAdjustableMonitor(true);
+    }
+    setWorkspaceFeedback(null);
+  };
+
+  const handleSaveWorkspace = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!isWorkspaceFormDirty) return;
+
+    setWorkspaceFeedback(null);
+    setIsSavingWorkspace(true);
+
+    try {
+      let savedWorkspace: WorkspaceItem;
+      if (workspace?.id) {
+        savedWorkspace = await workspaceService.update({
+          id: workspace.id,
+          deviceType,
+          isWebcamFront,
+          hasExternalKeyboard: deviceType === "desktop" ? true : hasExternalKeyboard,
+          hasExternalMouse: deviceType === "desktop" ? true : hasExternalMouse,
+          adjustableDesk,
+          adjustableChair,
+          adjustableMonitor,
+        });
+      } else {
+        savedWorkspace = await workspaceService.create({
+          deviceType,
+          isWebcamFront,
+          hasExternalKeyboard: deviceType === "desktop" ? true : hasExternalKeyboard,
+          hasExternalMouse: deviceType === "desktop" ? true : hasExternalMouse,
+          adjustableDesk,
+          adjustableChair,
+          adjustableMonitor,
+        });
+      }
+
+      setWorkspace(savedWorkspace);
+      setWorkspaceFeedback({
+        type: "success",
+        message: "Configurações de dispositivos salvas com sucesso!",
+      });
+    } catch (error: unknown) {
+      console.error("Erro ao salvar configurações de dispositivos:", error);
+      const message =
+        typeof error === "string"
+          ? error
+          : error instanceof Error
+            ? error.message
+            : "Não foi possível salvar as configurações. Tente novamente.";
+      setWorkspaceFeedback({
+        type: "error",
+        message,
+      });
+    } finally {
+      setIsSavingWorkspace(false);
+    }
+  };
 
   return (
     <div className="w-full min-h-full pb-8">
@@ -474,17 +623,171 @@ export default function Settings() {
 
       {activeTab === "dispositivos" && (
         <section className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
-          <h2 className="text-base font-bold text-slate-800 dark:text-white">Dispositivos</h2>
-          <p className="mb-5 mt-1 text-sm text-gray-500">Informações usadas para calibrar o monitoramento ergonômico</p>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Select label="Qual seu dispositivo?" placeholder="Selecione" options={deviceOptions} />
-            <Select label="Você utiliza um teclado externo?" placeholder="Selecione" options={yesNoOptions} />
-            <Select label="Você utiliza um mouse externo?" placeholder="Selecione" options={yesNoOptions} />
-            <Select label="Sua mesa tem regulagem de altura?" placeholder="Selecione" options={yesNoOptions} />
-            <Select label="Sua cadeira tem regulagem de altura?" placeholder="Selecione" options={yesNoOptions} />
-            <Select label="Seu monitor tem regulagem de altura?" placeholder="Selecione" options={yesNoOptions} />
+          <div className="mb-4">
+            <h2 className="text-base font-bold text-slate-800 dark:text-white">Dispositivos</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              Informações do seu ambiente de trabalho e periféricos usadas para calibrar o monitoramento ergonômico.
+            </p>
           </div>
+
+          <Toastr
+            isOpen={Boolean(workspaceFeedback)}
+            type={workspaceFeedback?.type ?? "success"}
+            message={workspaceFeedback?.message ?? ""}
+            onClose={() => setWorkspaceFeedback(null)}
+          />
+
+          <form onSubmit={handleSaveWorkspace} className="space-y-6">
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-800 dark:text-slate-200 block">
+                Qual seu dispositivo?
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeviceType("desktop");
+                    setWorkspaceFeedback(null);
+                  }}
+                  className={`flex items-center gap-3 p-3.5 rounded-xl border transition-all cursor-pointer text-left ${deviceType === "desktop"
+                    ? "bg-primary-50 dark:bg-primary-950/40 border-primary-500 text-primary-900 dark:text-primary-200 ring-2 ring-primary-500/20"
+                    : "bg-white dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600"
+                    }`}
+                >
+                  <div
+                    className={`p-2 rounded-lg ${deviceType === "desktop"
+                      ? "bg-primary-500 text-white"
+                      : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300"
+                      }`}
+                  >
+                    <Monitor size={18} />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-sm">Computador de Mesa</div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Desktop tradicional
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeviceType("notebook");
+                    setWorkspaceFeedback(null);
+                  }}
+                  className={`flex items-center gap-3 p-3.5 rounded-xl border transition-all cursor-pointer text-left ${deviceType === "notebook"
+                    ? "bg-primary-50 dark:bg-primary-950/40 border-primary-500 text-primary-900 dark:text-primary-200 ring-2 ring-primary-500/20"
+                    : "bg-white dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600"
+                    }`}
+                >
+                  <div
+                    className={`p-2 rounded-lg ${deviceType === "notebook"
+                      ? "bg-primary-500 text-white"
+                      : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300"
+                      }`}
+                  >
+                    <Laptop size={18} />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-sm">Notebook / Laptop</div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Computador portátil
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Select
+                label="Sua webcam está posicionada em frente a você?"
+                value={isWebcamFront ? "sim" : "nao"}
+                onChange={(e) => {
+                  setIsWebcamFront(e.target.value === "sim");
+                  setWorkspaceFeedback(null);
+                }}
+                options={yesNoOptions}
+              />
+
+              {deviceType === "notebook" && (
+                <Select
+                  label="Você utiliza um teclado externo?"
+                  value={hasExternalKeyboard ? "sim" : "nao"}
+                  onChange={(e) => {
+                    setHasExternalKeyboard(e.target.value === "sim");
+                    setWorkspaceFeedback(null);
+                  }}
+                  options={yesNoOptions}
+                />
+              )}
+
+              {deviceType === "notebook" && (
+                <Select
+                  label="Você utiliza um mouse externo?"
+                  value={hasExternalMouse ? "sim" : "nao"}
+                  onChange={(e) => {
+                    setHasExternalMouse(e.target.value === "sim");
+                    setWorkspaceFeedback(null);
+                  }}
+                  options={yesNoOptions}
+                />
+              )}
+
+              <Select
+                label="Sua mesa possui regulagem de altura?"
+                value={adjustableDesk ? "sim" : "nao"}
+                onChange={(e) => {
+                  setAdjustableDesk(e.target.value === "sim");
+                  setWorkspaceFeedback(null);
+                }}
+                options={yesNoOptions}
+              />
+
+              <Select
+                label="Sua cadeira possui regulagem de altura?"
+                value={adjustableChair ? "sim" : "nao"}
+                onChange={(e) => {
+                  setAdjustableChair(e.target.value === "sim");
+                  setWorkspaceFeedback(null);
+                }}
+                options={yesNoOptions}
+              />
+
+              <Select
+                label="Seu monitor possui regulagem de altura?"
+                value={adjustableMonitor ? "sim" : "nao"}
+                onChange={(e) => {
+                  setAdjustableMonitor(e.target.value === "sim");
+                  setWorkspaceFeedback(null);
+                }}
+                options={yesNoOptions}
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-gray-100 pt-4 dark:border-slate-800">
+              {isWorkspaceFormDirty && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="md"
+                  onClick={handleResetWorkspaceForm}
+                  disabled={isSavingWorkspace}
+                >
+                  Descartar alterações
+                </Button>
+              )}
+              <Button
+                type="submit"
+                variant="primary"
+                size="md"
+                isLoading={isSavingWorkspace}
+                disabled={!isWorkspaceFormDirty || isSavingWorkspace}
+              >
+                Salvar alterações
+              </Button>
+            </div>
+          </form>
         </section>
       )}
     </div>

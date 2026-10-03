@@ -77,7 +77,7 @@ export default function Toastr({
       aria-live="polite"
     >
       <div
-        className={`pointer-events-auto relative w-full sm:w-auto min-w-[320px] max-w-sm rounded-xl border p-4 shadow-sm backdrop-blur-md transition-all animate-toast-in ${currentConfig.borderClass} ${currentConfig.bgClass} ${currentConfig.glowClass}`}
+        className={`pointer-events-auto relative w-full sm:w-auto min-w-[320px] max-w-sm rounded-xl border p-4 shadow-sm backdrop-blur-md transition-all animate-toast-in ${currentConfig.borderClass} ${currentConfig.bgClass}`}
       >
         <div className="flex items-start gap-3">
           <div
