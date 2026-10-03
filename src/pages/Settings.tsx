@@ -1,10 +1,14 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { Cloud, ShieldCheck } from "lucide-react";
 import Header from "../components/Header";
 import Button from "../components/Button";
 import Input from "../components/Input";
 import Select from "../components/Select";
+import Toastr, { type ToastrType } from "../components/Toastr";
 import { useAuth } from "../auth/AuthContext";
 import { companyService, type CompanyItem } from "../services/companyService";
+import { userService } from "../services/userService";
+import { FormatterHelper } from "../helpers/FormatterHelper";
 
 type SettingsTab = "usuario" | "empresa" | "tema" | "dispositivos";
 type ThemeOption = "Claro" | "Escuro" | "Automático";
@@ -33,17 +37,78 @@ function ThemePreview({ theme }: { theme: ThemeOption }) {
 }
 
 export default function Settings() {
-  const { session } = useAuth();
+  const { session, refreshSession } = useAuth();
   const user = session.kind === "authenticated" ? session.user : null;
   const [activeTab, setActiveTab] = useState<SettingsTab>("usuario");
   const [theme, setTheme] = useState<ThemeOption>("Claro");
   const [company, setCompany] = useState<CompanyItem | null>(null);
   const [isLoadingCompany, setIsLoadingCompany] = useState<boolean>(true);
-  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+
+  // Estados do formulário de usuário
+  const [firstName, setFirstName] = useState(user?.firstName ?? "");
+  const [lastName, setLastName] = useState(user?.lastName ?? "");
+  const [birthDate, setBirthDate] = useState(user?.birthDate ?? "");
+  const [email, setEmail] = useState(user?.email ?? "");
+  const [phone, setPhone] = useState(user?.phone ? FormatterHelper.formatPhone(user.phone) : "");
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(user?.photo ?? null);
+
+  const [isLocalUser, setIsLocalUser] = useState<boolean | null>(null);
+  const [isCheckingLocalUser, setIsCheckingLocalUser] = useState<boolean>(true);
+  const [isSavingUser, setIsSavingUser] = useState<boolean>(false);
+  const [userFeedback, setUserFeedback] = useState<{ type: ToastrType; message: string } | null>(null);
+
   const photoInputRef = useRef<HTMLInputElement>(null);
   const initials = user
     ? `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase()
     : "V";
+
+  useEffect(() => {
+    if (user) {
+      setFirstName(user.firstName);
+      setLastName(user.lastName);
+      setBirthDate(user.birthDate);
+      setEmail(user.email);
+      setPhone(FormatterHelper.formatPhone(user.phone));
+      setProfilePhoto(user.photo ?? null);
+    }
+  }, [user]);
+
+  // Valida no backend se o usuário é estritamente local (sem external_id)
+  useEffect(() => {
+    let isMounted = true;
+
+    async function checkUserType() {
+      if (session.kind === "authenticated" && session.user) {
+        setIsCheckingLocalUser(true);
+        try {
+          const isLocal = await userService.isLocalUser(session.user.id);
+          if (isMounted) {
+            setIsLocalUser(isLocal);
+          }
+        } catch (error) {
+          console.error("Erro ao validar se o usuário é local:", error);
+          if (isMounted) {
+            setIsLocalUser(!session.user.externalId);
+          }
+        } finally {
+          if (isMounted) {
+            setIsCheckingLocalUser(false);
+          }
+        }
+      } else {
+        if (isMounted) {
+          setIsLocalUser(false);
+          setIsCheckingLocalUser(false);
+        }
+      }
+    }
+
+    checkUserType();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [session]);
 
   useEffect(() => {
     let isMounted = true;
@@ -93,14 +158,85 @@ export default function Settings() {
 
   const handlePhotoChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = () => setProfilePhoto(reader.result as string);
+    reader.onload = () => {
+      setProfilePhoto(reader.result as string);
+      setUserFeedback(null);
+    };
     reader.readAsDataURL(file);
     event.target.value = "";
   };
+
+  const handleRemovePhoto = () => {
+    setProfilePhoto(null);
+    setUserFeedback(null);
+  };
+
+  const handleResetUserForm = () => {
+    if (user) {
+      setFirstName(user.firstName);
+      setLastName(user.lastName);
+      setBirthDate(user.birthDate);
+      setEmail(user.email);
+      setPhone(FormatterHelper.formatPhone(user.phone));
+      setProfilePhoto(user.photo ?? null);
+      setUserFeedback(null);
+    }
+  };
+
+  const handleSaveUser = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!user || !isLocalUser || !isUserFormDirty) return;
+
+    setUserFeedback(null);
+    setIsSavingUser(true);
+
+    try {
+      await userService.updateUser({
+        id: user.id,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        birthDate: birthDate.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        photo: profilePhoto,
+      });
+
+      await refreshSession();
+      setUserFeedback({
+        type: "success",
+        message: "Dados atualizados com sucesso!",
+      });
+    } catch (error: unknown) {
+      console.error("Erro ao salvar informações do usuário:", error);
+      const message =
+        typeof error === "string"
+          ? error
+          : error instanceof Error
+            ? error.message
+            : "Não foi possível atualizar os dados. Tente novamente.";
+      setUserFeedback({
+        type: "error",
+        message,
+      });
+    } finally {
+      setIsSavingUser(false);
+    }
+  };
+
+  const canEditUser = Boolean(user && isLocalUser && !isCheckingLocalUser);
+  const isUserFormDirty = Boolean(
+    user && (
+      firstName !== user.firstName ||
+      lastName !== user.lastName ||
+      birthDate !== user.birthDate ||
+      email !== user.email ||
+      phone !== FormatterHelper.formatPhone(user.phone) ||
+      (profilePhoto ?? null) !== (user.photo ?? null)
+    )
+  );
 
   return (
     <div className="w-full min-h-full pb-8">
@@ -127,58 +263,177 @@ export default function Settings() {
 
       {activeTab === "usuario" && (
         <section className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
-          <h2 className="text-base font-bold text-slate-800 dark:text-white">Informações do usuário</h2>
-          <p className="mb-5 mt-1 text-sm text-gray-500">Dados da conta disponíveis somente para leitura.</p>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-slate-800 dark:text-white">Informações do usuário</h2>
+                {canEditUser ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                    <ShieldCheck size={12} />
+                    Conta local
+                  </span>
+                ) : user ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
+                    <Cloud size={12} />
+                    Sincronizado online
+                  </span>
+                ) : null}
+              </div>
+              <p className="mt-1 text-sm text-gray-500">
+                {canEditUser
+                  ? "Edite e salve suas informações cadastrais locais a qualquer momento"
+                  : user
+                    ? "Esta conta é gerenciada pela plataforma online e está disponível somente para leitura."
+                    : "Dados da conta disponíveis somente para leitura em modo visitante."}
+              </p>
+            </div>
+          </div>
 
-          <div className="mb-5 flex items-center gap-3.5">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary-50 text-lg font-bold text-primary-500">
-              {profilePhoto ? (
-                <img className="h-full w-full object-cover" src={profilePhoto} alt="Foto do perfil" />
-              ) : (
-                initials
+          <Toastr
+            isOpen={Boolean(userFeedback)}
+            type={userFeedback?.type ?? "success"}
+            message={userFeedback?.message ?? ""}
+            onClose={() => setUserFeedback(null)}
+          />
+
+          <form onSubmit={handleSaveUser}>
+            <div className="mb-5 flex items-center gap-3.5">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary-50 text-lg font-bold text-primary-500">
+                {profilePhoto ? (
+                  <img className="h-full w-full object-cover" src={profilePhoto} alt="Foto do perfil" />
+                ) : (
+                  initials
+                )}
+              </div>
+              <input
+                ref={photoInputRef}
+                className="hidden"
+                type="file"
+                accept="image/*"
+                onChange={handlePhotoChange}
+                aria-label="Selecionar foto do perfil"
+                disabled={!canEditUser || isSavingUser}
+              />
+              <Button
+                variant="secondary"
+                size="sm"
+                type="button"
+                disabled={!canEditUser || isSavingUser}
+                onClick={() => photoInputRef.current?.click()}
+              >
+                Alterar foto
+              </Button>
+              {canEditUser && profilePhoto && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  type="button"
+                  disabled={isSavingUser}
+                  onClick={handleRemovePhoto}
+                  className="text-slate-500 hover:text-rose-600 dark:hover:text-rose-400"
+                >
+                  Remover
+                </Button>
               )}
             </div>
-            <input
-              ref={photoInputRef}
-              className="hidden"
-              type="file"
-              accept="image/*"
-              onChange={handlePhotoChange}
-              aria-label="Selecionar foto do perfil"
-            />
-            <Button
-              variant="secondary"
-              size="sm"
-              type="button"
-              onClick={() => photoInputRef.current?.click()}
-            >
-              Alterar foto
-            </Button>
-          </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Input label="Nome" defaultValue={user?.firstName ?? "Visitante"} disabled />
-            <Input label="Sobrenome" defaultValue={user?.lastName ?? ""} disabled />
-            <Input label="Data de nascimento" type="date" defaultValue={user?.birthDate ?? ""} disabled />
-            <Input label="E-mail" type="email" defaultValue={user?.email ?? ""} disabled />
-            <Input label="Telefone" defaultValue={user?.phone ?? ""} disabled />
-          </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Input
+                label="Nome"
+                value={firstName}
+                onChange={(e) => {
+                  setFirstName(e.target.value);
+                  setUserFeedback(null);
+                }}
+                disabled={!canEditUser || isSavingUser}
+                required={canEditUser}
+              />
+              <Input
+                label="Sobrenome"
+                value={lastName}
+                onChange={(e) => {
+                  setLastName(e.target.value);
+                  setUserFeedback(null);
+                }}
+                disabled={!canEditUser || isSavingUser}
+                required={canEditUser}
+              />
+              <Input
+                label="Data de nascimento"
+                type="date"
+                value={birthDate}
+                onChange={(e) => {
+                  setBirthDate(e.target.value);
+                  setUserFeedback(null);
+                }}
+                disabled={!canEditUser || isSavingUser}
+                required={canEditUser}
+              />
+              <Input
+                label="E-mail"
+                type="email"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setUserFeedback(null);
+                }}
+                disabled={!canEditUser || isSavingUser}
+                required={canEditUser}
+              />
+              <Input
+                label="Telefone"
+                value={phone}
+                onChange={(e) => {
+                  setPhone(FormatterHelper.formatPhone(e.target.value));
+                  setUserFeedback(null);
+                }}
+                disabled={!canEditUser || isSavingUser}
+                required={canEditUser}
+              />
+            </div>
+
+            {canEditUser && (
+              <div className="mt-6 flex items-center justify-end gap-3 border-t border-gray-100 pt-4 dark:border-slate-800">
+                {isUserFormDirty && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="md"
+                    onClick={handleResetUserForm}
+                    disabled={isSavingUser}
+                  >
+                    Descartar alterações
+                  </Button>
+                )}
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="md"
+                  isLoading={isSavingUser}
+                  disabled={!isUserFormDirty || isSavingUser}
+                >
+                  Salvar alterações
+                </Button>
+              </div>
+            )}
+          </form>
         </section>
       )}
+
 
       {activeTab === "empresa" && company && (
         <section className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="text-base font-bold text-slate-800 dark:text-white">Informações da empresa</h2>
-          <p className="mb-5 mt-1 text-sm text-gray-500">Dados gerenciados pelo administrador — somente leitura.</p>
+          <p className="mb-5 mt-1 text-sm text-gray-500">Dados da sua empresa cadastrados na plataforma online</p>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Input label="Razão Social" value={company.legalName ?? ""} disabled />
             <Input label="Nome Fantasia" value={company.tradeName ?? ""} disabled />
-            <Input label="CNPJ" value={company.cnpj ?? ""} disabled />
+            <Input label="CNPJ" value={FormatterHelper.formatCnpj(company.cnpj)} disabled />
             <Input label="Departamento" value={company.department ?? ""} disabled />
             <Input label="E-mail" type="email" value={company.email ?? ""} disabled />
-            <Input label="Telefone" value={company.phone ?? ""} disabled />
-            <Input label="CEP" value={company.zipcode ?? ""} disabled />
+            <Input label="Telefone" value={FormatterHelper.formatPhone(company.phone)} disabled />
+            <Input label="CEP" value={FormatterHelper.formatCep(company.zipcode)} disabled />
             <Input label="Logradouro" value={company.street ?? ""} disabled />
             <Input label="Número" value={company.number ?? ""} disabled />
             <Input label="Bairro" value={company.neighborhood ?? ""} disabled />
@@ -196,7 +451,7 @@ export default function Settings() {
       {activeTab === "tema" && (
         <section className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="text-base font-bold text-slate-800 dark:text-white">Tema</h2>
-          <p className="mb-5 mt-1 text-sm text-gray-500">Escolha como o Ergo aparece para você.</p>
+          <p className="mb-5 mt-1 text-sm text-gray-500">Escolha como o Ergo aparece para você</p>
 
           <div className="grid max-w-3xl grid-cols-1 gap-3 sm:grid-cols-3">
             {(["Claro", "Escuro", "Automático"] as ThemeOption[]).map((option) => (
@@ -220,7 +475,7 @@ export default function Settings() {
       {activeTab === "dispositivos" && (
         <section className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="text-base font-bold text-slate-800 dark:text-white">Dispositivos</h2>
-          <p className="mb-5 mt-1 text-sm text-gray-500">Informações usadas para calibrar o monitoramento ergonômico.</p>
+          <p className="mb-5 mt-1 text-sm text-gray-500">Informações usadas para calibrar o monitoramento ergonômico</p>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Select label="Qual seu dispositivo?" placeholder="Selecione" options={deviceOptions} />

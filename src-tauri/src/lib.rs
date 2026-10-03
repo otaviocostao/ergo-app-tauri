@@ -34,7 +34,11 @@ pub fn run() {
             commands::auth::get_session,
             commands::auth::continue_offline,
             commands::auth::logout,
+            // Users
+            commands::user::is_local_user,
+            commands::user::update_user,
             // Reminders
+
             commands::reminder::get_reminders,
             commands::reminder::get_reminder_by_id,
             commands::reminder::create_reminder,
