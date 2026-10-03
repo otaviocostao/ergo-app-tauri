@@ -42,12 +42,20 @@ pub fn run() {
             commands::reminder::update_reminder,
             commands::reminder::delete_reminder,
             commands::reminder::toggle_reminder_status,
+          
             // Companies
             commands::company::get_companies,
             commands::company::get_company_by_id,
             commands::company::create_company,
             commands::company::update_company,
             commands::company::delete_company,
+          
+            // Workspace
+            commands::workspace::get_workspaces,
+            commands::workspace::get_workspace_by_id,
+            commands::workspace::create_workspace,
+            commands::workspace::update_workspace,
+            commands::workspace::delete_workspace,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
