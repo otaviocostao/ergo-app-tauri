@@ -18,15 +18,15 @@ export default function Button({
   ...props
 }: ButtonProps) {
   const baseStyles =
-    "inline-flex items-center justify-center font-medium cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed select-none";
+    "inline-flex items-center justify-center font-medium cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-default select-none";
 
   const variants = {
     primary:
-      "bg-primary-500 hover:bg-primary-600 active:bg-primary-700 text-white shadow-sm dark:bg-primary-500 dark:hover:bg-primary-600 dark:active:bg-primary-700",
+      "bg-primary-500 hover:bg-primary-600 active:bg-primary-700 text-white shadow-sm dark:bg-primary-500 dark:hover:bg-primary-600 dark:active:bg-primary-700 disabled:hover:bg-primary-500",
     secondary:
-      "bg-slate-200 hover:bg-slate-300 active:bg-slate-300 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:active:bg-slate-600",
+      "bg-slate-200 hover:bg-slate-300 active:bg-slate-300 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:active:bg-slate-600 disabled:hover:bg-slate-200",
     danger:
-      "bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white shadow-sm dark:bg-rose-600 dark:hover:bg-rose-700 dark:active:bg-rose-800",
+      "bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white shadow-sm dark:bg-rose-600 dark:hover:bg-rose-700 dark:active:bg-rose-800 disabled:hover:bg-rose-600",
   };
 
   const sizes = {
