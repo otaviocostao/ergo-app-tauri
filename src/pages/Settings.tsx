@@ -3,6 +3,7 @@ import Header from "../components/Header";
 import Button from "../components/Button";
 import Input from "../components/Input";
 import Select from "../components/Select";
+import { useAuth } from "../auth/AuthContext";
 
 type SettingsTab = "usuario" | "empresa" | "tema" | "dispositivos";
 type ThemeOption = "Claro" | "Escuro" | "Automático";
@@ -38,10 +39,15 @@ function ThemePreview({ theme }: { theme: ThemeOption }) {
 }
 
 export default function Settings() {
+  const { session } = useAuth();
+  const user = session.kind === "authenticated" ? session.user : null;
   const [activeTab, setActiveTab] = useState<SettingsTab>("usuario");
   const [theme, setTheme] = useState<ThemeOption>("Claro");
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const initials = user
+    ? `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase()
+    : "V";
 
   const handlePhotoChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -93,7 +99,7 @@ export default function Settings() {
               {profilePhoto ? (
                 <img className="h-full w-full object-cover" src={profilePhoto} alt="Foto do perfil" />
               ) : (
-                "LC"
+                initials
               )}
             </div>
             <input
@@ -115,10 +121,11 @@ export default function Settings() {
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Input label="Nome completo" defaultValue="Lucas Costa" disabled />
-            <Input label="Cargo" defaultValue="Analista de Operações" disabled />
-            <Input label="E-mail" type="email" defaultValue="lucas.costa@empresa.com" disabled />
-            <Input label="Telefone" defaultValue="(75) 99xxx-xxxx" disabled />
+            <Input label="Nome" defaultValue={user?.firstName ?? "Visitante"} disabled />
+            <Input label="Sobrenome" defaultValue={user?.lastName ?? ""} disabled />
+            <Input label="Data de nascimento" type="date" defaultValue={user?.birthDate ?? ""} disabled />
+            <Input label="E-mail" type="email" defaultValue={user?.email ?? ""} disabled />
+            <Input label="Telefone" defaultValue={user?.phone ?? ""} disabled />
           </div>
         </section>
       )}

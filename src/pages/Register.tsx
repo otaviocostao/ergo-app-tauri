@@ -4,12 +4,24 @@ import Button from "../components/Button";
 import Input from "../components/Input";
 import { authErrorMessage, authService, type Registration } from "../auth/authService";
 
-type Fields = Registration & { confirmation: string };
+type Fields = Pick<Registration, "firstName" | "lastName" | "birthDate" | "email" | "phone" | "password"> & {
+  confirmation: string;
+};
 type Errors = Partial<Record<keyof Fields, string>>;
+
+const initialFields: Fields = {
+  firstName: "",
+  lastName: "",
+  birthDate: "",
+  email: "",
+  phone: "",
+  password: "",
+  confirmation: "",
+};
 
 export default function Register() {
   const navigate = useNavigate();
-  const [fields, setFields] = useState<Fields>({ fullName: "", email: "", password: "", confirmation: "" });
+  const [fields, setFields] = useState<Fields>(initialFields);
   const [errors, setErrors] = useState<Errors>({});
   const [feedback, setFeedback] = useState("");
   const [pending, setPending] = useState(false);
@@ -26,8 +38,16 @@ export default function Register() {
 
     const validation: Errors = {};
 
-    if (fields.fullName.trim().length < 2) validation.fullName = "Informe seu nome completo.";
+    if (fields.firstName.trim().length < 2) validation.firstName = "Informe seu nome.";
+    if (fields.lastName.trim().length < 2) validation.lastName = "Informe seu sobrenome.";
+    if (!fields.birthDate) {
+      validation.birthDate = "Informe sua data de nascimento.";
+    } else if (fields.birthDate > new Date().toISOString().split("T")[0]) {
+      validation.birthDate = "A data de nascimento não pode estar no futuro.";
+    }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email.trim())) validation.email = "Informe um e-mail válido.";
+    const phoneDigits = fields.phone.replace(/\D/g, "");
+    if (phoneDigits.length < 8 || phoneDigits.length > 15) validation.phone = "Informe um telefone válido.";
     if (Array.from(fields.password).length < 8) validation.password = "A senha deve ter no mínimo 8 caracteres.";
     if (Array.from(fields.password).length > 128) validation.password = "A senha excede o limite de caracteres.";
     if (!fields.confirmation || fields.confirmation !== fields.password) validation.confirmation = "As senhas devem ser iguais.";
@@ -42,16 +62,33 @@ export default function Register() {
     setFeedback("");
     setPending(true);
     try {
-      await authService.register({ fullName: fields.fullName, email: fields.email, password: fields.password });
-      setFields({ fullName: "", email: "", password: "", confirmation: "" });
+      await authService.register({
+        firstName: fields.firstName,
+        lastName: fields.lastName,
+        birthDate: fields.birthDate,
+        email: fields.email,
+        phone: fields.phone,
+        password: fields.password,
+      });
+      setFields(initialFields);
       navigate("/login", { replace: true, state: { registrationComplete: true }, viewTransition: true });
     } catch (error) { setFeedback(authErrorMessage(error)); }
     finally { setPending(false); }
   }
 
-  const inputs: { field: keyof Fields; label: string; type: string; autoComplete: string; maxLength: number }[] = [
-    { field: "fullName", label: "Nome completo", type: "text", autoComplete: "name", maxLength: 120 },
+  const inputs: Array<{
+    field: keyof Fields;
+    label: string;
+    type: string;
+    autoComplete: string;
+    maxLength?: number;
+    max?: string;
+  }> = [
+    { field: "firstName", label: "Nome", type: "text", autoComplete: "given-name", maxLength: 60 },
+    { field: "lastName", label: "Sobrenome", type: "text", autoComplete: "family-name", maxLength: 60 },
+    { field: "birthDate", label: "Data de nascimento", type: "date", autoComplete: "bday", max: new Date().toISOString().split("T")[0] },
     { field: "email", label: "E-mail", type: "email", autoComplete: "username", maxLength: 254 },
+    { field: "phone", label: "Telefone", type: "tel", autoComplete: "tel", maxLength: 30 },
     { field: "password", label: "Senha", type: "password", autoComplete: "new-password", maxLength: 128 },
     { field: "confirmation", label: "Confirmar senha", type: "password", autoComplete: "new-password", maxLength: 128 },
   ];
