@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS reminders (
     id TEXT PRIMARY KEY NOT NULL,
+    user_id INTEGER REFERENCES users(id) ON DELETE RESTRICT,
     title TEXT NOT NULL,
     message TEXT NOT NULL,
     description TEXT,
@@ -30,6 +31,8 @@ CREATE TABLE IF NOT EXISTS reminders (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+
+CREATE INDEX IF NOT EXISTS idx_reminders_user_id ON reminders(user_id);
 
 CREATE TABLE IF NOT EXISTS companies (
     id TEXT PRIMARY KEY NOT NULL,

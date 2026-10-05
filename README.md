@@ -58,12 +58,14 @@ Ao rodar a aplicação em modo dev ou produção, o arquivo do banco de dados `e
 - **Linux:** `~/.config/com.ergo.ergo-app-tauri/ergo.db`
 
 ### 🔄 Migrações Automáticas
-O backend abre o banco e aplica as migrações SQLx de `src-tauri/migrations/` na inicialização. A primeira migração cria `users` (`id`, `full_name`, `email`, `password_hash`, `created_at`). A tabela `_sqlx_migrations` registra as versões aplicadas.
+O backend abre o banco e aplica a migração SQLx de `src-tauri/migrations/` na inicialização. Nesta fase do projeto, `0001_initial_migration.sql` contém todo o schema: usuários, lembretes, empresas e ambientes de trabalho. A tabela `_sqlx_migrations` registra a versão aplicada.
 
 Para adicionar novas tabelas ou alterar tabelas existentes:
-1. Crie um novo arquivo SQL numerado, por exemplo `src-tauri/migrations/0002_add_user_preferences.sql`.
-2. Não altere migrações já aplicadas: o SQLx verifica seus checksums.
+1. Atualize `src-tauri/migrations/0001_initial_migration.sql`, mantendo o schema completo na migração inicial.
+2. O SQLx verifica o checksum da migração. Quando ela for alterada nesta fase de desenvolvimento, feche o aplicativo e remova `ergo.db`, `ergo.db-wal` e `ergo.db-shm` (se existirem) do diretório de dados indicado acima. Isso apaga as contas e os dados locais; use este procedimento somente com dados descartáveis. Se for necessário preservar dados, mantenha as migrações aplicadas intactas e use novas migrações incrementais.
 3. Reinicie o app (`npm run tauri dev`). As migrações são embutidas no executável durante a compilação, portanto também funcionam no app instalado.
+
+A migração inicial inclui `reminders.user_id`, uma chave estrangeira para `users.id`, e um índice para consultas por usuário. O banco rejeita referências a usuários inexistentes e impede excluir usuários que tenham lembretes vinculados. Nesta etapa, o vínculo está disponível no banco; atribuir o usuário pela sessão e restringir as operações aos seus lembretes ainda são etapas seguintes. Os comandos e os exemplos atuais continuam criando lembretes sem proprietário (`user_id` nulo).
 
 ### 🛠️ Como Utilizar o Banco no Frontend (TypeScript)
 Para autenticação, use `src/auth/authService.ts`, que chama os comandos `register_local`, `login_local`, `get_session`, `continue_offline` e `logout`. O `AuthProvider` mantém os dados públicos da sessão e as rotas internas exigem uma sessão autenticada ou de visitante.

@@ -147,3 +147,128 @@ fn seed_default_reminders(conn: &Connection) -> Result<(), rusqlite::Error> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn open_test_database(path: &Path) -> Connection {
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        conn
+    }
+
+    fn insert_test_user(conn: &Connection) -> i64 {
+        conn.execute(
+            "INSERT INTO users (first_name, last_name, birth_date, password_hash, email, phone)
+             VALUES ('Test', 'User', '1995-05-20', 'test-hash', 'test@example.com', '75999999999')",
+            [],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
+    #[test]
+    fn fresh_database_enforces_reminder_user_relationship() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("ergo.db");
+        run_migrations(&db_path).unwrap();
+        let conn = open_test_database(&db_path);
+        seed_default_reminders(&conn).unwrap();
+        let user_id = insert_test_user(&conn);
+        let reminder_id = "a59d816f-0b32-4e42-88f1-5a50e50f3b71";
+
+        conn.execute(
+            "UPDATE reminders SET user_id = ?1 WHERE id = ?2",
+            params![user_id, reminder_id],
+        )
+        .unwrap();
+        let owner: i64 = conn
+            .query_row(
+                "SELECT user_id FROM reminders WHERE id = ?1",
+                params![reminder_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(owner, user_id);
+
+        let invalid_owner = conn
+            .execute(
+                "UPDATE reminders SET user_id = ?1 WHERE id = ?2",
+                params![user_id + 1, reminder_id],
+            )
+            .unwrap_err();
+        assert!(matches!(
+            invalid_owner,
+            rusqlite::Error::SqliteFailure(code, _)
+                if code.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY
+        ));
+
+        let delete_owner = conn
+            .execute("DELETE FROM users WHERE id = ?1", params![user_id])
+            .unwrap_err();
+        assert!(matches!(
+            delete_owner,
+            rusqlite::Error::SqliteFailure(code, _)
+                if code.code == rusqlite::ErrorCode::ConstraintViolation
+        ));
+
+        let index_exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_index_info('idx_reminders_user_id')
+                 WHERE name = 'user_id')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(index_exists);
+    }
+
+    #[test]
+    fn initial_migration_can_run_again_without_changing_data() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("ergo.db");
+        run_migrations(&db_path).unwrap();
+
+        let conn = open_test_database(&db_path);
+        let user_id = insert_test_user(&conn);
+        seed_default_reminders(&conn).unwrap();
+        let reminders_before = crate::repositories::reminder_repository::find_all(&conn).unwrap();
+        let reminders_before = serde_json::to_value(reminders_before).unwrap();
+        drop(conn);
+
+        run_migrations(&db_path).unwrap();
+        run_migrations(&db_path).unwrap();
+
+        let conn = open_test_database(&db_path);
+        let reminders_after = crate::repositories::reminder_repository::find_all(&conn).unwrap();
+        assert_eq!(
+            serde_json::to_value(reminders_after).unwrap(),
+            reminders_before
+        );
+        let unassigned_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM reminders WHERE user_id IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(unassigned_count, 4);
+        let stored_user_id: i64 = conn
+            .query_row(
+                "SELECT id FROM users WHERE email = 'test@example.com'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored_user_id, user_id);
+        let migration_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM _sqlx_migrations WHERE success = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(migration_count, 1);
+    }
+}
