@@ -1,0 +1,17 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="900" height="132" viewBox="0 0 900 132" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Line chart / &#195;&#141;ndice postural" clip-path="url(#clip0_0_31)">
+<path id="Vector" d="M0 24H900M0 64H900M0 104H900" stroke="#0D2440" stroke-opacity="0.09"/>
+<path id="Vector_2" d="M0 102C95 86 126 66 204 74C286 83 318 46 394 50C476 54 510 96 592 78C672 61 708 42 782 45C840 48 870 35 900 28" stroke="#13B89A" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="Vector_3" d="M0 102C95 86 126 66 204 74C286 83 318 46 394 50C476 54 510 96 592 78C672 61 708 42 782 45C840 48 870 35 900 28V132H0V102Z" fill="#13B89A" fill-opacity="0.1"/>
+<path id="Vector_4" d="M204 79C206.761 79 209 76.7614 209 74C209 71.2386 206.761 69 204 69C201.239 69 199 71.2386 199 74C199 76.7614 201.239 79 204 79Z" fill="#13B89A"/>
+<path id="Vector_5" d="M394 55C396.761 55 399 52.7614 399 50C399 47.2386 396.761 45 394 45C391.239 45 389 47.2386 389 50C389 52.7614 391.239 55 394 55Z" fill="#13B89A"/>
+<path id="Vector_6" d="M592 83C594.761 83 597 80.7614 597 78C597 75.2386 594.761 73 592 73C589.239 73 587 75.2386 587 78C587 80.7614 589.239 83 592 83Z" fill="#13B89A"/>
+<path id="Vector_7" d="M782 50C784.761 50 787 47.7614 787 45C787 42.2386 784.761 40 782 40C779.239 40 777 42.2386 777 45C777 47.7614 779.239 50 782 50Z" fill="#13B89A"/>
+<path id="Vector_8" d="M900 33C902.761 33 905 30.7614 905 28C905 25.2386 902.761 23 900 23C897.239 23 895 25.2386 895 28C895 30.7614 897.239 33 900 33Z" fill="#13B89A"/>
+</g>
+<defs>
+<clipPath id="clip0_0_31">
+<rect width="900" height="132" fill="white"/>
+</clipPath>
+</defs>
+</svg>
