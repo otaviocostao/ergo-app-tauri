@@ -127,6 +127,15 @@ pub fn get_session(state: &AuthState) -> Result<Session, AuthError> {
         .map_err(|_| AuthError::internal())
 }
 
+pub fn require_authenticated_user_id(state: &AuthState) -> Result<i64, String> {
+    match get_session(state).map_err(|_| "Failed to read authentication session".to_string())? {
+        Session::Authenticated { user } => Ok(user.id),
+        Session::Anonymous | Session::Guest => {
+            Err("Authentication is required to manage reminders".to_string())
+        }
+    }
+}
+
 pub fn set_session(state: &AuthState, session: Session) -> Result<(), AuthError> {
     *state.session.lock().map_err(|_| AuthError::internal())? = session;
     Ok(())

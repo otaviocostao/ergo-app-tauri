@@ -65,14 +65,14 @@ Para adicionar novas tabelas ou alterar tabelas existentes:
 2. O SQLx verifica o checksum da migração. Quando ela for alterada nesta fase de desenvolvimento, feche o aplicativo e remova `ergo.db`, `ergo.db-wal` e `ergo.db-shm` (se existirem) do diretório de dados indicado acima. Isso apaga as contas e os dados locais; use este procedimento somente com dados descartáveis. Se for necessário preservar dados, mantenha as migrações aplicadas intactas e use novas migrações incrementais.
 3. Reinicie o app (`npm run tauri dev`). As migrações são embutidas no executável durante a compilação, portanto também funcionam no app instalado.
 
-A migração inicial inclui `reminders.user_id`, uma chave estrangeira para `users.id`, e um índice para consultas por usuário. O banco rejeita referências a usuários inexistentes e impede excluir usuários que tenham lembretes vinculados. Nesta etapa, o vínculo está disponível no banco; atribuir o usuário pela sessão e restringir as operações aos seus lembretes ainda são etapas seguintes. Os comandos e os exemplos atuais continuam criando lembretes sem proprietário (`user_id` nulo).
+A migração inicial inclui `reminders.user_id`, uma chave estrangeira para `users.id`, e um índice para consultas por usuário. O banco rejeita referências a usuários inexistentes e impede excluir usuários que tenham lembretes vinculados. O backend atribui o proprietário de novos lembretes pela sessão autenticada; o frontend não escolhe nem altera esse vínculo. Listar, consultar, editar, excluir e alternar o status exigem autenticação e se restringem aos lembretes do usuário conectado. Visitantes e sessões sem login não podem executar essas operações. Os exemplos sem proprietário (`user_id` nulo) ficam fora das listas das contas; não são atribuídos automaticamente a nenhum usuário.
 
 ### 🛠️ Como Utilizar o Banco no Frontend (TypeScript)
 Para autenticação, use `src/auth/authService.ts`, que chama os comandos `register_local`, `login_local`, `get_session`, `continue_offline` e `logout`. O `AuthProvider` mantém os dados públicos da sessão e as rotas internas exigem uma sessão autenticada ou de visitante.
 
 As permissões de SQL genérico foram removidas de `src-tauri/capabilities/default.json` para impedir leitura/alteração da tabela de credenciais pelo WebView. O helper antigo `src/db.ts` não é usado nesse fluxo. Novas operações de dados devem ser implementadas como comandos Rust específicos, validando a sessão no backend quando precisarem de autenticação.
 
-Os lembretes e métricas existentes continuam sendo os dados demonstrativos do projeto; esta entrega persiste apenas as contas locais, não implementa ainda dados de ergonomia por usuário.
+As contas e os lembretes por usuário são persistidos no SQLite local. O agendamento e o disparo de notificações ainda não estão implementados. As métricas de ergonomia continuam demonstrativas. A interface do modo visitante ainda precisa de uma mensagem específica para a indisponibilidade dos lembretes.
 
 ### Testes
 

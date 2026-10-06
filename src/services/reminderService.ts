@@ -19,6 +19,7 @@ export {
 
 export interface ReminderItem {
   id: string;
+  userId?: number | null;
   title: string;
   message: string;
   description?: string;

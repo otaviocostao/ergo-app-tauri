@@ -168,6 +168,21 @@ mod tests {
         conn.last_insert_rowid()
     }
 
+    fn snapshot_reminders(conn: &Connection) -> serde_json::Value {
+        use crate::repositories::reminder_repository::{map_reminder_row, SELECT_REMINDER_FIELDS};
+        let query = format!(
+            "SELECT {} FROM reminders ORDER BY id",
+            SELECT_REMINDER_FIELDS
+        );
+        let mut stmt = conn.prepare(&query).unwrap();
+        let reminders = stmt
+            .query_map([], map_reminder_row)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        serde_json::to_value(reminders).unwrap()
+    }
+
     #[test]
     fn fresh_database_enforces_reminder_user_relationship() {
         let temp_dir = tempfile::tempdir().unwrap();
@@ -233,19 +248,14 @@ mod tests {
         let conn = open_test_database(&db_path);
         let user_id = insert_test_user(&conn);
         seed_default_reminders(&conn).unwrap();
-        let reminders_before = crate::repositories::reminder_repository::find_all(&conn).unwrap();
-        let reminders_before = serde_json::to_value(reminders_before).unwrap();
+        let reminders_before = snapshot_reminders(&conn);
         drop(conn);
 
         run_migrations(&db_path).unwrap();
         run_migrations(&db_path).unwrap();
 
         let conn = open_test_database(&db_path);
-        let reminders_after = crate::repositories::reminder_repository::find_all(&conn).unwrap();
-        assert_eq!(
-            serde_json::to_value(reminders_after).unwrap(),
-            reminders_before
-        );
+        assert_eq!(snapshot_reminders(&conn), reminders_before);
         let unassigned_count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM reminders WHERE user_id IS NULL",

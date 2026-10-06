@@ -56,8 +56,12 @@ impl ToSql for ReminderFrequency {
 impl FromSql for ReminderFrequency {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
         let text = value.as_str()?;
-        text.parse::<ReminderFrequency>()
-            .map_err(|e| FromSqlError::Other(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e))))
+        text.parse::<ReminderFrequency>().map_err(|e| {
+            FromSqlError::Other(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                e,
+            )))
+        })
     }
 }
 
@@ -65,6 +69,7 @@ impl FromSql for ReminderFrequency {
 #[serde(rename_all = "camelCase")]
 pub struct Reminder {
     pub id: String,
+    pub user_id: Option<i64>,
     pub title: String,
     pub message: String,
     pub description: Option<String>,

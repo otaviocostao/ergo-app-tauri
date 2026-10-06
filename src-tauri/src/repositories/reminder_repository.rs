@@ -1,7 +1,7 @@
-use rusqlite::{params, Connection, OptionalExtension};
 use crate::models::reminder::Reminder;
+use rusqlite::{params, Connection, OptionalExtension};
 
-pub const SELECT_REMINDER_FIELDS: &str = "id, title, message, description, category, interval, period, frequency, notification_tone, status, start_time, end_time, reminder_date, custom_days, created_at, updated_at";
+pub const SELECT_REMINDER_FIELDS: &str = "id, title, message, description, category, interval, period, frequency, notification_tone, status, start_time, end_time, reminder_date, custom_days, created_at, updated_at, user_id";
 
 pub fn map_reminder_row(row: &rusqlite::Row<'_>) -> Result<Reminder, rusqlite::Error> {
     let notification_tone_int: i32 = row.get(8)?;
@@ -13,6 +13,7 @@ pub fn map_reminder_row(row: &rusqlite::Row<'_>) -> Result<Reminder, rusqlite::E
 
     Ok(Reminder {
         id: row.get(0)?,
+        user_id: row.get(16)?,
         title: row.get(1)?,
         message: row.get(2)?,
         description: row.get(3)?,
@@ -31,14 +32,14 @@ pub fn map_reminder_row(row: &rusqlite::Row<'_>) -> Result<Reminder, rusqlite::E
     })
 }
 
-pub fn find_all(conn: &Connection) -> Result<Vec<Reminder>, rusqlite::Error> {
+pub fn find_all(conn: &Connection, user_id: i64) -> Result<Vec<Reminder>, rusqlite::Error> {
     let query = format!(
-        "SELECT {} FROM reminders ORDER BY datetime(created_at) DESC, id DESC",
+        "SELECT {} FROM reminders WHERE user_id = ?1 ORDER BY datetime(created_at) DESC, id DESC",
         SELECT_REMINDER_FIELDS
     );
 
     let mut stmt = conn.prepare(&query)?;
-    let reminder_iter = stmt.query_map([], |row| map_reminder_row(row))?;
+    let reminder_iter = stmt.query_map(params![user_id], |row| map_reminder_row(row))?;
 
     let mut reminders = Vec::new();
     for reminder in reminder_iter {
@@ -48,13 +49,17 @@ pub fn find_all(conn: &Connection) -> Result<Vec<Reminder>, rusqlite::Error> {
     Ok(reminders)
 }
 
-pub fn find_by_id(conn: &Connection, id: &str) -> Result<Option<Reminder>, rusqlite::Error> {
+pub fn find_by_id(
+    conn: &Connection,
+    user_id: i64,
+    id: &str,
+) -> Result<Option<Reminder>, rusqlite::Error> {
     let query = format!(
-        "SELECT {} FROM reminders WHERE id = ?1",
+        "SELECT {} FROM reminders WHERE id = ?1 AND user_id = ?2",
         SELECT_REMINDER_FIELDS
     );
 
-    conn.query_row(&query, params![id], |row| map_reminder_row(row))
+    conn.query_row(&query, params![id, user_id], |row| map_reminder_row(row))
         .optional()
 }
 
@@ -68,8 +73,8 @@ pub fn insert(conn: &Connection, reminder: &Reminder) -> Result<(), rusqlite::Er
     conn.execute(
         "INSERT INTO reminders (
             id, title, message, description, category, interval, period,
-            frequency, notification_tone, status, start_time, end_time, reminder_date, custom_days, created_at, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            frequency, notification_tone, status, start_time, end_time, reminder_date, custom_days, created_at, updated_at, user_id
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params![
             reminder.id,
             reminder.title,
@@ -87,6 +92,7 @@ pub fn insert(conn: &Connection, reminder: &Reminder) -> Result<(), rusqlite::Er
             custom_days_json,
             reminder.created_at,
             reminder.updated_at,
+            reminder.user_id,
         ],
     )?;
 
@@ -116,7 +122,7 @@ pub fn update(conn: &Connection, reminder: &Reminder) -> Result<usize, rusqlite:
             reminder_date = ?12,
             custom_days = ?13,
             updated_at = ?14
-        WHERE id = ?15",
+        WHERE id = ?15 AND user_id = ?16",
         params![
             reminder.title,
             reminder.message,
@@ -133,22 +139,27 @@ pub fn update(conn: &Connection, reminder: &Reminder) -> Result<usize, rusqlite:
             custom_days_json,
             reminder.updated_at,
             reminder.id,
+            reminder.user_id,
         ],
     )
 }
 
-pub fn delete(conn: &Connection, id: &str) -> Result<usize, rusqlite::Error> {
-    conn.execute("DELETE FROM reminders WHERE id = ?1", params![id])
+pub fn delete(conn: &Connection, user_id: i64, id: &str) -> Result<usize, rusqlite::Error> {
+    conn.execute(
+        "DELETE FROM reminders WHERE id = ?1 AND user_id = ?2",
+        params![id, user_id],
+    )
 }
 
 pub fn update_status(
     conn: &Connection,
+    user_id: i64,
     id: &str,
     status: &str,
     updated_at: &str,
 ) -> Result<usize, rusqlite::Error> {
     conn.execute(
-        "UPDATE reminders SET status = ?1, updated_at = ?2 WHERE id = ?3",
-        params![status, updated_at, id],
+        "UPDATE reminders SET status = ?1, updated_at = ?2 WHERE id = ?3 AND user_id = ?4",
+        params![status, updated_at, id, user_id],
     )
 }
