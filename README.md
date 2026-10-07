@@ -2,6 +2,10 @@
 
 Este projeto é uma aplicação Desktop construída com **Tauri v2**, **React** e **TypeScript**.
 
+## Base de conhecimento
+
+O [índice da base de conhecimento](docs/base-conhecimento/README.md) reúne o escopo do TCC, as regras de negócio, o estado da implementação e as pendências de validação. Cada registro distingue sua fonte, o comportamento encontrado no código e as decisões ainda abertas.
+
 ## 🚀 Como Executar o Projeto Localmente
 
 ### Pré-requisitos
