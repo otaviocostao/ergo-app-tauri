@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import Modal from "../Modal";
 import Button from "../Button";
 import Select from "../Select";
+import { workspaceService, type CreateWorkspacePayload } from "../../services/workspaceService";
 import {
   CheckCircle2,
   Image as ImageIcon,
@@ -44,13 +45,13 @@ export default function WorkspaceCalibrationModal({
   const [adjustableDesk, setAdjustableDesk] = useState<boolean>(false);
   const [adjustableChair, setAdjustableChair] = useState<boolean>(true);
   const [adjustableMonitor, setAdjustableMonitor] = useState<boolean>(true);
-
-  useEffect(() => {
-    if (deviceType === "desktop") {
-      setHasExternalKeyboard(true);
-      setHasExternalMouse(true);
-    }
-  }, [deviceType]);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const savingRef = useRef(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -109,10 +110,41 @@ export default function WorkspaceCalibrationModal({
   const isFinalWebcamStep = currentStepIndex === totalInformativeSteps + 1;
 
   useEffect(() => {
-    if (isOpen) {
-      setCurrentStepIndex(0);
+    if (!isOpen) return;
+
+    let cancelled = false;
+    setCurrentStepIndex(0);
+    setIsLoadingWorkspace(true);
+    setLoadError(null);
+    setSaveError(null);
+    setWorkspaceId(null);
+
+    async function loadWorkspace() {
+      try {
+        // The backend lists workspaces from newest to oldest.
+        const [workspace] = await workspaceService.getAll();
+        if (cancelled) return;
+
+        setWorkspaceId(workspace?.id ?? null);
+        setDeviceType(workspace?.deviceType ?? "notebook");
+        setIsWebcamFront(workspace?.isWebcamFront ?? true);
+        setHasExternalKeyboard(workspace?.hasExternalKeyboard ?? true);
+        setHasExternalMouse(workspace?.hasExternalMouse ?? true);
+        setAdjustableDesk(workspace?.adjustableDesk ?? false);
+        setAdjustableChair(workspace?.adjustableChair ?? true);
+        setAdjustableMonitor(workspace?.adjustableMonitor ?? true);
+      } catch (error) {
+        if (cancelled) return;
+        console.error("Failed to load workspace configuration:", error);
+        setLoadError("Não foi possível carregar seu ambiente de trabalho. Tente novamente.");
+      } finally {
+        if (!cancelled) setIsLoadingWorkspace(false);
+      }
     }
-  }, [isOpen]);
+
+    void loadWorkspace();
+    return () => { cancelled = true; };
+  }, [isOpen, loadAttempt]);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -233,15 +265,57 @@ export default function WorkspaceCalibrationModal({
   }, [isOpen, isFinalWebcamStep]);
 
   const handleNext = () => {
+    if (isLoadingWorkspace || loadError || savingRef.current) return;
     if (currentStepIndex <= totalInformativeSteps) {
       setCurrentStepIndex((prev) => prev + 1);
     }
   };
 
   const handlePrev = () => {
+    if (savingRef.current) return;
+    setSaveError(null);
     if (currentStepIndex > 0) {
       setCurrentStepIndex((prev) => prev - 1);
     }
+  };
+
+  const handleClose = () => {
+    if (!savingRef.current) onClose();
+  };
+
+  const handleSave = async () => {
+    if (savingRef.current || isLoadingWorkspace || loadError || !isFinalWebcamStep) return;
+
+    savingRef.current = true;
+    setIsSaving(true);
+    setSaveError(null);
+
+    const payload: Required<CreateWorkspacePayload> = {
+      deviceType,
+      isWebcamFront,
+      hasExternalKeyboard,
+      hasExternalMouse,
+      adjustableDesk,
+      adjustableChair,
+      adjustableMonitor,
+    };
+
+    try {
+      const workspace = workspaceId
+        ? await workspaceService.update({ id: workspaceId, ...payload })
+        : await workspaceService.create(payload);
+      setWorkspaceId(workspace.id);
+    } catch (error) {
+      console.error("Failed to save workspace configuration:", error);
+      setSaveError("Não foi possível salvar seu ambiente de trabalho. Tente novamente.");
+      return;
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
+
+    onCalibrateSubmit();
+    onClose();
   };
 
   const currentStep = !isFormStep && !isFinalWebcamStep ? steps[currentStepIndex - 1] : null;
@@ -254,12 +328,32 @@ export default function WorkspaceCalibrationModal({
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={handleClose}
       title="Calibrar dispositivo"
       maxWidth="3xl"
     >
       <div className="py-2 space-y-4">
-        {isFormStep && (
+        {isLoadingWorkspace && (
+          <p role="status" className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+            Carregando ambiente de trabalho...
+          </p>
+        )}
+
+        {loadError && (
+          <div className="space-y-4 py-4">
+            <p role="alert" className="text-sm text-rose-600 dark:text-rose-400">{loadError}</p>
+            <div className="flex justify-end gap-3">
+              <Button variant="secondary" onClick={handleClose}>Cancelar</Button>
+              <Button onClick={() => setLoadAttempt((attempt) => attempt + 1)}>Tentar novamente</Button>
+            </div>
+          </div>
+        )}
+
+        {saveError && (
+          <p role="alert" className="text-sm text-rose-600 dark:text-rose-400">{saveError}</p>
+        )}
+
+        {isFormStep && !isLoadingWorkspace && !loadError && (
           <div className="h-[490px] flex flex-col justify-between space-y-4 animate-in fade-in duration-200">
             <div className="space-y-4 flex-1 flex flex-col min-h-0">
               <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200 font-normal shrink-0">
@@ -274,7 +368,11 @@ export default function WorkspaceCalibrationModal({
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       type="button"
-                      onClick={() => setDeviceType("desktop")}
+                      onClick={() => {
+                        setDeviceType("desktop");
+                        setHasExternalKeyboard(true);
+                        setHasExternalMouse(true);
+                      }}
                       className={`flex items-center gap-3 p-3.5 rounded-xl border transition-all cursor-pointer text-left ${deviceType === "desktop"
                         ? "bg-primary-50 dark:bg-primary-950/40 border-primary-500 text-primary-900 dark:text-primary-200 ring-2 ring-primary-500/20"
                         : "bg-white dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600"
@@ -373,7 +471,7 @@ export default function WorkspaceCalibrationModal({
             </div>
 
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800 shrink-0">
-              <Button variant="secondary" size="md" onClick={onClose}>
+              <Button variant="secondary" size="md" onClick={handleClose}>
                 Cancelar
               </Button>
               <Button variant="primary" size="md" onClick={handleNext}>
@@ -485,19 +583,18 @@ export default function WorkspaceCalibrationModal({
             </div>
 
             <div className="flex items-center justify-end gap-3 pt-2">
-              <Button variant="secondary" size="md" onClick={handlePrev}>
+              <Button variant="secondary" size="md" onClick={handlePrev} disabled={isSaving}>
                 Voltar
               </Button>
               <Button
                 variant="primary"
                 size="md"
-                onClick={() => {
-                  onCalibrateSubmit();
-                  onClose();
-                }}
+                onClick={handleSave}
+                isLoading={isSaving}
                 className="flex items-center gap-1.5"
               >
-                <CheckCircle2 size={16} /> Salvar Calibração
+                {!isSaving && <CheckCircle2 size={16} />}
+                {isSaving ? "Salvando..." : "Salvar Calibração"}
               </Button>
             </div>
           </div>
