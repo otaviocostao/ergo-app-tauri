@@ -65,13 +65,12 @@ export default function Monitoring() {
   };
 
   const handleCalibrateSubmit = () => {
-    setIsCalibrationOpen(false);
     const newLog: LogEvent = {
       id: Date.now().toString(),
       timestamp: new Date().toLocaleTimeString(),
       type: "success",
-      message: "Nova postura de referência calibrada",
-      detail: `Posição atual salva como referência ideal. (Pescoço: ${neckAngle}°, Ombros: ${shoulderBalance}%)`,
+      message: "Ambiente de trabalho salvo com sucesso",
+      detail: `Configuração atualizada. Métricas exibidas na calibração: pescoço ${neckAngle}°, ombros ${shoulderBalance}%.`,
     };
     setLogs((prev) => [newLog, ...prev]);
   };
