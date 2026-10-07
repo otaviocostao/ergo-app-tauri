@@ -4,13 +4,13 @@ import { Link } from "react-router-dom";
 import Header from "../Header";
 import { dashboardPreview } from "../../data/dashboard";
 
-export const panelClass = "rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900";
+export const panelClass = "rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900";
 export const titleClass = "text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100";
 export const subtitleClass = "mt-1 text-sm leading-relaxed text-slate-500 dark:text-slate-400";
 
 export function DashboardPage({ title, subtitle, detail = false, children }: { title: string; subtitle: string; detail?: boolean; children: ReactNode }) {
   return (
-    <div className="@container flex w-full min-w-0 flex-col gap-7 pb-8">
+    <div className="@container flex w-full min-w-0 flex-col gap-4 pb-8">
       {detail && <Link to="/" viewTransition className="inline-flex w-fit items-center gap-2 rounded-md text-sm font-medium text-slate-500 transition-colors hover:text-primary-600 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-500 dark:text-slate-400"><ArrowLeft size={16} /> Voltar ao início</Link>}
       <Header title={title} subtitle={subtitle} className="mb-0!" />
       {children}
@@ -34,7 +34,7 @@ export function MetricCard({ title, value, description, progress, badge, to, dan
     {progress !== undefined && <div className="mt-auto pt-4">{to && <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">Meta diária</p>}<ProgressBar value={progress} label={`${title}: progresso`} danger={danger} /></div>}
     {to && <span className="mt-auto flex items-center gap-1 pt-3 text-xs font-medium text-primary-700 dark:text-primary-400">Ver detalhes<ArrowUpRight size={14} aria-hidden="true" /></span>}
   </>;
-  const className = `${panelClass} flex min-w-0 flex-col p-5 xl:p-6 ${to ? "min-h-64 transition-colors hover:border-primary-400 hover:bg-primary-50/30 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-500 dark:hover:bg-primary-950/20" : "min-h-40"}`;
+  const className = `${panelClass} flex min-w-0 flex-col p-5 xl:p-6 ${to ? "min-h-64 transition-colors hover:bg-primary-50/30 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-500 dark:hover:bg-primary-950/20" : "min-h-40"}`;
   return to ? <Link to={to} viewTransition aria-label={`Ver detalhes: ${title}`} className={className}>{content}</Link> : <section aria-label={title} className={className}>{content}</section>;
 }
 
