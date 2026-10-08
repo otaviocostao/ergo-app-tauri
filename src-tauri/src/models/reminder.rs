@@ -65,7 +65,7 @@ impl FromSql for ReminderFrequency {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Reminder {
     pub id: String,
@@ -85,6 +85,17 @@ pub struct Reminder {
     pub custom_days: Option<Vec<String>>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReminderAlarm {
+    pub id: String,
+    pub user_id: i64,
+    pub title: String,
+    pub message: String,
+    pub notification_tone: bool,
+    pub scheduled_at: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

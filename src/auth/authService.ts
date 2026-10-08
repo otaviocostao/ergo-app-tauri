@@ -38,12 +38,12 @@ export function authErrorMessage(error: unknown): string {
 
 function requireDesktop() {
   if (!isTauri()) {
-    throw new Error("Para cadastrar ou acessar sua conta local, abra o aplicativo Ergo pelo Tauri. No navegador, você pode continuar offline como visitante.");
+    throw new Error("Para cadastrar ou acessar sua conta local, abra o aplicativo Ergo pelo Tauri.");
   }
 }
 
 // No credentials or session flags are stored in localStorage. The Rust process
-// owns the session; the browser-only preview supports guest navigation only.
+// owns the session; internal routes require an authenticated account.
 export const authService = {
   getSession: (): Promise<Session> => isTauri() ? invoke("get_session") : Promise.resolve({ kind: "anonymous" }),
   async register(data: Registration): Promise<LocalUser> {

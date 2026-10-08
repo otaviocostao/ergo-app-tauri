@@ -57,6 +57,44 @@ pub fn get_reminders(conn: &Connection, auth_state: &AuthState) -> Result<Vec<Re
     reminder_repository::find_all(conn, user_id).map_err(|e| e.to_string())
 }
 
+fn validate_schedule(reminder: &Reminder) -> Result<(), String> {
+    let start = reminder
+        .start_time
+        .as_deref()
+        .ok_or("Start time is required")?;
+    parse_time_to_minutes(start).ok_or("Invalid start time")?;
+    if reminder.interval <= 0 {
+        return Err("Interval must be at least 1 minute".into());
+    }
+    if reminder.frequency == ReminderFrequency::Once {
+        let date = reminder
+            .reminder_date
+            .as_deref()
+            .ok_or("Reminder date is required")?;
+        chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|_| "Invalid reminder date")?;
+    } else {
+        let end = reminder.end_time.as_deref().ok_or("End time is required")?;
+        validate_reminder_times(Some(start), Some(end), reminder.interval)?;
+    }
+    if reminder.frequency == ReminderFrequency::Custom {
+        let days = reminder
+            .custom_days
+            .as_ref()
+            .ok_or("Custom days are required")?;
+        if days.is_empty()
+            || days.iter().any(|day| {
+                !matches!(
+                    day.as_str(),
+                    "MON" | "TUE" | "WED" | "THU" | "FRI" | "SAT" | "SUN"
+                )
+            })
+        {
+            return Err("Invalid custom days".into());
+        }
+    }
+    Ok(())
+}
+
 pub fn get_reminder_by_id(
     conn: &Connection,
     auth_state: &AuthState,
@@ -74,11 +112,6 @@ pub fn create_reminder(
     payload: CreateReminderPayload,
 ) -> Result<Reminder, String> {
     let user_id = require_authenticated_user_id(auth_state)?;
-    validate_reminder_times(
-        payload.start_time.as_deref(),
-        payload.end_time.as_deref(),
-        payload.interval,
-    )?;
 
     if payload.frequency == ReminderFrequency::Once {
         match &payload.reminder_date {
@@ -134,6 +167,7 @@ pub fn create_reminder(
         updated_at: Some(now),
     };
 
+    validate_schedule(&reminder)?;
     reminder_repository::insert(conn, &reminder).map_err(|e| e.to_string())?;
 
     Ok(reminder)
@@ -196,12 +230,6 @@ pub fn update_reminder(
         }
     });
 
-    validate_reminder_times(
-        updated_start_time.as_deref(),
-        updated_end_time.as_deref(),
-        updated_interval,
-    )?;
-
     let now = Utc::now().to_rfc3339();
 
     let updated_reminder = Reminder {
@@ -224,6 +252,7 @@ pub fn update_reminder(
         updated_at: Some(now),
     };
 
+    validate_schedule(&updated_reminder)?;
     reminder_repository::update(conn, &updated_reminder).map_err(|e| e.to_string())?;
 
     Ok(updated_reminder)
@@ -586,5 +615,34 @@ mod tests {
         let err_zero = validate_reminder_times(Some("08:00"), Some("18:00"), 0);
         assert!(err_zero.is_err());
         assert_eq!(err_zero.unwrap_err(), "Interval must be at least 1 minute");
+    }
+
+    #[test]
+    fn schedule_validation_rejects_invalid_dates_days_and_missing_times() {
+        let conn = setup_test_db();
+        let state = AuthState::new().unwrap();
+        authenticate_test_user(&conn, &state, "owner@example.com");
+        let mut payload = create_payload();
+        payload.start_time = None;
+        assert!(create_reminder(&conn, &state, payload).is_err());
+        let mut payload = create_payload();
+        payload.frequency = ReminderFrequency::Once;
+        payload.reminder_date = Some("2026-02-30".into());
+        assert!(create_reminder(&conn, &state, payload).is_err());
+        let mut payload = create_payload();
+        payload.frequency = ReminderFrequency::Custom;
+        payload.custom_days = Some(vec!["INVALID".into()]);
+        assert!(create_reminder(&conn, &state, payload).is_err());
+
+        let mut payload = create_payload();
+        payload.frequency = ReminderFrequency::Once;
+        payload.reminder_date = Some("2026-10-06".into());
+        payload.start_time = Some("23:59".into());
+        payload.end_time = None;
+        let reminder = create_reminder(&conn, &state, payload).unwrap();
+        assert_eq!(reminder.start_time.as_deref(), Some("23:59"));
+        let mut update = update_payload(&reminder.id);
+        update.reminder_date = Some("invalid".into());
+        assert!(update_reminder(&conn, &state, update).is_err());
     }
 }

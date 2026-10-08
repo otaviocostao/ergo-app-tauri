@@ -185,7 +185,7 @@ export default function Reminders() {
             cell: (item) => (
                 <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
                     <Clock size={14} className="text-slate-400" />
-                    <span>{item.interval} min</span>
+                    <span>{item.frequency === ReminderFrequency.ONCE ? "Uma vez" : `${item.interval} min`}</span>
                 </div>
             ),
         },

@@ -32,6 +32,21 @@ impl AuthState {
             dummy_hash: hash_password("not-a-user-password")?,
         })
     }
+
+    pub(crate) fn with_authenticated_user<T>(
+        &self,
+        action: impl FnOnce(Option<i64>) -> T,
+    ) -> Result<T, String> {
+        let session = self
+            .session
+            .lock()
+            .map_err(|_| "Failed to read authentication session".to_string())?;
+        let user_id = match &*session {
+            Session::Authenticated { user } => Some(user.id),
+            _ => None,
+        };
+        Ok(action(user_id))
+    }
 }
 
 pub(crate) fn hash_password(password: &str) -> Result<String, AuthError> {

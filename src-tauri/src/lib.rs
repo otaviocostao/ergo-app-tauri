@@ -18,12 +18,15 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let app_state = db::init_database(app.handle())?;
             app.manage(app_state);
             let auth_state = AuthState::new()
                 .map_err(|_| std::io::Error::other("Failed to initialize authentication"))?;
             app.manage(auth_state);
+            let scheduler = services::reminder_scheduler_service::start(app.handle().clone())?;
+            app.manage(scheduler);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -41,14 +44,12 @@ pub fn run() {
             commands::reminder::update_reminder,
             commands::reminder::delete_reminder,
             commands::reminder::toggle_reminder_status,
-
             // Companies
             commands::company::get_companies,
             commands::company::get_company_by_id,
             commands::company::create_company,
             commands::company::update_company,
             commands::company::delete_company,
-
             // Workspace
             commands::workspace::get_workspaces,
             commands::workspace::get_workspace_by_id,
@@ -56,6 +57,12 @@ pub fn run() {
             commands::workspace::update_workspace,
             commands::workspace::delete_workspace,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<services::reminder_scheduler_service::SchedulerControl>()
+                    .stop();
+            }
+        });
 }

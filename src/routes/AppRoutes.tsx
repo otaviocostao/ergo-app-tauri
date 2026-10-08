@@ -11,12 +11,12 @@ import { useAuth } from "../auth/AuthContext";
 
 function RequireSession() {
   const { session } = useAuth();
-  return session.kind === "anonymous" ? <Navigate to="/login" replace /> : <Outlet />;
+  return session.kind === "authenticated" ? <Outlet /> : <Navigate to="/login" replace />;
 }
 
 function AnonymousOnly() {
   const { session } = useAuth();
-  return session.kind === "anonymous" ? <AuthLayout /> : <Navigate to="/" replace />;
+  return session.kind === "authenticated" ? <Navigate to="/" replace /> : <AuthLayout />;
 }
 
 export default function AppRoutes() {
