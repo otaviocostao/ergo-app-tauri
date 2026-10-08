@@ -12,6 +12,7 @@ O TCC define um protótipo de monitoramento de indicadores posturais e oculares,
 | [Regras de negócio](regras-de-negocio.md) | Regras do TCC, comportamentos existentes e propostas ainda não aprovadas. |
 | [Estado da implementação](estado-da-implementacao.md) | O que existe no código e o que falta para atender ao TCC. |
 | [Pendências e validação](pendencias-e-validacao.md) | Decisões abertas, critérios a definir e cenários de teste. |
+| [Planejamento de Visão Computacional](../planejamento-visao-computacional.md) | Arquitetura de detecção, métricas biomecânicas, persistência e roadmap técnico. |
 
 ## Como interpretar os registros
 
