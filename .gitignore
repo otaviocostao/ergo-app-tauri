@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 public/wasm/
+public/models/wasm/
 
 # Local accounts and SQLite journals are never shared through Git.
 *.db

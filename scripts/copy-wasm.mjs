@@ -13,26 +13,36 @@ const srcWasmDir = path.join(
   "wasm"
 );
 const destWasmDir = path.join(projectRoot, "public", "wasm");
+const destModelsWasmDir = path.join(projectRoot, "public", "models", "wasm");
 
-function copyWasmFiles() {
+export function copyWasmFiles() {
   if (!fs.existsSync(srcWasmDir)) {
     console.error(`[Error] MediaPipe WASM directory not found at: ${srcWasmDir}`);
     console.error("Please run 'npm install' first.");
     process.exit(1);
   }
 
-  if (!fs.existsSync(destWasmDir)) {
-    fs.mkdirSync(destWasmDir, { recursive: true });
-  }
-
+  const targetDirs = [destWasmDir, destModelsWasmDir];
   const files = fs.readdirSync(srcWasmDir);
-  for (const file of files) {
-    const srcFile = path.join(srcWasmDir, file);
-    const destFile = path.join(destWasmDir, file);
-    fs.copyFileSync(srcFile, destFile);
+
+  for (const dir of targetDirs) {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    for (const file of files) {
+      const srcFile = path.join(srcWasmDir, file);
+      const destFile = path.join(dir, file);
+      fs.copyFileSync(srcFile, destFile);
+    }
   }
 
-  console.log(`[Success] Copied ${files.length} MediaPipe WASM files to public/wasm/`);
+  console.log(
+    `[Success] Copied ${files.length} MediaPipe WASM files to public/wasm/ and public/models/wasm/`
+  );
 }
 
-copyWasmFiles();
+const isDirectRun = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+if (isDirectRun) {
+  copyWasmFiles();
+}
