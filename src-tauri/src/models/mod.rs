@@ -4,3 +4,4 @@ pub mod reminder;
 pub mod user;
 pub mod workspace;
 pub mod posture_calibration;
+pub mod monitoring_session;
