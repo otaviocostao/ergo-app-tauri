@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 *.local
+public/wasm/
 
 # Local accounts and SQLite journals are never shared through Git.
 *.db
