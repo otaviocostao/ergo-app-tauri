@@ -59,6 +59,12 @@ pub fn run() {
             commands::workspace::create_workspace,
             commands::workspace::update_workspace,
             commands::workspace::delete_workspace,
+
+            // Posture Calibration
+            commands::posture_calibration::save_posture_calibration,
+            commands::posture_calibration::get_active_calibration,
+            commands::posture_calibration::get_posture_calibrations,
+            commands::posture_calibration::delete_posture_calibration,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
