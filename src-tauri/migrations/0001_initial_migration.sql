@@ -83,3 +83,22 @@ CREATE TABLE IF NOT EXISTS posture_calibrations (
 
 CREATE INDEX IF NOT EXISTS idx_posture_calibrations_active ON posture_calibrations(is_active);
 CREATE INDEX IF NOT EXISTS idx_posture_calibrations_user_id ON posture_calibrations(user_id);
+
+CREATE TABLE IF NOT EXISTS monitoring_sessions (
+    id TEXT PRIMARY KEY NOT NULL,
+    user_id INTEGER,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    duration_seconds INTEGER NOT NULL DEFAULT 0,
+    average_score REAL NOT NULL DEFAULT 100.0,
+    good_posture_percentage REAL NOT NULL DEFAULT 100.0,
+    warning_posture_percentage REAL NOT NULL DEFAULT 0.0,
+    danger_posture_percentage REAL NOT NULL DEFAULT 0.0,
+    total_alerts_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_monitoring_sessions_user_id ON monitoring_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_monitoring_sessions_started_at ON monitoring_sessions(started_at);
