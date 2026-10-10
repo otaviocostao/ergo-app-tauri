@@ -3,3 +3,4 @@ pub mod company;
 pub mod reminder;
 pub mod user;
 pub mod workspace;
+pub mod posture_calibration;
