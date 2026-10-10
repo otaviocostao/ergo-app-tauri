@@ -35,5 +35,3 @@ export const postureCalibrationService = {
     return await invoke<boolean>("delete_posture_calibration", { id });
   },
 };
-
-export const postureService = postureCalibrationService;
