@@ -65,6 +65,14 @@ pub fn run() {
             commands::posture_calibration::get_active_calibration,
             commands::posture_calibration::get_posture_calibrations,
             commands::posture_calibration::delete_posture_calibration,
+
+            // Monitoring Sessions
+            commands::monitoring_session::start_monitoring_session,
+            commands::monitoring_session::end_monitoring_session,
+            commands::monitoring_session::get_monitoring_sessions,
+            commands::monitoring_session::get_monitoring_session_by_id,
+            commands::monitoring_session::get_active_monitoring_session,
+            commands::monitoring_session::delete_monitoring_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
