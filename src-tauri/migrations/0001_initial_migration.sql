@@ -67,3 +67,19 @@ CREATE TABLE IF NOT EXISTS workspaces (
 );
 
 CREATE VIEW IF NOT EXISTS workspace AS SELECT * FROM workspaces;
+
+CREATE TABLE IF NOT EXISTS posture_calibrations (
+    id TEXT PRIMARY KEY NOT NULL,
+    user_id INTEGER,
+    baseline_neck_angle REAL NOT NULL,
+    baseline_shoulder_balance REAL NOT NULL,
+    baseline_distance_cm REAL NOT NULL,
+    baseline_eye_distance_px REAL NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_posture_calibrations_active ON posture_calibrations(is_active);
+CREATE INDEX IF NOT EXISTS idx_posture_calibrations_user_id ON posture_calibrations(user_id);
