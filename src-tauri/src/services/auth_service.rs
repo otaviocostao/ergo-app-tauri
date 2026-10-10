@@ -160,7 +160,7 @@ mod tests {
             first_name: "Ana".into(),
             last_name: "Silva".into(),
             birth_date: "1995-05-20".into(),
-            password: "senha-segura-123".into(),
+            password: "Senha-segura-123!".into(),
             email: "ana@example.com".into(),
             phone: "(75) 99999-9999".into(),
             photo: None,
@@ -190,7 +190,7 @@ mod tests {
             &conn,
             &state,
             "ANA@EXAMPLE.COM".into(),
-            "senha-segura-123".into(),
+            "Senha-segura-123!".into(),
         )
         .unwrap();
         assert!(matches!(session, Session::Authenticated { .. }));
@@ -204,6 +204,26 @@ mod tests {
     }
 
     #[test]
+    fn existing_passwords_can_still_log_in_after_registration_policy_changes() {
+        let conn = test_connection();
+        let user = user_service::create_user(&conn, registration_payload()).unwrap();
+        let state = AuthState::new().unwrap();
+        for password in ["senha-antiga".to_string(), "x".repeat(128)] {
+            // Simulate a password created under the previous registration policy.
+            conn.execute(
+                "UPDATE users SET password_hash = ?1 WHERE id = ?2",
+                rusqlite::params![hash_password(&password).unwrap(), user.id],
+            )
+            .unwrap();
+            assert!(matches!(
+                login(&conn, &state, "ana@example.com".into(), password).unwrap(),
+                Session::Authenticated { .. }
+            ));
+            logout(&state).unwrap();
+        }
+    }
+
+    #[test]
     fn login_attempt_limit_resets_after_window() {
         let conn = test_connection();
         let state = AuthState::new().unwrap();
@@ -214,7 +234,7 @@ mod tests {
                     &conn,
                     &state,
                     "missing@example.com".into(),
-                    "senha-segura".into()
+                    "Senha-segura-123!".into()
                 )
                 .unwrap_err()
                 .code,
@@ -226,7 +246,7 @@ mod tests {
                 &conn,
                 &state,
                 "missing@example.com".into(),
-                "senha-segura".into()
+                "Senha-segura-123!".into()
             )
             .unwrap_err()
             .code,
@@ -240,7 +260,7 @@ mod tests {
                 &conn,
                 &state,
                 "missing@example.com".into(),
-                "senha-segura".into()
+                "Senha-segura-123!".into()
             )
             .unwrap_err()
             .code,

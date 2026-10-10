@@ -5,7 +5,10 @@ import Button from "../components/Button";
 import Input from "../components/Input";
 import BirthDateInput from "../components/auth/BirthDateInput";
 import AuthCard from "../components/auth/AuthCard";
+import PasswordRequirements from "../components/auth/PasswordRequirements";
+import PhoneInput from "../components/auth/PhoneInput";
 import { authErrorMessage, authService, type Registration } from "../auth/authService";
+import { PASSWORD_MAX_LENGTH, passwordValidationMessage } from "../auth/passwordPolicy";
 
 type Fields = Pick<Registration, "firstName" | "lastName" | "birthDate" | "email" | "phone" | "password"> & {
   confirmation: string;
@@ -33,7 +36,7 @@ export default function Register() {
 
   function update(field: keyof Fields, value: string) {
     setFields((previous) => ({ ...previous, [field]: value }));
-    setErrors((previous) => ({ ...previous, [field]: undefined }));
+    setErrors((previous) => ({ ...previous, [field]: undefined, ...(field === "password" ? { confirmation: undefined } : {}) }));
     setFeedback("");
   }
 
@@ -52,13 +55,13 @@ export default function Register() {
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email.trim())) validation.email = "Informe um e-mail válido.";
     const phoneDigits = fields.phone.replace(/\D/g, "");
-    if (phoneDigits.length < 8 || phoneDigits.length > 15) validation.phone = "Informe um telefone válido.";
-    if (Array.from(fields.password).length < 8) validation.password = "A senha deve ter no mínimo 8 caracteres.";
-    if (Array.from(fields.password).length > 128) validation.password = "A senha excede o limite de caracteres.";
+    if (phoneDigits.length !== 11) validation.phone = "Informe o telefone com DDD e 9 dígitos.";
+    validation.password = passwordValidationMessage(fields.password);
     if (!fields.confirmation || fields.confirmation !== fields.password) validation.confirmation = "As senhas devem ser iguais.";
 
     const validationMessages = Object.values(validation).filter(Boolean) as string[];
 
+    setErrors(validation);
     if (validationMessages.length > 0) {
       setFeedback(validationMessages.join("\n"));
       return;
@@ -94,23 +97,34 @@ export default function Register() {
     { field: "lastName", label: "Sobrenome", type: "text", placeholder: "Digite seu sobrenome", autoComplete: "family-name", maxLength: 60 },
     { field: "birthDate", label: "Data de nascimento", type: "date", autoComplete: "bday" },
     { field: "email", label: "E-mail", type: "email", placeholder: "Ex.: nome@email.com", autoComplete: "username", maxLength: 254 },
-    { field: "phone", label: "Telefone", type: "tel", placeholder: "Ex.: (99) 99999-9999", autoComplete: "tel", maxLength: 30 },
-    { field: "password", label: "Senha", type: "password", placeholder: "Crie sua senha", helperText: "Use entre 8 e 128 caracteres.", autoComplete: "new-password", maxLength: 128 },
-    { field: "confirmation", label: "Confirmar senha", type: "password", placeholder: "Repita sua senha", autoComplete: "new-password", maxLength: 128 },
+    { field: "phone", label: "Telefone", type: "tel", placeholder: "Ex.: (99) 99999-9999", autoComplete: "tel", maxLength: 15 },
+    { field: "password", label: "Senha", type: "password", placeholder: "Crie sua senha", autoComplete: "new-password", maxLength: PASSWORD_MAX_LENGTH },
+    { field: "confirmation", label: "Confirmar senha", type: "password", placeholder: "Repita sua senha", autoComplete: "new-password", maxLength: PASSWORD_MAX_LENGTH },
   ];
 
   function renderInput({ field, ...input }: typeof inputs[number]) {
+    const styles = {
+      inputSize: "md" as const,
+      containerClassName: "gap-2",
+      helperClassName: "text-xs dark:text-slate-500!",
+      labelClassName: "text-sm! font-medium! text-slate-700! dark:text-slate-700!",
+      inputClassName: "h-11 bg-slate-50/80 text-slate-900 select-text placeholder:text-slate-400 focus:bg-white dark:border-slate-200! dark:bg-slate-50! dark:text-slate-900! dark:placeholder:text-slate-400! dark:disabled:border-slate-200! dark:disabled:bg-slate-100! dark:disabled:text-slate-400! dark:aria-invalid:border-red-500!",
+    };
     return field === "birthDate" ? (
       <div key={field} className="sm:col-span-2">
         <BirthDateInput value={fields.birthDate} onChange={(value) => update("birthDate", value)}
           error={errors.birthDate} disabled={pending} />
       </div>
+    ) : field === "phone" ? (
+      <PhoneInput key={field} id="register-phone" name="phone" label={input.label} placeholder={input.placeholder}
+        autoComplete={input.autoComplete} value={fields.phone} onChange={(value) => update("phone", value)}
+        error={errors.phone} disabled={pending} aria-required="true" {...styles} />
     ) : (
-      <Input key={field} {...input} value={fields[field]} onChange={(event) => update(field, event.target.value)}
-        error={errors[field]} disabled={pending} aria-required="true"
-        inputSize="md" containerClassName="gap-2" helperClassName="text-xs dark:text-slate-500!"
-        labelClassName="text-sm! font-medium! text-slate-700! dark:text-slate-700!"
-        inputClassName="h-11 bg-slate-50/80 text-slate-900 select-text placeholder:text-slate-400 focus:bg-white dark:border-slate-200! dark:bg-slate-50! dark:text-slate-900! dark:placeholder:text-slate-400! dark:disabled:border-slate-200! dark:disabled:bg-slate-100! dark:disabled:text-slate-400! dark:aria-invalid:border-red-500!" />
+      <div key={field} className={`min-w-0${field === "confirmation" ? " sm:col-start-1 sm:row-start-2" : ""}`}>
+        <Input id={`register-${field}`} name={field} {...input} value={fields[field]} onChange={(event) => update(field, event.target.value)}
+          {...(field === "password" ? { "aria-describedby": `register-password-requirements${errors.password ? " register-password-error" : ""}` } : {})}
+          error={errors[field]} disabled={pending} aria-required="true" {...styles} />
+      </div>
     );
   }
 
@@ -135,7 +149,13 @@ export default function Register() {
             <legend className="flex items-center gap-2 bg-white pr-3 text-sm font-semibold text-slate-800">
               <LockKeyhole size={16} className="text-primary-700" aria-hidden="true" /> Seu acesso
             </legend>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">{inputs.slice(5).map(renderInput)}</div>
+            <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
+              {renderInput(inputs[5])}
+              <div className="sm:col-start-2 sm:row-span-2 sm:row-start-1">
+                <PasswordRequirements password={fields.password} />
+              </div>
+              {renderInput(inputs[6])}
+            </div>
           </fieldset>
           {feedback && (
             <p role="alert" className="whitespace-pre-line rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-5 text-red-800">{feedback}</p>

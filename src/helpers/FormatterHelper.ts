@@ -112,6 +112,15 @@ export class FormatterHelper {
 
     return `(${truncated.slice(0, 2)}) ${truncated.slice(2, 7)}-${truncated.slice(7, 11)}`;
   }
+
+  static formatMobilePhone(value: string): string {
+    const digits = value.replace(/\D/g, "").slice(0, 11);
+    if (!digits) return "";
+    if (digits.length <= 2) return `(${digits}`;
+
+    const prefix = `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}`;
+    return digits.length <= 7 ? prefix : `${prefix}-${digits.slice(7)}`;
+  }
 }
 
 export const formatCnpj = FormatterHelper.formatCnpj;
