@@ -5,3 +5,4 @@ pub mod user_service;
 pub mod workspace_service;
 pub mod posture_calibration_service;
 pub mod monitoring_session_service;
+pub mod posture_metric_snapshot_service;
