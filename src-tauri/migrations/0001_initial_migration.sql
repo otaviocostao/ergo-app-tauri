@@ -102,3 +102,23 @@ CREATE TABLE IF NOT EXISTS monitoring_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_monitoring_sessions_user_id ON monitoring_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_monitoring_sessions_started_at ON monitoring_sessions(started_at);
+
+CREATE TABLE IF NOT EXISTS posture_metrics_snapshots (
+    id TEXT PRIMARY KEY NOT NULL,
+    session_id TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    avg_neck_angle REAL NOT NULL,
+    max_neck_angle REAL NOT NULL,
+    avg_shoulder_balance REAL NOT NULL,
+    min_shoulder_balance REAL NOT NULL,
+    avg_distance_cm REAL NOT NULL,
+    blink_count INTEGER NOT NULL DEFAULT 0,
+    dominant_status TEXT NOT NULL,
+    score REAL NOT NULL,
+    samples_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    FOREIGN KEY (session_id) REFERENCES monitoring_sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_posture_metrics_snapshots_session_id ON posture_metrics_snapshots(session_id);
+CREATE INDEX IF NOT EXISTS idx_posture_metrics_snapshots_timestamp ON posture_metrics_snapshots(timestamp);
