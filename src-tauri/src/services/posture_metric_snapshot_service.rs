@@ -28,11 +28,6 @@ pub fn validate_snapshot_payload(
         return Err("Score must be between 0 and 100".to_string());
     }
 
-    let status = payload.dominant_status.trim().to_lowercase();
-    if !matches!(status.as_str(), "good" | "warning" | "danger") {
-        return Err("Dominant status must be 'good', 'warning', or 'danger'".to_string());
-    }
-
     if payload.blink_count < 0 {
         return Err("Blink count cannot be negative".to_string());
     }
@@ -61,7 +56,6 @@ pub fn record_metric_snapshot(
 
     let now = Utc::now().to_rfc3339();
     let timestamp = payload.timestamp.unwrap_or_else(|| now.clone());
-    let dominant_status = payload.dominant_status.trim().to_lowercase();
 
     let snapshot = PostureMetricSnapshot {
         id: Uuid::new_v4().to_string(),
@@ -73,7 +67,7 @@ pub fn record_metric_snapshot(
         min_shoulder_balance: payload.min_shoulder_balance,
         avg_distance_cm: payload.avg_distance_cm,
         blink_count: payload.blink_count,
-        dominant_status,
+        dominant_status: payload.dominant_status,
         score: payload.score,
         samples_count: payload.samples_count,
         created_at: Some(now),
@@ -98,7 +92,6 @@ pub fn record_metric_snapshots_batch(
     for payload in payloads {
         validate_snapshot_payload(conn, &payload)?;
         let timestamp = payload.timestamp.unwrap_or_else(|| now.clone());
-        let dominant_status = payload.dominant_status.trim().to_lowercase();
 
         snapshots.push(PostureMetricSnapshot {
             id: Uuid::new_v4().to_string(),
@@ -110,7 +103,7 @@ pub fn record_metric_snapshots_batch(
             min_shoulder_balance: payload.min_shoulder_balance,
             avg_distance_cm: payload.avg_distance_cm,
             blink_count: payload.blink_count,
-            dominant_status,
+            dominant_status: payload.dominant_status,
             score: payload.score,
             samples_count: payload.samples_count,
             created_at: Some(now.clone()),
@@ -193,7 +186,7 @@ mod tests {
             min_shoulder_balance: 0.90,
             avg_distance_cm: 58.0,
             blink_count: 18,
-            dominant_status: "good".to_string(),
+            dominant_status: PostureStatus::Good,
             score: 95.0,
             samples_count: 600,
         };
@@ -201,7 +194,8 @@ mod tests {
         let snapshot = record_metric_snapshot(&conn, payload).unwrap();
         assert_eq!(snapshot.session_id, "test-session-1");
         assert_eq!(snapshot.timestamp, "2026-10-10T10:01:00Z");
-        assert_eq!(snapshot.dominant_status, "good");
+        assert_eq!(snapshot.dominant_status, PostureStatus::Good);
+        assert_eq!(snapshot.dominant_status.as_str(), "good");
         assert_eq!(snapshot.score, 95.0);
         assert_eq!(snapshot.blink_count, 18);
         assert_eq!(snapshot.samples_count, 600);
@@ -210,6 +204,7 @@ mod tests {
         let snapshots = get_snapshots_by_session(&conn, "test-session-1").unwrap();
         assert_eq!(snapshots.len(), 1);
         assert_eq!(snapshots[0].id, snapshot.id);
+        assert_eq!(snapshots[0].dominant_status, PostureStatus::Good);
     }
 
     #[test]
@@ -225,7 +220,7 @@ mod tests {
                 min_shoulder_balance: 0.95,
                 avg_distance_cm: 60.0,
                 blink_count: 20,
-                dominant_status: "good".to_string(),
+                dominant_status: PostureStatus::Good,
                 score: 98.0,
                 samples_count: 600,
             },
@@ -238,7 +233,7 @@ mod tests {
                 min_shoulder_balance: 0.80,
                 avg_distance_cm: 45.0,
                 blink_count: 12,
-                dominant_status: "warning".to_string(),
+                dominant_status: PostureStatus::Warning,
                 score: 75.0,
                 samples_count: 600,
             },
@@ -250,7 +245,9 @@ mod tests {
         let history = get_snapshots_by_session(&conn, "test-session-1").unwrap();
         assert_eq!(history.len(), 2);
         assert_eq!(history[0].score, 98.0);
+        assert_eq!(history[0].dominant_status, PostureStatus::Good);
         assert_eq!(history[1].score, 75.0);
+        assert_eq!(history[1].dominant_status, PostureStatus::Warning);
     }
 
     #[test]
@@ -266,7 +263,7 @@ mod tests {
                 min_shoulder_balance: 0.95,
                 avg_distance_cm: 60.0,
                 blink_count: 18,
-                dominant_status: "good".to_string(),
+                dominant_status: PostureStatus::Good,
                 score: 95.0,
                 samples_count: 600,
             },
@@ -279,7 +276,7 @@ mod tests {
                 min_shoulder_balance: 0.90,
                 avg_distance_cm: 58.0,
                 blink_count: 15,
-                dominant_status: "good".to_string(),
+                dominant_status: PostureStatus::Good,
                 score: 90.0,
                 samples_count: 600,
             },
@@ -292,7 +289,7 @@ mod tests {
                 min_shoulder_balance: 0.65,
                 avg_distance_cm: 40.0,
                 blink_count: 8,
-                dominant_status: "danger".to_string(),
+                dominant_status: PostureStatus::Danger,
                 score: 50.0,
                 samples_count: 600,
             },
@@ -312,6 +309,7 @@ mod tests {
         .unwrap();
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].timestamp, "2026-10-10T10:05:00Z");
+        assert_eq!(filtered[0].dominant_status, PostureStatus::Good);
 
         // Filter with limit
         let limited = get_posture_history(
@@ -343,7 +341,7 @@ mod tests {
                 min_shoulder_balance: 0.8,
                 avg_distance_cm: 60.0,
                 blink_count: 10,
-                dominant_status: "good".to_string(),
+                dominant_status: PostureStatus::Good,
                 score: 90.0,
                 samples_count: 600,
             },
@@ -363,7 +361,7 @@ mod tests {
                 min_shoulder_balance: 0.8,
                 avg_distance_cm: 60.0,
                 blink_count: 10,
-                dominant_status: "good".to_string(),
+                dominant_status: PostureStatus::Good,
                 score: 120.0,
                 samples_count: 600,
             },
@@ -371,25 +369,10 @@ mod tests {
         .unwrap_err();
         assert!(err.contains("Score must be between 0 and 100"));
 
-        // Invalid status
-        let err = record_metric_snapshot(
-            &conn,
-            CreateSnapshotPayload {
-                session_id: "test-session-1".to_string(),
-                timestamp: None,
-                avg_neck_angle: 10.0,
-                max_neck_angle: 15.0,
-                avg_shoulder_balance: 0.9,
-                min_shoulder_balance: 0.8,
-                avg_distance_cm: 60.0,
-                blink_count: 10,
-                dominant_status: "invalid_status".to_string(),
-                score: 80.0,
-                samples_count: 600,
-            },
-        )
-        .unwrap_err();
-        assert!(err.contains("Dominant status must be"));
+        // Invalid status deserialization via serde
+        let invalid_json = r#"{"sessionId":"test-session-1","avgNeckAngle":10.0,"maxNeckAngle":15.0,"avgShoulderBalance":0.9,"minShoulderBalance":0.8,"avgDistanceCm":60.0,"blinkCount":10,"dominantStatus":"invalid_status","score":80.0,"samplesCount":600}"#;
+        let res: Result<CreateSnapshotPayload, _> = serde_json::from_str(invalid_json);
+        assert!(res.is_err());
 
         // Negative blink count
         let err = record_metric_snapshot(
@@ -403,7 +386,7 @@ mod tests {
                 min_shoulder_balance: 0.8,
                 avg_distance_cm: 60.0,
                 blink_count: -1,
-                dominant_status: "good".to_string(),
+                dominant_status: PostureStatus::Good,
                 score: 80.0,
                 samples_count: 600,
             },
@@ -426,7 +409,7 @@ mod tests {
                 min_shoulder_balance: 0.8,
                 avg_distance_cm: 60.0,
                 blink_count: 10,
-                dominant_status: "good".to_string(),
+                dominant_status: PostureStatus::Good,
                 score: 90.0,
                 samples_count: 600,
             },
