@@ -49,7 +49,3 @@ pub struct UpdateSessionPayload {
     pub danger_posture_percentage: Option<f64>,
     pub total_alerts_count: Option<i64>,
 }
-
-pub type CreateMonitoringSessionPayload = CreateSessionPayload;
-pub type EndMonitoringSessionPayload = EndSessionPayload;
-pub type UpdateMonitoringSessionPayload = UpdateSessionPayload;

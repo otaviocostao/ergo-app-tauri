@@ -39,8 +39,3 @@ export interface UpdateSessionPayload {
   dangerPosturePercentage?: number | null;
   totalAlertsCount?: number | null;
 }
-
-export type CreateMonitoringSessionPayload = CreateSessionPayload;
-export type EndMonitoringSessionPayload = EndSessionPayload;
-export type UpdateMonitoringSessionPayload = UpdateSessionPayload;
-export type MonitoringSessionDTO = MonitoringSessionItem;
