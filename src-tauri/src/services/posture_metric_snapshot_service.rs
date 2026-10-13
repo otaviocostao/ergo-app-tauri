@@ -141,6 +141,7 @@ pub fn delete_metric_snapshot(conn: &Connection, id: &str) -> Result<bool, Strin
 mod tests {
     use super::*;
     use crate::models::monitoring_session::MonitoringSession;
+    use crate::models::posture_metric_snapshot::PostureStatus;
 
     fn setup_test_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
