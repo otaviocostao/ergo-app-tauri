@@ -121,7 +121,6 @@ export default function BirthDateInput({ value, onChange, error, disabled = fals
       <Input ref={inputRef} label="Data de nascimento" type="date" lang="pt-BR" autoComplete="bday"
         value={value} max={todayValue} onChange={(event) => onChange(event.target.value)}
         error={error} disabled={disabled} aria-required="true"
-        helperText="Digite sua data ou use o calendário."
         inputSize="md" containerClassName="gap-2" helperClassName="text-xs dark:text-slate-500!"
         labelClassName="text-sm! font-medium! text-slate-700! dark:text-slate-700!"
         inputClassName="h-11 bg-slate-50/80 pr-32! text-slate-900 select-text focus:bg-white [color-scheme:light] [&::-webkit-calendar-picker-indicator]:hidden dark:border-slate-200! dark:bg-slate-50! dark:text-slate-900! dark:disabled:border-slate-200! dark:disabled:bg-slate-100! dark:disabled:text-slate-400! dark:aria-invalid:border-red-500!"

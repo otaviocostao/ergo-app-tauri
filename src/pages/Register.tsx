@@ -93,14 +93,14 @@ export default function Register() {
     helperText?: string;
     maxLength?: number;
   }> = [
-    { field: "firstName", label: "Nome", type: "text", placeholder: "Digite seu nome", autoComplete: "given-name", maxLength: 60 },
-    { field: "lastName", label: "Sobrenome", type: "text", placeholder: "Digite seu sobrenome", autoComplete: "family-name", maxLength: 60 },
-    { field: "birthDate", label: "Data de nascimento", type: "date", autoComplete: "bday" },
-    { field: "email", label: "E-mail", type: "email", placeholder: "Ex.: nome@email.com", autoComplete: "username", maxLength: 254 },
-    { field: "phone", label: "Telefone", type: "tel", placeholder: "Ex.: (99) 99999-9999", autoComplete: "tel", maxLength: 15 },
-    { field: "password", label: "Senha", type: "password", placeholder: "Crie sua senha", autoComplete: "new-password", maxLength: PASSWORD_MAX_LENGTH },
-    { field: "confirmation", label: "Confirmar senha", type: "password", placeholder: "Repita sua senha", autoComplete: "new-password", maxLength: PASSWORD_MAX_LENGTH },
-  ];
+      { field: "firstName", label: "Nome", type: "text", placeholder: "Digite seu nome", autoComplete: "given-name", maxLength: 60 },
+      { field: "lastName", label: "Sobrenome", type: "text", placeholder: "Digite seu sobrenome", autoComplete: "family-name", maxLength: 60 },
+      { field: "birthDate", label: "Data de nascimento", type: "date", autoComplete: "bday" },
+      { field: "email", label: "E-mail", type: "email", placeholder: "Ex.: nome@email.com", autoComplete: "username", maxLength: 254 },
+      { field: "phone", label: "Telefone", type: "tel", placeholder: "Ex.: (99) 99999-9999", autoComplete: "tel", maxLength: 15 },
+      { field: "password", label: "Senha", type: "password", placeholder: "Crie sua senha", autoComplete: "new-password", maxLength: PASSWORD_MAX_LENGTH },
+      { field: "confirmation", label: "Confirmar senha", type: "password", placeholder: "Repita sua senha", autoComplete: "new-password", maxLength: PASSWORD_MAX_LENGTH },
+    ];
 
   function renderInput({ field, ...input }: typeof inputs[number]) {
     const styles = {
@@ -130,44 +130,40 @@ export default function Register() {
 
   return (
     <AuthCard titleId="register-title">
-        <button type="button" disabled={pending} onClick={() => navigate("/login", { viewTransition: true })}
-          className="mb-6 inline-flex cursor-pointer items-center gap-1.5 rounded-md text-xs font-medium text-slate-500 transition-colors hover:text-primary-700 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-600 disabled:cursor-default disabled:opacity-50">
-          <ArrowLeft size={14} aria-hidden="true" /> Voltar ao login
-        </button>
-        <header className="mb-6">
-          <h1 id="register-title" className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Crie sua conta</h1>
-          <p className="mt-2 text-sm leading-6 text-slate-500">Preencha seus dados para começar a usar o Ergo.</p>
-        </header>
-        <form className="flex flex-col gap-6" onSubmit={submit} noValidate aria-busy={pending}>
-          <fieldset disabled={pending} className="min-w-0">
-            <legend className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-800">
-              <UserRound size={16} className="text-primary-700" aria-hidden="true" /> Informações pessoais
-            </legend>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">{inputs.slice(0, 5).map(renderInput)}</div>
-          </fieldset>
-          <fieldset disabled={pending} className="min-w-0 border-t border-slate-100 pt-5">
-            <legend className="flex items-center gap-2 bg-white pr-3 text-sm font-semibold text-slate-800">
-              <LockKeyhole size={16} className="text-primary-700" aria-hidden="true" /> Seu acesso
-            </legend>
-            <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
-              {renderInput(inputs[5])}
-              <div className="sm:col-start-2 sm:row-span-2 sm:row-start-1">
-                <PasswordRequirements password={fields.password} />
-              </div>
-              {renderInput(inputs[6])}
+      <button type="button" disabled={pending} onClick={() => navigate("/login", { viewTransition: true })}
+        className="mb-6 inline-flex cursor-pointer items-center gap-1.5 rounded-md text-xs font-medium text-slate-500 transition-colors hover:text-primary-700 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-600 disabled:cursor-default disabled:opacity-50">
+        <ArrowLeft size={14} aria-hidden="true" /> Voltar ao login
+      </button>
+      <header className="mb-6">
+        <h1 id="register-title" className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Crie sua conta</h1>
+        <p className="mt-2 text-sm leading-6 text-slate-500">Preencha seus dados para começar a usar o Ergo.</p>
+      </header>
+      <form className="flex flex-col gap-6" onSubmit={submit} noValidate aria-busy={pending}>
+        <fieldset disabled={pending} className="min-w-0">
+          <legend className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-800">
+            <UserRound size={16} className="text-primary-700" aria-hidden="true" /> Informações pessoais
+          </legend>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">{inputs.slice(0, 5).map(renderInput)}</div>
+        </fieldset>
+        <fieldset disabled={pending} className="min-w-0 border-t border-slate-100 pt-5">
+          <legend className="flex items-center gap-2 bg-white pr-3 text-sm font-semibold text-slate-800">
+            <LockKeyhole size={16} className="text-primary-700" aria-hidden="true" /> Seu acesso
+          </legend>
+          <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
+            {renderInput(inputs[5])}
+            <div className="sm:col-start-2 sm:row-span-2 sm:row-start-1">
+              <PasswordRequirements password={fields.password} />
             </div>
-          </fieldset>
-          {feedback && (
-            <p role="alert" className="whitespace-pre-line rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-5 text-red-800">{feedback}</p>
-          )}
-          <div>
-            <Button type="submit" size="lg" className="h-12 w-full rounded-xl! bg-primary-700! text-sm! shadow-none hover:bg-primary-800! dark:bg-primary-700! dark:hover:bg-primary-800!" isLoading={pending}>
-              {pending ? "Criando sua conta…" : "Criar conta"}
-              {!pending && <ArrowRight size={18} aria-hidden="true" />}
-            </Button>
-            <p className="mt-3 text-center text-xs leading-5 text-slate-400">Todos os campos são obrigatórios.</p>
+            {renderInput(inputs[6])}
           </div>
-        </form>
+        </fieldset>
+        <div>
+          <Button type="submit" size="lg" className="h-12 w-full rounded-xl! bg-primary-700! text-sm! shadow-none hover:bg-primary-800! dark:bg-primary-700! dark:hover:bg-primary-800!" isLoading={pending}>
+            {pending ? "Criando sua conta…" : "Criar conta"}
+            {!pending && <ArrowRight size={18} aria-hidden="true" />}
+          </Button>
+        </div>
+      </form>
     </AuthCard>
   );
 }
