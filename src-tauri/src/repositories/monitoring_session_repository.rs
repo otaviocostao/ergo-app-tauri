@@ -171,3 +171,14 @@ pub fn delete(conn: &Connection, id: &str) -> Result<usize, rusqlite::Error> {
         params![id],
     )
 }
+
+pub fn increment_alerts_count(
+    conn: &Connection,
+    session_id: &str,
+    updated_at: &str,
+) -> Result<usize, rusqlite::Error> {
+    conn.execute(
+        "UPDATE monitoring_sessions SET total_alerts_count = total_alerts_count + 1, updated_at = ?1 WHERE id = ?2",
+        params![updated_at, session_id],
+    )
+}
