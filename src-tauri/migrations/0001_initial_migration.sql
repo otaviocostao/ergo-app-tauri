@@ -122,3 +122,20 @@ CREATE TABLE IF NOT EXISTS posture_metrics_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_posture_metrics_snapshots_session_id ON posture_metrics_snapshots(session_id);
 CREATE INDEX IF NOT EXISTS idx_posture_metrics_snapshots_timestamp ON posture_metrics_snapshots(timestamp);
+
+CREATE TABLE IF NOT EXISTS posture_alerts (
+    id TEXT PRIMARY KEY NOT NULL,
+    session_id TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    alert_type TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    duration_seconds INTEGER NOT NULL DEFAULT 0,
+    message TEXT NOT NULL,
+    resolved_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    FOREIGN KEY (session_id) REFERENCES monitoring_sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_posture_alerts_session_id ON posture_alerts(session_id);
+CREATE INDEX IF NOT EXISTS idx_posture_alerts_timestamp ON posture_alerts(timestamp);
+CREATE INDEX IF NOT EXISTS idx_posture_alerts_resolved_at ON posture_alerts(resolved_at);
