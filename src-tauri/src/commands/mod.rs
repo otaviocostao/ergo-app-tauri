@@ -6,4 +6,6 @@ pub mod workspace;
 pub mod posture_calibration;
 pub mod monitoring_session;
 pub mod posture_metric_snapshot;
+pub mod posture_alert;
+pub mod posture;
 

@@ -80,6 +80,13 @@ pub fn run() {
             commands::posture_metric_snapshot::get_snapshots_by_session,
             commands::posture_metric_snapshot::get_posture_history,
             commands::posture_metric_snapshot::delete_metric_snapshot,
+
+            // Posture Alerts
+            commands::posture_alert::record_posture_alert,
+            commands::posture_alert::resolve_posture_alert,
+            commands::posture_alert::get_alerts_by_session,
+            commands::posture_alert::get_posture_alerts,
+            commands::posture_alert::delete_posture_alert,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
