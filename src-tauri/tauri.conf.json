@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "ergo-app-tauri",
+  "productName": "Ergo",
   "version": "0.1.0",
   "identifier": "com.ergo.ergo-app-tauri",
   "build": {

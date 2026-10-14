@@ -17,7 +17,6 @@ const toastrConfig = {
   success: {
     icon: CheckCircle2,
     defaultTitle: "Sucesso",
-    borderClass: "border-emerald-200 dark:border-emerald-800/80",
     bgClass: "bg-white/95 dark:bg-slate-900/95",
     iconBgClass: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400",
     titleClass: "text-emerald-900 dark:text-emerald-200",
@@ -25,7 +24,6 @@ const toastrConfig = {
   warning: {
     icon: AlertTriangle,
     defaultTitle: "Atenção",
-    borderClass: "border-amber-200 dark:border-amber-800/80",
     bgClass: "bg-white/95 dark:bg-slate-900/95",
     iconBgClass: "bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400",
     titleClass: "text-amber-900 dark:text-amber-200",
@@ -33,7 +31,6 @@ const toastrConfig = {
   error: {
     icon: AlertCircle,
     defaultTitle: "Erro",
-    borderClass: "border-rose-200 dark:border-rose-800/80",
     bgClass: "bg-white/95 dark:bg-slate-900/95",
     iconBgClass: "bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400",
     titleClass: "text-rose-900 dark:text-rose-200",
@@ -77,7 +74,7 @@ export default function Toastr({
       aria-live="polite"
     >
       <div
-        className={`pointer-events-auto relative w-full sm:w-auto min-w-[320px] max-w-sm rounded-xl border p-4 shadow-sm backdrop-blur-md transition-all animate-toast-in ${currentConfig.borderClass} ${currentConfig.bgClass}`}
+        className={`pointer-events-auto relative w-full sm:w-auto min-w-[320px] max-w-sm rounded-xl p-4 shadow-sm backdrop-blur-md transition-all animate-toast-in ${currentConfig.bgClass}`}
       >
         <div className="flex items-start gap-3">
           <div
