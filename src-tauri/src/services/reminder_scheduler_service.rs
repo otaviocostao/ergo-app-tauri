@@ -209,6 +209,25 @@ pub fn start(app: AppHandle) -> std::io::Result<SchedulerControl> {
     Ok(SchedulerControl(stop))
 }
 
+pub fn inactivate_completed_once_reminders<Tz: TimeZone>(
+    conn: &rusqlite::Connection,
+    user_id: i64,
+    reminders: &[Reminder],
+    now: &DateTime<Tz>,
+) -> Result<(), String> {
+    for reminder in reminders
+        .iter()
+        .filter(|r| r.frequency == ReminderFrequency::Once && r.status == "ativo")
+    {
+        if next_occurrence(reminder, now).is_none() {
+            let now_str = chrono::Utc::now().to_rfc3339();
+            reminder_repository::update_status(conn, user_id, &reminder.id, "inativo", &now_str)
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
 fn poll_app(app: &AppHandle, scheduler: &mut ReminderScheduler<Local>) -> Result<(), String> {
     let state = app.state::<AppState>();
     let conn = state.db.lock().map_err(|e| e.to_string())?;
@@ -220,7 +239,8 @@ fn poll_app(app: &AppHandle, scheduler: &mut ReminderScheduler<Local>) -> Result
             Some(id) => reminder_repository::find_all(&conn, id).map_err(|e| e.to_string())?,
             None => vec![],
         };
-        for alarm in scheduler.poll(user_id, &reminders, Local::now()) {
+        let now = Local::now();
+        for alarm in scheduler.poll(user_id, &reminders, now) {
             let mut notification = app
                 .notification()
                 .builder()
@@ -235,6 +255,9 @@ fn poll_app(app: &AppHandle, scheduler: &mut ReminderScheduler<Local>) -> Result
             }
             app.emit("reminder-alarm", &alarm)
                 .map_err(|e| e.to_string())?;
+        }
+        if let Some(uid) = user_id {
+            inactivate_completed_once_reminders(&conn, uid, &reminders, &now)?;
         }
         Ok(())
     })?
@@ -426,5 +449,41 @@ mod tests {
             .poll(Some(1), &[r.clone()], at(6, 9, 0, 0))
             .is_empty());
         assert_eq!(scheduler.poll(Some(1), &[r], at(6, 10, 0, 0)).len(), 1);
+    }
+
+    #[test]
+    fn once_reminders_are_inactivated_when_completed_or_past() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(include_str!("../../migrations/0001_initial_migration.sql"))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO users (id, first_name, last_name, birth_date, password_hash, email, phone)
+             VALUES (1, 'Test', 'User', '1995-05-20', 'test-hash', 'test@example.com', '75999999999')",
+            [],
+        )
+        .unwrap();
+        let mut r = reminder();
+        r.frequency = ReminderFrequency::Once;
+        r.reminder_date = Some("2026-10-06".into());
+        r.start_time = Some("08:00".into());
+        r.end_time = None;
+        let now_str = chrono::Utc::now().to_rfc3339();
+        r.created_at = Some(now_str.clone());
+        r.updated_at = Some(now_str);
+        crate::repositories::reminder_repository::insert(&conn, &r).unwrap();
+
+        // Before occurrence: should remain active
+        inactivate_completed_once_reminders(&conn, 1, &[r.clone()], &at(6, 7, 59, 59)).unwrap();
+        let fetched = crate::repositories::reminder_repository::find_by_id(&conn, 1, &r.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(fetched.status, "ativo");
+
+        // At or after occurrence: should be marked inactive
+        inactivate_completed_once_reminders(&conn, 1, &[r.clone()], &at(6, 8, 0, 0)).unwrap();
+        let fetched = crate::repositories::reminder_repository::find_by_id(&conn, 1, &r.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(fetched.status, "inativo");
     }
 }

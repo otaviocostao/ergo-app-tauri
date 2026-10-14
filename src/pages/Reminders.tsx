@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
+import { isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import Header from "../components/Header";
 import Table, { ColumnDef } from "../components/Table";
 import Button from "../components/Button";
@@ -59,6 +61,16 @@ export default function Reminders() {
 
     useEffect(() => {
         loadReminders();
+        if (!isTauri()) return;
+        let unlisten: (() => void) | undefined;
+        listen("reminder-alarm", () => {
+            loadReminders();
+        }).then((fn) => {
+            unlisten = fn;
+        });
+        return () => {
+            unlisten?.();
+        };
     }, [loadReminders]);
 
     const handleConfirmDelete = async () => {
