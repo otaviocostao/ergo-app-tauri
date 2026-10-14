@@ -9,7 +9,7 @@ import {
   REMINDER_FREQUENCY_OPTIONS,
   WEEK_DAYS_OPTIONS,
 } from "../../enums";
-import { Tag, Calendar } from "lucide-react";
+import { Tag, Calendar, Info } from "lucide-react";
 
 interface ReminderFormModalProps {
   isOpen: boolean;
@@ -129,6 +129,41 @@ export default function ReminderFormModal({
     !isOnce && interval.trim() !== "" &&
     (!isNaN(parsedMinutes) && periodDuration !== null && (parsedMinutes <= 0 || parsedMinutes >= periodDuration));
   const isTimeOrderInvalid = periodDuration !== null && periodDuration <= 0;
+
+  const frequencyInfo = (() => {
+    switch (frequency) {
+      case ReminderFrequency.ONCE:
+        return {
+          title: "Aviso único",
+          description: "O aviso toca apenas uma vez, na data e no horário selecionados.",
+        };
+      case ReminderFrequency.DAILY:
+        return {
+          title: "Repetição diária",
+          description: "O aviso se repete todos os dias da semana (segunda a domingo), seguindo o intervalo entre o início e o fim.",
+        };
+      case ReminderFrequency.BUSINESS_DAYS:
+        return {
+          title: "Dias úteis",
+          description: "O aviso se repete de segunda a sexta-feira, seguindo o intervalo entre o horário de início e fim.",
+        };
+      case ReminderFrequency.WEEKENDS:
+        return {
+          title: "Finais de semana",
+          description: "O aviso se repete aos sábados e domingos, seguindo o intervalo entre o horário de início e fim.",
+        };
+      case ReminderFrequency.CUSTOM:
+        return {
+          title: "Dias personalizados",
+          description: "O aviso se repete nos dias da semana marcados acima, respeitando o intervalo entre início e fim.",
+        };
+      default:
+        return {
+          title: "Como funciona a repetição",
+          description: "O primeiro aviso toca após o intervalo a partir do início. Os próximos seguem o intervalo, antes do horário de fim.",
+        };
+    }
+  })();
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -278,6 +313,80 @@ export default function ReminderFormModal({
           />
         </div>
 
+        <div className="flex flex-col sm:flex-row gap-4 items-start">
+          <Select
+            label="Frequência"
+            leftIcon={<Calendar size={16} />}
+            value={frequency}
+            onChange={(e) => {
+              setFrequency(e.target.value);
+              if (submitError) setSubmitError(null);
+            }}
+            options={REMINDER_FREQUENCY_OPTIONS}
+            containerClassName={
+              frequency === ReminderFrequency.ONCE ||
+                frequency === ReminderFrequency.CUSTOM
+                ? "w-full sm:w-1/2"
+                : "w-full"
+            }
+          />
+
+          {frequency === ReminderFrequency.ONCE && (
+            <div className="w-full sm:w-1/2">
+              <Input
+                label="Data do Lembrete"
+                type="date"
+                value={reminderDate}
+                onChange={(e) => {
+                  setReminderDate(e.target.value);
+                  if (submitError) setSubmitError(null);
+                }}
+                required
+              />
+            </div>
+          )}
+
+          {frequency === ReminderFrequency.CUSTOM && (
+            <div className="flex flex-col w-full sm:w-1/2 justify-center">
+              <label className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                Dias da semana
+              </label>
+              <div className="flex gap-2 items-center flex-wrap">
+                {WEEK_DAYS_OPTIONS.map((day) => (
+                  <label
+                    key={day.id}
+                    className="flex items-center gap-1 cursor-pointer select-none"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={customDays.includes(day.id)}
+                      onChange={() => toggleDay(day.id)}
+                      className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                      {day.label}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3 rounded-xl border border-primary-100 bg-primary-50/50 p-3.5 text-xs text-slate-700 dark:border-primary-950/60 dark:bg-primary-950/20 dark:text-slate-300">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-100 text-primary-700 dark:bg-primary-900/60 dark:text-primary-300">
+            <Info size={22} aria-hidden="true" />
+          </div>
+          <div className="flex-1 space-y-0.5 leading-relaxed">
+            <p className="font-semibold text-slate-900 dark:text-slate-100">
+              {frequencyInfo.title}
+            </p>
+            <p className="text-slate-600 dark:text-slate-400">
+              {frequencyInfo.description}
+            </p>
+          </div>
+        </div>
+
         <div className={`grid gap-4 ${isOnce ? "grid-cols-1" : "grid-cols-3"}`}>
           {!isOnce && (
             <Input
@@ -329,72 +438,7 @@ export default function ReminderFormModal({
           )}
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-4 items-start">
-          <Select
-            label="Frequência"
-            leftIcon={<Calendar size={16} />}
-            value={frequency}
-            onChange={(e) => {
-              setFrequency(e.target.value);
-              if (submitError) setSubmitError(null);
-            }}
-            options={REMINDER_FREQUENCY_OPTIONS}
-            containerClassName={
-              frequency === ReminderFrequency.ONCE ||
-              frequency === ReminderFrequency.CUSTOM
-                ? "w-full sm:w-1/2"
-                : "w-full"
-            }
-          />
 
-          {frequency === ReminderFrequency.ONCE && (
-            <div className="w-full sm:w-1/2">
-              <Input
-                label="Data do Lembrete"
-                type="date"
-                value={reminderDate}
-                onChange={(e) => {
-                  setReminderDate(e.target.value);
-                  if (submitError) setSubmitError(null);
-                }}
-                required
-              />
-            </div>
-          )}
-
-          {frequency === ReminderFrequency.CUSTOM && (
-            <div className="flex flex-col w-full sm:w-1/2 justify-center">
-              <label className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                Dias da semana
-              </label>
-              <div className="flex gap-2 items-center flex-wrap">
-                {WEEK_DAYS_OPTIONS.map((day) => (
-                  <label
-                    key={day.id}
-                    className="flex items-center gap-1 cursor-pointer select-none"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={customDays.includes(day.id)}
-                      onChange={() => toggleDay(day.id)}
-                      className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                    />
-                    <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                      {day.label}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          {isOnce
-            ? "O aviso toca uma vez, na data e no horário escolhidos."
-            : "O primeiro aviso toca após um intervalo a partir do início. Os próximos seguem o intervalo, antes do horário de fim."}
-          {" "}Mantenha o aplicativo aberto ou minimizado. Avisos perdidos não são reenviados.
-        </p>
 
         <div className="flex items-center gap-2 pt-1">
           <input
