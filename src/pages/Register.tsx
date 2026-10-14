@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, LockKeyhole, UserRound } from "lucide-react";
 import Button from "../components/Button";
 import Input from "../components/Input";
+import Toastr from "../components/Toastr";
 import BirthDateInput from "../components/auth/BirthDateInput";
 import AuthCard from "../components/auth/AuthCard";
 import PasswordRequirements from "../components/auth/PasswordRequirements";
@@ -29,7 +30,7 @@ export default function Register() {
   const navigate = useNavigate();
   const [fields, setFields] = useState<Fields>(initialFields);
   const [errors, setErrors] = useState<Errors>({});
-  const [feedback, setFeedback] = useState("");
+  const [toastError, setToastError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const today = new Date();
   const maxBirthDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
@@ -37,7 +38,6 @@ export default function Register() {
   function update(field: keyof Fields, value: string) {
     setFields((previous) => ({ ...previous, [field]: value }));
     setErrors((previous) => ({ ...previous, [field]: undefined, ...(field === "password" ? { confirmation: undefined } : {}) }));
-    setFeedback("");
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -62,12 +62,8 @@ export default function Register() {
     const validationMessages = Object.values(validation).filter(Boolean) as string[];
 
     setErrors(validation);
-    if (validationMessages.length > 0) {
-      setFeedback(validationMessages.join("\n"));
-      return;
-    }
+    if (validationMessages.length > 0) return;
 
-    setFeedback("");
     setPending(true);
     try {
       await authService.register({
@@ -80,8 +76,11 @@ export default function Register() {
       });
       setFields(initialFields);
       navigate("/login", { replace: true, state: { registrationComplete: true }, viewTransition: true });
-    } catch (error) { setFeedback(authErrorMessage(error)); }
-    finally { setPending(false); }
+    } catch (error) {
+      setToastError(authErrorMessage(error));
+    } finally {
+      setPending(false);
+    }
   }
 
   const inputs: Array<{
@@ -129,41 +128,50 @@ export default function Register() {
   }
 
   return (
-    <AuthCard titleId="register-title">
-      <button type="button" disabled={pending} onClick={() => navigate("/login", { viewTransition: true })}
-        className="mb-6 inline-flex cursor-pointer items-center gap-1.5 rounded-md text-xs font-medium text-slate-500 transition-colors hover:text-primary-700 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-600 disabled:cursor-default disabled:opacity-50">
-        <ArrowLeft size={14} aria-hidden="true" /> Voltar ao login
-      </button>
-      <header className="mb-6">
-        <h1 id="register-title" className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Crie sua conta</h1>
-        <p className="mt-2 text-sm leading-6 text-slate-500">Preencha seus dados para começar a usar o Ergo.</p>
-      </header>
-      <form className="flex flex-col gap-6" onSubmit={submit} noValidate aria-busy={pending}>
-        <fieldset disabled={pending} className="min-w-0">
-          <legend className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-800">
-            <UserRound size={16} className="text-primary-700" aria-hidden="true" /> Informações pessoais
-          </legend>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">{inputs.slice(0, 5).map(renderInput)}</div>
-        </fieldset>
-        <fieldset disabled={pending} className="min-w-0 border-t border-slate-100 pt-5">
-          <legend className="flex items-center gap-2 bg-white pr-3 text-sm font-semibold text-slate-800">
-            <LockKeyhole size={16} className="text-primary-700" aria-hidden="true" /> Seu acesso
-          </legend>
-          <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
-            {renderInput(inputs[5])}
-            <div className="sm:col-start-2 sm:row-span-2 sm:row-start-1">
-              <PasswordRequirements password={fields.password} />
+    <>
+      <Toastr
+        isOpen={Boolean(toastError)}
+        type="error"
+        title="Erro no cadastro"
+        message={toastError ?? ""}
+        onClose={() => setToastError(null)}
+      />
+      <AuthCard titleId="register-title">
+        <button type="button" disabled={pending} onClick={() => navigate("/login", { viewTransition: true })}
+          className="mb-6 inline-flex cursor-pointer items-center gap-1.5 rounded-md text-xs font-medium text-slate-500 transition-colors hover:text-primary-700 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-600 disabled:cursor-default disabled:opacity-50">
+          <ArrowLeft size={14} aria-hidden="true" /> Voltar ao login
+        </button>
+        <header className="mb-6">
+          <h1 id="register-title" className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Crie sua conta</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-500">Preencha seus dados para começar a usar o Ergo.</p>
+        </header>
+        <form className="flex flex-col gap-6" onSubmit={submit} noValidate aria-busy={pending}>
+          <fieldset disabled={pending} className="min-w-0">
+            <legend className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-800">
+              <UserRound size={16} className="text-primary-700" aria-hidden="true" /> Informações pessoais
+            </legend>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">{inputs.slice(0, 5).map(renderInput)}</div>
+          </fieldset>
+          <fieldset disabled={pending} className="min-w-0 border-t border-slate-100 pt-5">
+            <legend className="flex items-center gap-2 bg-white pr-3 text-sm font-semibold text-slate-800">
+              <LockKeyhole size={16} className="text-primary-700" aria-hidden="true" /> Seu acesso
+            </legend>
+            <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
+              {renderInput(inputs[5])}
+              <div className="sm:col-start-2 sm:row-span-2 sm:row-start-1">
+                <PasswordRequirements password={fields.password} />
+              </div>
+              {renderInput(inputs[6])}
             </div>
-            {renderInput(inputs[6])}
+          </fieldset>
+          <div>
+            <Button type="submit" size="lg" className="h-12 w-full rounded-xl! bg-primary-700! text-sm! shadow-none hover:bg-primary-800! dark:bg-primary-700! dark:hover:bg-primary-800!" isLoading={pending}>
+              {pending ? "Criando sua conta…" : "Criar conta"}
+              {!pending && <ArrowRight size={18} aria-hidden="true" />}
+            </Button>
           </div>
-        </fieldset>
-        <div>
-          <Button type="submit" size="lg" className="h-12 w-full rounded-xl! bg-primary-700! text-sm! shadow-none hover:bg-primary-800! dark:bg-primary-700! dark:hover:bg-primary-800!" isLoading={pending}>
-            {pending ? "Criando sua conta…" : "Criar conta"}
-            {!pending && <ArrowRight size={18} aria-hidden="true" />}
-          </Button>
-        </div>
-      </form>
-    </AuthCard>
+        </form>
+      </AuthCard>
+    </>
   );
 }
