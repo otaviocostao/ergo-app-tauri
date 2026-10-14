@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 
 export interface CompanyItem {
   id: string;
@@ -63,6 +63,9 @@ export interface UpdateCompanyPayload {
 
 export const companyService = {
   async getAll(): Promise<CompanyItem[]> {
+    if (!isTauri()) {
+      return [];
+    }
     return await invoke<CompanyItem[]>("get_companies");
   },
 

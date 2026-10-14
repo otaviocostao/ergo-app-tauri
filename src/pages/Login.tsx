@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { ArrowRight, Building2, UserPlus, UserRound } from "lucide-react";
 import Button from "../components/Button";
 import Input from "../components/Input";
 import AuthDialog from "../components/auth/AuthDialog";
+import AuthCard from "../components/auth/AuthCard";
 import VerifiedAnimation from "../components/auth/VerifiedAnimation";
 import { useAuth } from "../auth/AuthContext";
 import { authErrorMessage } from "../auth/authService";
@@ -41,54 +43,68 @@ export default function Login() {
   }
 
   return (
-    <section className="flex w-full max-w-md flex-col items-center gap-6" aria-labelledby="login-title">
-      <h1 id="login-title" className="w-full text-center text-2xl font-semibold leading-9 tracking-tight">Faça login na sua conta para continuar</h1>
-      <form className="flex w-full flex-col gap-4" onSubmit={submit} noValidate aria-busy={pending}>
-        <Input label="E-mail" type="email" autoComplete="username" maxLength={254} value={email}
+    <>
+      <AuthCard titleId="login-title" contentClassName="flex flex-col justify-center">
+        <header className="mb-7">
+          <h1 id="login-title" className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Bem-vindo de volta</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-500">Entre com seu e-mail e senha para continuar.</p>
+        </header>
+      <form className="flex w-full flex-col gap-5" onSubmit={submit} noValidate aria-busy={pending}>
+        <Input label="E-mail" type="email" placeholder="Ex.: nome@email.com" autoComplete="username" maxLength={254} value={email}
           onChange={(event) => { setEmail(event.target.value); setErrors((previous) => ({ ...previous, email: undefined })); }}
-          error={errors.email} disabled={pending} aria-required="true" inputSize="lg"
-          containerClassName="gap-4" labelClassName="text-base! font-normal! leading-6 text-black! dark:text-black!"
-          inputClassName="h-10 bg-white py-2! text-black select-text dark:border-slate-200! dark:bg-white! dark:text-black! dark:disabled:border-slate-200! dark:disabled:bg-slate-50! dark:disabled:text-slate-400! dark:aria-invalid:border-red-500!" />
-        <Input label="Senha" type="password" autoComplete="current-password" maxLength={128} value={password}
+          error={errors.email} disabled={pending} aria-required="true" inputSize="md"
+          containerClassName="gap-2" labelClassName="text-sm! font-medium! text-slate-700! dark:text-slate-700!"
+          inputClassName="h-11 bg-slate-50/80 text-slate-900 select-text placeholder:text-slate-400 focus:bg-white dark:border-slate-200! dark:bg-slate-50! dark:text-slate-900! dark:placeholder:text-slate-400! dark:disabled:border-slate-200! dark:disabled:bg-slate-100! dark:disabled:text-slate-400! dark:aria-invalid:border-red-500!" />
+        <Input label="Senha" type="password" placeholder="Digite sua senha" autoComplete="current-password" maxLength={128} value={password}
           onChange={(event) => { setPassword(event.target.value); setErrors((previous) => ({ ...previous, password: undefined })); }}
-          error={errors.password} disabled={pending} aria-required="true" inputSize="lg"
-          containerClassName="gap-4" labelClassName="text-base! font-normal! leading-6 text-black! dark:text-black!"
-          inputClassName="h-10 bg-white py-2! text-black select-text dark:border-slate-200! dark:bg-white! dark:text-black! dark:disabled:border-slate-200! dark:disabled:bg-slate-50! dark:disabled:text-slate-400! dark:aria-invalid:border-red-500!" />
+          error={errors.password} disabled={pending} aria-required="true" inputSize="md"
+          containerClassName="gap-2" labelClassName="text-sm! font-medium! text-slate-700! dark:text-slate-700!"
+          inputClassName="h-11 bg-slate-50/80 text-slate-900 select-text placeholder:text-slate-400 focus:bg-white dark:border-slate-200! dark:bg-slate-50! dark:text-slate-900! dark:placeholder:text-slate-400! dark:disabled:border-slate-200! dark:disabled:bg-slate-100! dark:disabled:text-slate-400! dark:aria-invalid:border-red-500!" />
         {(feedback || auth.initializationError) && (
-          <p role="alert" className="w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm leading-5 text-red-800">
+          <p role="alert" className="w-full rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-5 text-red-800">
             {feedback || auth.initializationError}
           </p>
         )}
-        <Button type="submit" size="lg" className="w-full shadow-none" disabled={pending} isLoading={pending}>
+        <Button type="submit" size="lg" className="mt-1 h-12 w-full rounded-xl! bg-primary-700! text-sm! shadow-none hover:bg-primary-800! dark:bg-primary-700! dark:hover:bg-primary-800!" disabled={pending} isLoading={pending}>
           {pending ? "Entrando…" : "Entrar"}
+          {!pending && <ArrowRight size={18} aria-hidden="true" />}
         </Button>
       </form>
-      <div className="flex w-full items-center gap-2 whitespace-nowrap text-base leading-6 text-slate-500">
+      <div className="my-6 flex w-full items-center gap-3 text-xs leading-5 text-slate-400">
         <span aria-hidden="true" className="h-px flex-1 bg-slate-200" />
-        Ainda não tem uma conta?
+        <span className="shrink-0">Ainda não tem uma conta?</span>
         <span aria-hidden="true" className="h-px flex-1 bg-slate-200" />
       </div>
-      <Button variant="secondary" size="lg" className="w-full shadow-none dark:bg-slate-100! dark:text-slate-700! dark:hover:bg-slate-200! dark:active:bg-slate-300!" disabled={pending} onClick={() => setRegistrationDialog("options")}>Cadastre-se</Button>
+      <Button variant="secondary" size="lg" className="h-12 w-full rounded-xl! border border-primary-100 bg-primary-50! text-sm! text-primary-800! shadow-none hover:bg-primary-100! dark:bg-primary-50! dark:text-primary-800! dark:hover:bg-primary-100!" disabled={pending} onClick={() => setRegistrationDialog("options")}>
+        <UserPlus size={18} aria-hidden="true" /> Cadastre-se
+      </Button>
+      </AuthCard>
       <AuthDialog
         open={registrationDialog === "options"}
         onClose={() => setRegistrationDialog(null)}
         title="Como deseja se cadastrar?"
         actions={
-          <Button variant="secondary" size="lg" className="w-full shadow-none dark:bg-slate-100! dark:text-slate-700! dark:hover:bg-slate-200! dark:active:bg-slate-300!" onClick={() => setRegistrationDialog(null)}>
+          <Button variant="secondary" size="lg" className="h-11 w-full rounded-xl! text-sm! shadow-none dark:bg-slate-100! dark:text-slate-700! dark:hover:bg-slate-200! dark:active:bg-slate-300!" onClick={() => setRegistrationDialog(null)}>
             Voltar
           </Button>
         }
       >
-        <div className="mt-6 flex flex-col gap-6">
-          <section className="flex flex-col gap-3 rounded-xl border border-primary-100 bg-primary-50 p-5">
-            <p className="font-medium text-slate-800">Você faz parte de alguma empresa? Realize o Cadastro Online</p>
-            <Button size="lg" className="w-full shadow-none" onClick={() => setRegistrationDialog("online")}>
+        <div className="mt-5 flex flex-col gap-4">
+          <section className="flex flex-col gap-4 rounded-xl border border-primary-100 bg-primary-50/60 p-5">
+            <div className="flex items-start gap-3">
+              <Building2 size={20} className="mt-0.5 shrink-0 text-primary-700" aria-hidden="true" />
+              <div><h3 className="font-semibold text-slate-800">Para empresas</h3><p className="mt-1 text-sm leading-5 text-slate-600">Conheça a opção de cadastro pela plataforma on-line.</p></div>
+            </div>
+            <Button size="lg" className="h-11 w-full rounded-xl! bg-primary-700! text-sm! shadow-none hover:bg-primary-800! dark:bg-primary-700! dark:hover:bg-primary-800!" onClick={() => setRegistrationDialog("online")}>
               Cadastrar online
             </Button>
           </section>
-          <section className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-5">
-            <p className="font-medium text-slate-800">Caso não, realize o Cadastro Offline</p>
-            <Button variant="secondary" size="lg" className="w-full shadow-none dark:bg-slate-100! dark:text-slate-700! dark:hover:bg-slate-200! dark:active:bg-slate-300!" onClick={() => { setRegistrationDialog(null); navigate("/cadastro", { viewTransition: true }); }}>
+          <section className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-slate-50 p-5">
+            <div className="flex items-start gap-3">
+              <UserRound size={20} className="mt-0.5 shrink-0 text-primary-700" aria-hidden="true" />
+              <div><h3 className="font-semibold text-slate-800">Para você</h3><p className="mt-1 text-sm leading-5 text-slate-600">Crie sua conta local e comece a usar o Ergo neste dispositivo.</p></div>
+            </div>
+            <Button variant="secondary" size="lg" className="h-11 w-full rounded-xl! text-sm! shadow-none dark:bg-slate-100! dark:text-slate-700! dark:hover:bg-slate-200! dark:active:bg-slate-300!" onClick={() => { setRegistrationDialog(null); navigate("/cadastro", { viewTransition: true }); }}>
               Cadastrar offline
             </Button>
           </section>
@@ -99,7 +115,7 @@ export default function Login() {
         onClose={() => setRegistrationDialog(null)}
         title="Cadastro on-line"
         actions={
-          <Button variant="secondary" size="lg" className="w-full shadow-none dark:bg-slate-100! dark:text-slate-700! dark:hover:bg-slate-200! dark:active:bg-slate-300!" onClick={() => setRegistrationDialog("options")}>
+          <Button variant="secondary" size="lg" className="h-11 w-full rounded-xl! text-sm! shadow-none dark:bg-slate-100! dark:text-slate-700! dark:hover:bg-slate-200! dark:active:bg-slate-300!" onClick={() => setRegistrationDialog("options")}>
             Voltar
           </Button>
         }
@@ -118,10 +134,10 @@ export default function Login() {
         title="Cadastro realizado com sucesso!"
         onClose={closeSuccess}
         illustration={<VerifiedAnimation active={registrationComplete} />}
-        actions={<Button size="lg" className="w-full shadow-none" onClick={closeSuccess}>Fazer login</Button>}
+        actions={<Button size="lg" className="h-12 w-full rounded-xl! bg-primary-700! text-sm! shadow-none hover:bg-primary-800! dark:bg-primary-700! dark:hover:bg-primary-800!" onClick={closeSuccess}>Fazer login</Button>}
       >
         <p className="text-center">Faça login na sua conta utilizando as credenciais e comece a utilizar o app agora.</p>
       </AuthDialog>
-    </section>
+    </>
   );
 }

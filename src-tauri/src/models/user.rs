@@ -28,6 +28,18 @@ pub struct CreateUserPayload {
     pub photo: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateUserPayload {
+    pub id: i64,
+    pub first_name: String,
+    pub last_name: String,
+    pub birth_date: String,
+    pub email: String,
+    pub phone: String,
+    pub photo: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct StoredUser {
     pub user: User,
@@ -45,3 +57,4 @@ pub struct NewUser {
     pub phone: String,
     pub photo: Option<String>,
 }
+

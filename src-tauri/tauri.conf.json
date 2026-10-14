@@ -12,10 +12,10 @@
   "app": {
     "windows": [
       {
-        "title": "ergo-app-tauri",
-        "width": 800,
+        "title": "Ergo",
+        "width": 960,
         "height": 600,
-        "minWidth": 800,
+        "minWidth": 960,
         "minHeight": 600
       }
     ],

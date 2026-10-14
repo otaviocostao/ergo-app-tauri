@@ -56,7 +56,40 @@ pub fn insert(conn: &Connection, user: &NewUser) -> Result<i64, rusqlite::Error>
     Ok(conn.last_insert_rowid())
 }
 
+pub fn update(
+    conn: &Connection,
+    id: i64,
+    first_name: &str,
+    last_name: &str,
+    birth_date: &str,
+    email: &str,
+    phone: &str,
+    photo: Option<&str>,
+) -> Result<usize, rusqlite::Error> {
+    conn.execute(
+        "UPDATE users SET
+            first_name = ?1,
+            last_name = ?2,
+            birth_date = ?3,
+            email = ?4,
+            phone = ?5,
+            photo = ?6,
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE id = ?7",
+        params![
+            first_name,
+            last_name,
+            birth_date,
+            email,
+            phone,
+            photo,
+            id,
+        ],
+    )
+}
+
 #[cfg(test)]
 pub fn count(conn: &Connection) -> Result<i64, rusqlite::Error> {
     conn.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))
 }
+
