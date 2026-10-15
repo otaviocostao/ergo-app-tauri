@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
+import { X } from "lucide-react";
 
 interface AuthDialogProps {
   open: boolean;
@@ -14,7 +15,7 @@ export default function AuthDialog({ open, onClose, title, children, actions, il
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const descriptionId = useId();
-  const contentWidth = variant === "success" ? "max-w-lg" : "max-w-2xl";
+  const contentWidth = variant === "success" ? "max-w-md" : "max-w-lg";
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -30,18 +31,22 @@ export default function AuthDialog({ open, onClose, title, children, actions, il
   return (
     <dialog
       ref={dialogRef}
-      className="fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-4xl overflow-y-auto rounded-lg border-0 bg-white p-0 text-black [color-scheme:light] animate-modal-content backdrop:bg-black/30 backdrop:animate-modal-backdrop"
+      className="fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl [color-scheme:light] animate-modal-content backdrop:bg-primary-950/45 backdrop:backdrop-blur-sm backdrop:animate-modal-backdrop"
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
       onCancel={(event) => { event.preventDefault(); onClose(); }}
     >
-      <div className={`mx-auto flex min-h-[34rem] w-[calc(100%-3rem)] ${contentWidth} flex-col justify-center gap-2 py-10`}>
+      <div className={`relative mx-auto flex w-full ${contentWidth} flex-col gap-2 px-6 pb-7 pt-12 sm:px-8 sm:pb-8`}>
+        <button type="button" onClick={onClose} aria-label="Fechar janela"
+          className="absolute right-3 top-3 flex size-8 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-2 focus-visible:outline-primary-600">
+          <X size={18} aria-hidden="true" />
+        </button>
         {illustration}
-        <h2 id={titleId} className="text-center text-3xl font-semibold leading-12 tracking-tight">
+        <h2 id={titleId} className="text-center text-2xl font-semibold leading-8 tracking-tight">
           {title}
         </h2>
-        <div id={descriptionId} className="text-base leading-6">{children}</div>
-        <div className="mt-8 flex flex-col gap-2">{actions}</div>
+        <div id={descriptionId} className="text-sm leading-6">{children}</div>
+        <div className="mt-5 flex flex-col gap-2">{actions}</div>
       </div>
     </dialog>
   );

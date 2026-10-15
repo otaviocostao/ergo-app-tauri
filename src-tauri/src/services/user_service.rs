@@ -177,17 +177,35 @@ pub fn create_user(conn: &Connection, payload: CreateUserPayload) -> Result<User
         .chars()
         .filter(|character| character.is_ascii_digit())
         .count();
-    if !(8..=15).contains(&phone_digit_count) || phone.chars().count() > 30 {
+    if phone_digit_count != 11
+        || phone.chars().count() > 15
+        || phone.chars().any(|character| {
+            !character.is_ascii_digit() && !matches!(character, '(' | ')' | ' ' | '-')
+        })
+    {
         return Err(AuthError::new(
             "invalid_phone",
-            "Informe um telefone válido.",
+            "Informe o telefone com DDD e 9 dígitos.",
         ));
     }
 
-    if !(8..=128).contains(&payload.password.chars().count()) {
+    if !(8..=70).contains(&payload.password.chars().count()) {
         return Err(AuthError::new(
             "invalid_password",
-            "A senha deve ter entre 8 e 128 caracteres.",
+            "A senha deve ter entre 8 e 70 caracteres.",
+        ));
+    }
+    let password = &payload.password;
+    if !password.chars().any(char::is_lowercase)
+        || !password.chars().any(char::is_uppercase)
+        || !password.chars().any(|character| character.is_ascii_digit())
+        || !password
+            .chars()
+            .any(|character| character.is_ascii_punctuation())
+    {
+        return Err(AuthError::new(
+            "invalid_password",
+            "Inclua uma letra maiúscula, uma minúscula, um número e um símbolo na senha.",
         ));
     }
 
@@ -259,7 +277,7 @@ mod tests {
         let conn = test_connection();
         let user = create_user(
             &conn,
-            registration_payload("  Ana Maria ", " ANA@example.com ", "senha-segura-123"),
+            registration_payload("  Ana Maria ", " ANA@example.com ", "Senha-segura-123!"),
         )
         .unwrap();
 
@@ -273,7 +291,61 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(stored.password_hash.starts_with("$argon2id$"));
-        assert!(!stored.password_hash.contains("senha-segura-123"));
+        assert!(!stored.password_hash.contains("Senha-segura-123!"));
+    }
+
+    #[test]
+    fn rejects_passwords_that_do_not_meet_registration_policy() {
+        let conn = test_connection();
+        let too_long = format!("Aa1!{}", "x".repeat(67));
+        let passwords = [
+            "Aa1!abc",         // Too short.
+            too_long.as_str(), // More than 70 characters.
+            "abcdefgh1!",      // No uppercase letter.
+            "ABCDEFGH1!",      // No lowercase letter.
+            "Abcdefgh!",       // No number.
+            "Abcdefgh1",       // No symbol.
+            "Abcdefg1 ",       // A space is not a symbol.
+        ];
+        for password in passwords {
+            let error = create_user(
+                &conn,
+                registration_payload("Ana", "ana@example.com", password),
+            )
+            .unwrap_err();
+            assert_eq!(error.code, "invalid_password");
+        }
+        assert_eq!(user_repository::count(&conn).unwrap(), 0);
+    }
+
+    #[test]
+    fn accepts_password_length_boundaries_and_accented_letters() {
+        let conn = test_connection();
+        let max_length = format!("Aa1!{}", "x".repeat(66));
+        for (index, password) in ["Aa1!abcd", max_length.as_str(), "Áé12345!"]
+            .iter()
+            .enumerate()
+        {
+            let email = format!("ana{index}@example.com");
+            create_user(&conn, registration_payload("Ana", &email, password)).unwrap();
+        }
+        assert_eq!(user_repository::count(&conn).unwrap(), 3);
+    }
+
+    #[test]
+    fn rejects_incomplete_and_oversized_registration_phone_numbers() {
+        let conn = test_connection();
+        for phone in [
+            "(75) 99999-999",
+            "759999999999",
+            "(75) 99999-9999x",
+            "(75)  99999-9999",
+        ] {
+            let mut payload = registration_payload("Ana", "ana@example.com", "Senha-segura-123!");
+            payload.phone = phone.into();
+            assert_eq!(create_user(&conn, payload).unwrap_err().code, "invalid_phone");
+        }
+        assert_eq!(user_repository::count(&conn).unwrap(), 0);
     }
 
     #[test]
@@ -282,7 +354,7 @@ mod tests {
         assert_eq!(
             create_user(
                 &conn,
-                registration_payload("A", "ana@example.com", "senha-segura")
+                registration_payload("A", "ana@example.com", "Senha-segura-123!")
             )
             .unwrap_err()
             .code,
@@ -291,7 +363,7 @@ mod tests {
         assert_eq!(
             create_user(
                 &conn,
-                registration_payload("Ana", "email-invalido", "senha-segura")
+                registration_payload("Ana", "email-invalido", "Senha-segura-123!")
             )
             .unwrap_err()
             .code,
@@ -309,13 +381,13 @@ mod tests {
 
         create_user(
             &conn,
-            registration_payload("Ana", "ana@example.com", "senha-segura"),
+            registration_payload("Ana", "ana@example.com", "Senha-segura-123!"),
         )
         .unwrap();
         assert_eq!(
             create_user(
                 &conn,
-                registration_payload("Outra", "ANA@example.com", "outra-senha")
+                registration_payload("Outra", "ANA@example.com", "Outra-senha-456!")
             )
             .unwrap_err()
             .code,
@@ -329,7 +401,7 @@ mod tests {
         let conn = test_connection();
         let local_user = create_user(
             &conn,
-            registration_payload("Carlos", "carlos@example.com", "senha-12345"),
+            registration_payload("Carlos", "carlos@example.com", "Senha-12345!"),
         )
         .unwrap();
 
@@ -337,7 +409,7 @@ mod tests {
         assert!(validate_is_local_user(&conn, local_user.id).is_ok());
 
         // Cria usuário simulado como vindo da plataforma online (com external_id)
-        let mut online_payload = registration_payload("Mariana", "mariana@example.com", "senha-12345");
+        let mut online_payload = registration_payload("Mariana", "mariana@example.com", "Senha-12345!");
         online_payload.external_id = Some("ext-platform-999".into());
         let online_user = create_user(&conn, online_payload).unwrap();
 
@@ -351,7 +423,7 @@ mod tests {
         let conn = test_connection();
         let user = create_user(
             &conn,
-            registration_payload("Lucas", "lucas@example.com", "senha-12345"),
+            registration_payload("Lucas", "lucas@example.com", "Senha-12345!"),
         )
         .unwrap();
 
@@ -376,7 +448,7 @@ mod tests {
     #[test]
     fn blocks_update_for_online_user_with_external_id() {
         let conn = test_connection();
-        let mut online_payload = registration_payload("Mariana", "mariana@example.com", "senha-12345");
+        let mut online_payload = registration_payload("Mariana", "mariana@example.com", "Senha-12345!");
         online_payload.external_id = Some("ext-platform-888".into());
         let online_user = create_user(&conn, online_payload).unwrap();
 

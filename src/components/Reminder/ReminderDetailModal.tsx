@@ -136,7 +136,7 @@ export default function ReminderDetailModal({
             Intervalo
           </span>
           <span className="font-semibold text-slate-900 dark:text-slate-100">
-            {reminder.interval} min
+            {reminder.frequency === ReminderFrequency.ONCE ? "Uma vez" : `${reminder.interval} min`}
           </span>
         </div>
 
