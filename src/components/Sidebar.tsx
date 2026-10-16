@@ -1,11 +1,10 @@
-import { NavLink, useLocation } from "react-router-dom";
-import { Home, Settings, Bell, Video, LogOut } from "lucide-react";
+import { NavLink } from "react-router-dom";
+import { Home, Settings, Bell, Video, LogOut, ChartNoAxesCombined } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { authErrorMessage } from "../auth/authService";
 
 export default function Sidebar() {
-  const { pathname } = useLocation();
   const { session, logout } = useAuth();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -20,6 +19,7 @@ export default function Sidebar() {
   const navItems = [
     { label: "Início", path: "/", icon: Home },
     { label: "Monitoramento", path: "/monitoring", icon: Video },
+    { label: "Relatórios", path: "/reports", icon: ChartNoAxesCombined },
     { label: "Lembretes", path: "/reminders", icon: Bell },
     { label: "Configurações", path: "/settings", icon: Settings },
   ];
@@ -43,7 +43,7 @@ export default function Sidebar() {
                 end={item.path === "/"}
                 viewTransition
                 className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${(isActive || (item.path === "/" && pathname.startsWith("/dashboard/")))
+                  `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${isActive
                     ? "bg-primary-50 text-primary-700 font-semibold dark:bg-primary-950/60 dark:text-primary-400"
                     : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                   }`
