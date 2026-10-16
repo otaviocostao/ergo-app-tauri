@@ -10,7 +10,7 @@ export const subtitleClass = "mt-1 text-sm leading-relaxed text-slate-500 dark:t
 
 export function DashboardPage({ title, subtitle, detail = false, children }: { title: string; subtitle: string; detail?: boolean; children: ReactNode }) {
   return (
-    <div className="@container flex w-full min-w-0 flex-col gap-4 pb-8">
+    <div className="@container relative flex w-full min-w-0 flex-col gap-4 pb-8">
       {detail && <Link to="/" viewTransition className="inline-flex w-fit items-center gap-2 rounded-md text-sm font-medium text-slate-500 transition-colors hover:text-primary-600 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-500 dark:text-slate-400"><ArrowLeft size={16} /> Voltar ao início</Link>}
       <Header title={title} subtitle={subtitle} className="mb-0!" />
       {children}
@@ -23,7 +23,7 @@ export function ProgressBar({ value, label, danger = false, large = false }: { v
   return <div role="progressbar" aria-label={label} aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100} className={`overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800 ${large ? "h-3" : "h-2"}`}><div className={`h-full rounded-full ${danger ? "bg-red-500" : "bg-primary-500"}`} style={{ width: `${percent}%` }} /></div>;
 }
 
-export function MetricCard({ title, value, description, progress, badge, to, danger = false }: { title: string; value: string | number; description: string; progress?: number; badge?: string; to?: string; danger?: boolean }) {
+export function MetricCard({ title, value, description, progress, progressLabel = "Meta diária", badge, to, danger = false }: { title: string; value: string | number; description: string; progress?: number; progressLabel?: string; badge?: string; to?: string; danger?: boolean }) {
   const content = <>
     <div className="flex items-start justify-between gap-3">
       <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-200"><span aria-hidden="true" className={`h-2.5 w-2.5 shrink-0 rounded-full ${danger ? "bg-red-500" : "bg-primary-500"}`} />{title}</h2>
@@ -31,7 +31,7 @@ export function MetricCard({ title, value, description, progress, badge, to, dan
     </div>
     <p className={`font-semibold tracking-tight text-slate-950 dark:text-white ${to ? "mt-6 text-4xl xl:text-5xl" : "mt-4 text-3xl"}`}>{value}</p>
     <p className="mt-2 text-sm leading-relaxed text-slate-500 dark:text-slate-400">{description}</p>
-    {progress !== undefined && <div className="mt-auto pt-4">{to && <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">Meta diária</p>}<ProgressBar value={progress} label={`${title}: progresso`} danger={danger} /></div>}
+    {progress !== undefined && <div className="mt-auto pt-4">{to && <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">{progressLabel}</p>}<ProgressBar value={progress} label={`${title}: progresso`} danger={danger} /></div>}
     {to && <span className="mt-auto flex items-center gap-1 pt-3 text-xs font-medium text-primary-700 dark:text-primary-400">Ver detalhes<ArrowUpRight size={14} aria-hidden="true" /></span>}
   </>;
   const className = `${panelClass} flex min-w-0 flex-col p-5 xl:p-6 ${to ? "min-h-64 transition-colors hover:bg-primary-50/30 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-500 dark:hover:bg-primary-950/20" : "min-h-40"}`;
