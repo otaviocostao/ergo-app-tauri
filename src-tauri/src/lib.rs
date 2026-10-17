@@ -67,6 +67,34 @@ pub fn run() {
             commands::workspace::create_workspace,
             commands::workspace::update_workspace,
             commands::workspace::delete_workspace,
+
+            // Posture Calibration
+            commands::posture_calibration::save_posture_calibration,
+            commands::posture_calibration::get_active_calibration,
+            commands::posture_calibration::get_posture_calibrations,
+            commands::posture_calibration::delete_posture_calibration,
+
+            // Monitoring Sessions
+            commands::monitoring_session::start_monitoring_session,
+            commands::monitoring_session::end_monitoring_session,
+            commands::monitoring_session::get_monitoring_sessions,
+            commands::monitoring_session::get_monitoring_session_by_id,
+            commands::monitoring_session::get_active_monitoring_session,
+            commands::monitoring_session::delete_monitoring_session,
+
+            // Posture Metric Snapshots
+            commands::posture_metric_snapshot::record_metric_snapshot,
+            commands::posture_metric_snapshot::record_metric_snapshots_batch,
+            commands::posture_metric_snapshot::get_snapshots_by_session,
+            commands::posture_metric_snapshot::get_posture_history,
+            commands::posture_metric_snapshot::delete_metric_snapshot,
+
+            // Posture Alerts
+            commands::posture_alert::record_posture_alert,
+            commands::posture_alert::resolve_posture_alert,
+            commands::posture_alert::get_alerts_by_session,
+            commands::posture_alert::get_posture_alerts,
+            commands::posture_alert::delete_posture_alert,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
