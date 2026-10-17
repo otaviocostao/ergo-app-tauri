@@ -5,7 +5,7 @@ use std::sync::{
 };
 use std::time::Duration as StdDuration;
 
-use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone, Weekday};
+use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone, Utc, Weekday};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 
@@ -151,6 +151,11 @@ impl<Tz: TimeZone> ReminderScheduler<Tz> {
                         next: next_occurrence(reminder, &now),
                         last_fired: None,
                     });
+            // Recording a dispatch must not recalculate the pending schedule.
+            entry
+                .reminder
+                .last_sent_at
+                .clone_from(&reminder.last_sent_at);
             if entry.reminder != *reminder {
                 let after = entry
                     .last_fired
@@ -228,6 +233,22 @@ pub fn inactivate_completed_once_reminders<Tz: TimeZone>(
     Ok(())
 }
 
+fn send_notification(
+    conn: &rusqlite::Connection,
+    alarm: &ReminderAlarm,
+    notify: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    notify()?;
+    let sent_at = Utc::now().to_rfc3339();
+    let rows_affected =
+        reminder_repository::update_last_sent_at(conn, alarm.user_id, &alarm.id, &sent_at)
+            .map_err(|error| format!("Failed to record reminder notification: {error}"))?;
+    if rows_affected == 0 {
+        return Err(format!("Reminder with id '{}' not found", alarm.id));
+    }
+    Ok(())
+}
+
 fn poll_app(app: &AppHandle, scheduler: &mut ReminderScheduler<Local>) -> Result<(), String> {
     let state = app.state::<AppState>();
     let conn = state.db.lock().map_err(|e| e.to_string())?;
@@ -241,17 +262,21 @@ fn poll_app(app: &AppHandle, scheduler: &mut ReminderScheduler<Local>) -> Result
         };
         let now = Local::now();
         for alarm in scheduler.poll(user_id, &reminders, now) {
-            let mut notification = app
-                .notification()
-                .builder()
-                .title(&alarm.title)
-                .body(&alarm.message);
-            // On Windows, no sound resource results in a silent toast.
-            if alarm.notification_tone {
-                notification = notification.sound("Default");
-            }
-            if let Err(error) = notification.show() {
-                eprintln!("Failed to prepare reminder notification: {error}");
+            if let Err(error) = send_notification(&conn, &alarm, || {
+                let mut notification = app
+                    .notification()
+                    .builder()
+                    .title(&alarm.title)
+                    .body(&alarm.message);
+                // On Windows, no sound resource results in a silent toast.
+                if alarm.notification_tone {
+                    notification = notification.sound("Default");
+                }
+                notification
+                    .show()
+                    .map_err(|error| format!("Failed to prepare reminder notification: {error}"))
+            }) {
+                eprintln!("{error}");
             }
             app.emit("reminder-alarm", &alarm)
                 .map_err(|e| e.to_string())?;
@@ -283,6 +308,113 @@ mod tests {
             "startTime": "08:00", "endTime": "18:00"
         }))
         .unwrap()
+    }
+
+    fn notification_test_data() -> (rusqlite::Connection, Reminder, ReminderAlarm) {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(include_str!("../../migrations/0001_initial_migration.sql"))
+            .unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        conn.execute(
+            "INSERT INTO users (id, first_name, last_name, birth_date, password_hash, email, phone)
+             VALUES (1, 'Test', 'User', '1995-05-20', 'test-hash', 'test@example.com', '75999999999')",
+            [],
+        )
+        .unwrap();
+        let mut r = reminder();
+        r.created_at = Some("2026-01-01T00:00:00Z".into());
+        r.updated_at = r.created_at.clone();
+        reminder_repository::insert(&conn, &r).unwrap();
+        let alarm = ReminderAlarm {
+            id: r.id.clone(),
+            user_id: 1,
+            title: r.title.clone(),
+            message: r.message.clone(),
+            notification_tone: r.notification_tone,
+            scheduled_at: at(6, 9, 0, 0).to_rfc3339(),
+        };
+        (conn, r, alarm)
+    }
+
+    #[test]
+    fn successful_notification_records_actual_send_time_without_changing_other_fields() {
+        let (conn, mut expected, alarm) = notification_test_data();
+        let before = Utc::now();
+        send_notification(&conn, &alarm, || {
+            let stored = reminder_repository::find_by_id(&conn, 1, &alarm.id)
+                .unwrap()
+                .unwrap();
+            assert!(stored.last_sent_at.is_none());
+            Ok(())
+        })
+        .unwrap();
+        let after = Utc::now();
+        let stored = reminder_repository::find_by_id(&conn, 1, &alarm.id)
+            .unwrap()
+            .unwrap();
+        let sent_at = DateTime::parse_from_rfc3339(stored.last_sent_at.as_deref().unwrap())
+            .unwrap()
+            .with_timezone(&Utc);
+        assert!(sent_at >= before && sent_at <= after);
+        expected.last_sent_at = stored.last_sent_at.clone();
+        assert_eq!(stored, expected);
+
+        reminder_repository::update_last_sent_at(&conn, 1, &alarm.id, "2026-01-02T00:00:00Z")
+            .unwrap();
+        send_notification(&conn, &alarm, || Ok(())).unwrap();
+        let latest = reminder_repository::find_by_id(&conn, 1, &alarm.id)
+            .unwrap()
+            .unwrap();
+        let latest_time = DateTime::parse_from_rfc3339(latest.last_sent_at.as_deref().unwrap())
+            .unwrap()
+            .with_timezone(&Utc);
+        assert!(latest_time >= sent_at);
+        expected.last_sent_at = latest.last_sent_at.clone();
+        assert_eq!(latest, expected);
+    }
+
+    #[test]
+    fn failed_notification_preserves_empty_or_previous_send_time() {
+        let (conn, mut expected, alarm) = notification_test_data();
+        for previous in [None, Some("2026-01-02T00:00:00Z")] {
+            if let Some(sent_at) = previous {
+                reminder_repository::update_last_sent_at(&conn, 1, &alarm.id, sent_at).unwrap();
+            }
+            expected.last_sent_at = previous.map(str::to_string);
+            assert_eq!(
+                send_notification(&conn, &alarm, || Err("Notification failed".into())).unwrap_err(),
+                "Notification failed"
+            );
+            let stored = reminder_repository::find_by_id(&conn, 1, &alarm.id)
+                .unwrap()
+                .unwrap();
+            assert_eq!(stored, expected);
+        }
+    }
+
+    #[test]
+    fn notification_reports_failure_to_persist_send_time() {
+        let (conn, expected, alarm) = notification_test_data();
+        conn.execute_batch("PRAGMA query_only = ON;").unwrap();
+        let error = send_notification(&conn, &alarm, || Ok(())).unwrap_err();
+        assert!(error.contains("Failed to record reminder notification"));
+        let stored = reminder_repository::find_by_id(&conn, 1, &alarm.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored, expected);
+    }
+
+    #[test]
+    fn recording_send_time_does_not_skip_the_next_due_alarm() {
+        let mut r = reminder();
+        let mut scheduler = ReminderScheduler::default();
+        scheduler.poll(Some(1), &[r.clone()], at(6, 8, 59, 59));
+        assert_eq!(
+            scheduler.poll(Some(1), &[r.clone()], at(6, 9, 0, 0)).len(),
+            1
+        );
+        r.last_sent_at = Some(at(6, 9, 0, 1).to_rfc3339());
+        assert_eq!(scheduler.poll(Some(1), &[r], at(6, 10, 0, 0)).len(), 1);
     }
 
     #[test]

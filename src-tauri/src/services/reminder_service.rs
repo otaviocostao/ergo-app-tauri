@@ -163,6 +163,7 @@ pub fn create_reminder(
         end_time: payload.end_time,
         reminder_date,
         custom_days,
+        last_sent_at: None,
         created_at: Some(now.clone()),
         updated_at: Some(now),
     };
@@ -248,6 +249,7 @@ pub fn update_reminder(
         end_time: updated_end_time,
         reminder_date: updated_reminder_date,
         custom_days: updated_custom_days,
+        last_sent_at: existing_reminder.last_sent_at,
         created_at: existing_reminder.created_at,
         updated_at: Some(now),
     };
@@ -543,7 +545,7 @@ mod tests {
     }
 
     #[test]
-    fn payload_cannot_override_authenticated_owner() {
+    fn payload_cannot_override_authenticated_owner_or_last_sent_at() {
         let conn = setup_test_db();
         let state = AuthState::new().unwrap();
         let other_user_id = authenticate_test_user(&conn, &state, "other@example.com");
@@ -551,17 +553,27 @@ mod tests {
         let payload: CreateReminderPayload = serde_json::from_value(serde_json::json!({
             "title": "Drink water", "message": "Drink 250ml", "category": "Hidratação",
             "interval": 60, "period": "08:00 - 18:00", "frequency": "DAILY",
-            "startTime": "08:00", "endTime": "18:00", "userId": other_user_id
+            "startTime": "08:00", "endTime": "18:00", "userId": other_user_id,
+            "lastSentAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let created = create_reminder(&conn, &state, payload).unwrap();
         assert_eq!(created.user_id, Some(owner_id));
+        assert!(created.last_sent_at.is_none());
+        let sent_at = "2026-10-06T12:00:00Z";
+        reminder_repository::update_last_sent_at(&conn, owner_id, &created.id, sent_at).unwrap();
         let payload: UpdateReminderPayload = serde_json::from_value(serde_json::json!({
-            "id": created.id, "title": "Updated", "userId": other_user_id
+            "id": created.id, "title": "Updated", "userId": other_user_id,
+            "lastSentAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let updated = update_reminder(&conn, &state, payload).unwrap();
         assert_eq!(updated.user_id, Some(owner_id));
+        assert_eq!(updated.last_sent_at.as_deref(), Some(sent_at));
+        let stored = get_reminder_by_id(&conn, &state, &updated.id).unwrap();
+        assert_eq!(stored.last_sent_at, updated.last_sent_at);
+        let toggled = toggle_reminder_status(&conn, &state, &updated.id).unwrap();
+        assert_eq!(toggled.last_sent_at, updated.last_sent_at);
         assert_eq!(
             reminder_repository::find_by_id(&conn, owner_id, &updated.id)
                 .unwrap()
@@ -575,7 +587,30 @@ mod tests {
     }
 
     #[test]
-    fn ownership_persists_after_reopening_database() {
+    fn notification_timestamp_updates_are_scoped_to_owner() {
+        let conn = setup_test_db();
+        let state = AuthState::new().unwrap();
+        let owner_id = authenticate_test_user(&conn, &state, "owner@example.com");
+        let reminder = create_reminder(&conn, &state, create_payload()).unwrap();
+        let other_id = authenticate_test_user(&conn, &state, "other@example.com");
+        let sent_at = "2026-10-06T12:00:00Z";
+        assert_eq!(
+            reminder_repository::update_last_sent_at(&conn, other_id, &reminder.id, sent_at)
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            reminder_repository::update_last_sent_at(&conn, owner_id, "missing", sent_at).unwrap(),
+            0
+        );
+        let stored = reminder_repository::find_by_id(&conn, owner_id, &reminder.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored, reminder);
+    }
+
+    #[test]
+    fn ownership_and_send_time_persist_after_reopening_database() {
         let temp_dir = tempfile::tempdir().unwrap();
         let db_path = temp_dir.path().join("reminders.db");
         let conn = Connection::open(&db_path).unwrap();
@@ -585,11 +620,15 @@ mod tests {
         let state = AuthState::new().unwrap();
         let owner_id = authenticate_test_user(&conn, &state, "owner@example.com");
         let reminder = create_reminder(&conn, &state, create_payload()).unwrap();
+        let sent_at = "2026-10-06T12:00:00Z";
+        reminder_repository::update_last_sent_at(&conn, owner_id, &reminder.id, sent_at).unwrap();
         drop(conn);
 
         let conn = Connection::open(&db_path).unwrap();
         let restored = get_reminder_by_id(&conn, &state, &reminder.id).unwrap();
         assert_eq!(restored.user_id, Some(owner_id));
+        assert_eq!(restored.last_sent_at.as_deref(), Some(sent_at));
+        assert_eq!(restored.updated_at, reminder.updated_at);
         assert_eq!(get_reminders(&conn, &state).unwrap().len(), 1);
     }
 
