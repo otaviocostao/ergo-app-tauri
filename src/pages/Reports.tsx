@@ -1,9 +1,10 @@
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Activity, ArrowRight, Bell, CalendarDays, ChartNoAxesCombined, ChevronLeft, ChevronRight, Clock3, Coffee, Info } from "lucide-react";
+import { Activity, ArrowRight, Bell, ChartNoAxesCombined, ChevronLeft, ChevronRight, Clock3, Coffee, Info } from "lucide-react";
 import Header from "../components/Header";
 import { Panel, panelClass } from "../components/dashboard/DashboardWidgets";
 import { Comparison, GoalProgress, PeriodComparison, ReportChart, ReportHistory, postureChange } from "../components/reports/ReportWidgets";
+import ReportPeriodPicker from "../components/reports/ReportPeriodPicker";
 import { buildReport, createReportPreview, dateKey, formatDate, formatMinutes, formatPercent, isDateKey, periodBounds, shiftPeriod, type PostureReport, type ReportPeriod } from "../data/reports";
 import ErgonomicIndex from "./ErgonomicIndex";
 import GoodPosture from "./GoodPosture";
@@ -86,7 +87,7 @@ export default function Reports() {
   const rangeLabel = report.start === report.end
     ? formatDate(report.start, { day: "2-digit", month: "long", year: "numeric" })
     : `${formatDate(report.start)} – ${formatDate(report.end, { day: "2-digit", month: "short", year: "numeric" })}`;
-  const controlClass = "inline-flex cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-slate-600 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-500 disabled:cursor-default disabled:opacity-35 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800";
+  const controlClass = "inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-500 disabled:cursor-default disabled:opacity-35 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800";
 
   return <div className="@container relative flex w-full min-w-0 flex-col gap-5 pb-8">
     <Header title="Relatórios" subtitle="Entenda seus hábitos de postura e acompanhe sua evolução ao longo do tempo." className="mb-0!" />
@@ -96,7 +97,7 @@ export default function Reports() {
       <div className="flex gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-800" role="group" aria-label="Período do relatório">{periods.map(item => <button key={item.value} type="button" aria-pressed={period === item.value} onClick={() => update({ period: item.value })} className={`cursor-pointer rounded-md px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-primary-500 ${period === item.value ? "bg-white text-primary-700 shadow-xs dark:bg-slate-700 dark:text-primary-400" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"}`}>{item.label}</button>)}</div>
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" aria-label="Período anterior" className={controlClass} onClick={() => update({ date: shiftPeriod(period, anchor, -1) })}><ChevronLeft size={17} /></button>
-        <label className={`${controlClass} gap-2 px-3 text-xs`}><CalendarDays size={15} aria-hidden="true" /><span className="sr-only">Data de referência</span><input type="date" value={anchor} max={today} onChange={event => { if (isDateKey(event.target.value) && event.target.value <= today) update({ date: event.target.value }); }} className="min-w-0 cursor-pointer bg-transparent outline-none dark:scheme-dark" /></label>
+        <ReportPeriodPicker period={period} value={anchor} onChange={(date) => update({ date })} />
         <button type="button" aria-label="Próximo período" disabled={!canAdvance} className={controlClass} onClick={() => update({ date: shiftPeriod(period, anchor, 1) })}><ChevronRight size={17} /></button>
         <button type="button" onClick={() => update({ date: today })} className="cursor-pointer rounded-md px-2 py-2 text-xs font-medium text-primary-700 hover:underline focus-visible:outline-2 focus-visible:outline-primary-500 dark:text-primary-400">{period === "day" ? "Hoje" : period === "week" ? "Esta semana" : "Este mês"}</button>
       </div>
