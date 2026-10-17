@@ -37,9 +37,9 @@ test("a day compares with the previous calendar day and excludes other dates", (
 
 test("the current week compares equal elapsed days and never includes future readings", () => {
   const report = buildReport([day("2026-10-16", 100, 80), day("2026-10-17", 100, 10)], "week", "2026-10-16", today);
-  assert.equal(report.start, "2026-10-12");
+  assert.equal(report.start, "2026-10-11");
   assert.equal(report.end, "2026-10-16");
-  assert.equal(report.previousStart, "2026-10-05");
+  assert.equal(report.previousStart, "2026-10-04");
   assert.equal(report.previousEnd, "2026-10-09");
   assert.equal(report.partial, true);
   assert.equal(report.days.length, 1);
@@ -62,15 +62,40 @@ test("short months, leap years and year changes keep valid calendar boundaries",
   assert.equal(february.previousStart, "2026-01-01");
   assert.equal(february.previousEnd, "2026-01-31");
   assert.equal(shiftPeriod("month", "2026-03-31", -1), "2026-02-01");
-  assert.equal(shiftPeriod("week", "2026-01-01", -1), "2025-12-22");
-  assert.equal(dateKey(periodBounds("week", "2026-10-18").start), "2026-10-12");
+  assert.equal(shiftPeriod("week", "2026-01-01", -1), "2025-12-21");
+  assert.equal(dateKey(periodBounds("week", "2026-10-18").start), "2026-10-18");
+});
+
+test("every day in a week uses the same Sunday-to-Saturday boundaries", () => {
+  for (const anchor of ["2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"]) {
+    const { start, end } = periodBounds("week", anchor);
+    assert.equal(dateKey(start), "2026-10-11");
+    assert.equal(dateKey(end), "2026-10-17");
+    assert.equal(shiftPeriod("week", anchor, 1), "2026-10-18");
+    assert.equal(shiftPeriod("week", anchor, -1), "2026-10-04");
+  }
+  const { start, end } = periodBounds("week", "2026-01-01");
+  assert.equal(dateKey(start), "2025-12-28");
+  assert.equal(dateKey(end), "2026-01-03");
+});
+
+test("a complete week includes Sunday and Saturday but excludes neighboring weeks", () => {
+  const report = buildReport([
+    day("2026-10-10", 100, 0), day("2026-10-11", 100, 80),
+    day("2026-10-17", 100, 60), day("2026-10-18", 100, 0),
+  ], "week", "2026-10-14", new Date(2026, 9, 18, 12));
+  assert.deepEqual(report.days.map(day => day.date), ["2026-10-11", "2026-10-17"]);
+  assert.equal(report.summary.posturePercent, 70);
+  assert.equal(report.points.length, 7);
+  assert.equal(report.partial, false);
 });
 
 test("days without monitoring remain missing points and do not lower the average", () => {
   const report = buildReport([day("2026-10-12", 100, 80)], "week", "2026-10-16", today);
   assert.equal(report.summary.posturePercent, 80);
-  assert.equal(report.points[0].value, 80);
-  assert.equal(report.points[1].value, null);
+  assert.equal(report.points[0].value, null);
+  assert.equal(report.points[1].value, 80);
+  assert.equal(report.points[2].value, null);
   assert.equal(report.previous.posturePercent, null);
 });
 

@@ -90,7 +90,7 @@ export function formatTime(minutes: number): string {
 
 export function periodBounds(period: ReportPeriod, anchor: string) {
   const start = parseDate(anchor);
-  if (period === "week") start.setDate(start.getDate() - (start.getDay() + 6) % 7);
+  if (period === "week") start.setDate(start.getDate() - start.getDay());
   if (period === "month") start.setDate(1);
   const end = period === "month"
     ? new Date(start.getFullYear(), start.getMonth() + 1, 0, 12)

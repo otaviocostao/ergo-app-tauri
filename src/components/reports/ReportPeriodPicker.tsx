@@ -10,7 +10,7 @@ interface ReportPeriodPickerProps {
 }
 
 const months = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
-const weekdays = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+const weekdays = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const periodNames = { day: "dia", week: "semana", month: "mês" };
 const fullDate = new Intl.DateTimeFormat("pt-BR", { dateStyle: "full" });
 const iconButtonClass = "flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-slate-600 transition-colors hover:bg-primary-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-default disabled:opacity-30";
@@ -49,7 +49,7 @@ export default function ReportPeriodPicker({ period, value, onChange }: ReportPe
   const month = view.getMonth();
   const firstYear = Math.min(current.getFullYear() - 20, parseDate(value).getFullYear(), year);
   const years = Array.from({ length: current.getFullYear() - firstYear + 1 }, (_, index) => current.getFullYear() - index);
-  const firstDay = addDays(view, -((view.getDay() + 6) % 7));
+  const firstDay = periodBounds("week", dateKey(view)).start;
   const days = Array.from({ length: 42 }, (_, index) => addDays(firstDay, index));
   const label = periodLabel(period, value);
 
@@ -243,7 +243,7 @@ export default function ReportPeriodPicker({ period, value, onChange }: ReportPe
             const iso = dateKey(date);
             const isSelected = iso >= dateKey(selected.start) && iso <= dateKey(selected.end);
             const selectionClass = period === "week"
-              ? `bg-primary-50 font-semibold text-primary-800 ${date.getDay() === 1 ? "rounded-l-lg" : date.getDay() === 0 ? "rounded-r-lg" : ""}`
+              ? `bg-primary-50 font-semibold text-primary-800 ${date.getDay() === 0 ? "rounded-l-lg" : date.getDay() === 6 ? "rounded-r-lg" : ""}`
               : "rounded-lg bg-primary-700 font-semibold text-white hover:bg-primary-800";
             return <button key={iso} type="button" data-calendar-date={iso}
               aria-label={period === "week" ? `Selecionar semana ${periodLabel("week", iso)}` : fullDate.format(date)}
@@ -255,7 +255,7 @@ export default function ReportPeriodPicker({ period, value, onChange }: ReportPe
             </button>;
           })}
         </div>
-        {period === "week" && <p className="mt-3 text-xs leading-relaxed text-slate-500">Selecione um dia para consultar a semana inteira, de segunda a domingo.</p>}
+        {period === "week" && <p className="mt-3 text-xs leading-relaxed text-slate-500">Selecione um dia para consultar a semana inteira, de domingo a sábado.</p>}
       </>}
       </div>
     </div>}
