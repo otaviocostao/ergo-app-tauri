@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Activity, ArrowRight, Bell, ChartNoAxesCombined, ChevronLeft, ChevronRight, Clock3, Coffee } from "lucide-react";
+import { Activity, ArrowRight, Bell, ChartNoAxesCombined, ChevronLeft, ChevronRight, Clock3, Timer } from "lucide-react";
 import Header from "../components/Header";
 import { Panel, panelClass } from "../components/dashboard/DashboardWidgets";
 import { Comparison, GoalProgress, PeriodComparison, ReportChart, ReportHistory, postureChange } from "../components/reports/ReportWidgets";
@@ -29,13 +29,13 @@ function ReportMetrics({ report }: { report: PostureReport }) {
     { title: "Índice ergonômico", value: formatPercent(summary.posturePercent), detail: "do tempo monitorado em boa postura", icon: Activity, change: postureChange(report), unit: "p.p." },
     { title: "Tempo em boa postura", value: formatMinutes(summary.goodMinutes), detail: `${formatMinutes(summary.goodMinutes / summary.days)} por dia monitorado`, icon: Clock3, change: dailyMinutesChange, unit: "min/dia" },
     { title: "Alertas preventivos", value: summary.alerts, detail: `${summary.alertsPerHour?.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} por hora monitorada`, icon: Bell, change: alertChange, unit: "/h", lowerIsBetter: true },
-    { title: "Pausas realizadas", value: summary.breaks, detail: `${(summary.breaks / summary.days).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} por dia monitorado`, icon: Coffee, change: null, unit: "" },
+    { title: "Tempo em monitoramento", value: formatMinutes(summary.monitoredMinutes), detail: `${formatMinutes(summary.days ? summary.monitoredMinutes / summary.days : 0)} por dia monitorado`, icon: Timer, change: null, unit: "" },
   ];
   return <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{metrics.map(metric => <section key={metric.title} aria-label={metric.title} className={`${panelClass} flex min-w-0 flex-col p-5`}>
     <div className="flex items-center justify-between gap-3"><h2 className="text-sm font-medium text-slate-600 dark:text-slate-300">{metric.title}</h2><span className="rounded-lg bg-primary-50 p-2 text-primary-600 dark:bg-primary-950/40 dark:text-primary-400"><metric.icon size={17} aria-hidden="true" /></span></div>
     <p className="mt-4 text-3xl font-semibold tracking-tight">{metric.value}</p>
     <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{metric.detail}</p>
-    <div className="mt-auto pt-4">{metric.title === "Pausas realizadas" ? <span className="text-xs text-slate-500 dark:text-slate-400">{formatMinutes(summary.monitoredMinutes)} de monitoramento</span> : <Comparison change={metric.change} unit={metric.unit} lowerIsBetter={metric.lowerIsBetter} />}</div>
+    <div className="mt-auto pt-4">{metric.title === "Tempo em monitoramento" ? <span className="text-xs text-slate-500 dark:text-slate-400">{summary.days} {summary.days === 1 ? "dia monitorado" : "dias monitorados"} no período</span> : <Comparison change={metric.change} unit={metric.unit} lowerIsBetter={metric.lowerIsBetter} />}</div>
   </section>)}</div>;
 }
 
