@@ -3,6 +3,8 @@ pub mod db;
 pub mod models;
 pub mod repositories;
 pub mod services;
+#[cfg(desktop)]
+mod system_tray;
 
 use services::auth_service::AuthState;
 use tauri::Manager;
@@ -25,9 +27,15 @@ pub fn run() {
             let auth_state = AuthState::new()
                 .map_err(|_| std::io::Error::other("Failed to initialize authentication"))?;
             app.manage(auth_state);
+            #[cfg(desktop)]
+            system_tray::setup(app)?;
             let scheduler = services::reminder_scheduler_service::start(app.handle().clone())?;
             app.manage(scheduler);
             Ok(())
+        })
+        .on_window_event(|_window, _event| {
+            #[cfg(desktop)]
+            system_tray::on_window_event(_window, _event);
         })
         .invoke_handler(tauri::generate_handler![
             greet,
@@ -41,7 +49,6 @@ pub fn run() {
             commands::user::is_local_user,
             commands::user::update_user,
             // Reminders
-
             commands::reminder::get_reminders,
             commands::reminder::get_reminder_by_id,
             commands::reminder::create_reminder,

@@ -32,7 +32,7 @@ O [índice da base de conhecimento](docs/base-conhecimento/README.md) reúne o e
 - Ao abrir o app, a tela inicial é o login (`/login`).
 - **Cadastrar** abre um modal para escolher entre o cadastro on-line de empresas e o cadastro off-line. Como ainda não há backend remoto, a opção **Cadastrar online** exibe o aviso de indisponibilidade; **Cadastrar offline** abre o cadastro no próprio app (`/cadastro`).
 - O cadastro local pede nome, e-mail, senha de 8 a 128 caracteres e confirmação da senha. Após o sucesso, uma animação de verificação é exibida antes do retorno ao login.
-- A conta permanece no SQLite após fechar o app. A sessão fica somente na memória do processo Rust: recarregar a tela mantém a sessão, mas fechar e reabrir o app exige novo login.
+- A conta permanece no SQLite após encerrar o app. A sessão fica somente na memória do processo Rust: recarregar a tela ou ocultar a janela pelo X mantém a sessão; usar **Sair do Ergo** e abrir novamente exige novo login.
 - Senhas são armazenadas como hash **Argon2id**, com salt aleatório por cadastro. O hash nunca é retornado ao frontend. Após cinco tentativas de login em 30 segundos, novas tentativas aguardam o fim dessa janela.
 - Não há envio de dados, confirmação de e-mail, recuperação de senha ou sincronização online nesta versão. O SQLite não é criptografado; o login não substitui as permissões de acesso aos arquivos do sistema operacional.
 
@@ -43,6 +43,21 @@ Compartilhe código, `package-lock.json`, `src-tauri/Cargo.lock` e migrações p
 No PowerShell, se `npm.ps1` estiver bloqueado, use `npm.cmd ci` e `npm.cmd run tauri dev`.
 
 `npm run dev` abre apenas a prévia web das telas de login e cadastro. Login/cadastro reais e acesso às telas internas exigem o app Tauri. A prévia não simula um cadastro bem-sucedido. A interface usa a pilha de fontes do sistema e não depende do download de fontes.
+
+### Execução na bandeja do sistema
+
+- No aplicativo desktop, clicar no **X** (ou usar **Alt+F4** no Windows) oculta a janela e mantém o Ergo na bandeja. O processo, a sessão e o agendador de lembretes continuam ativos.
+- Clique com o botão esquerdo no ícone da bandeja para reabrir a mesma janela, restaurando-a se estiver minimizada e trazendo-a para frente. O menu do botão direito também oferece **Abrir Ergo**.
+- Para encerrar completamente, escolha **Sair do Ergo** no menu da bandeja. Isso encerra o processo e interrompe o agendador. O botão de minimizar da janela mantém seu comportamento normal.
+- No Windows, o ícone pode estar na área de ícones ocultos, acessível pela seta junto ao relógio. A bandeja existe no app Tauri; fechar uma aba da prévia web continua fechando essa aba.
+
+Validação manual no Windows:
+
+1. Execute `npm run tauri dev`, entre na conta e abra uma tela interna.
+2. Clique no X: a janela deve desaparecer da barra de tarefas e o ícone do Ergo deve permanecer na bandeja.
+3. Reabra pelo clique esquerdo e pelo menu **Abrir Ergo**. Confira se a tela e a sessão foram mantidas. Repita após minimizar a janela e também com Alt+F4.
+4. Crie um lembrete para um horário próximo, oculte a janela pelo X e aguarde o aviso do sistema. Confira também a execução com a janela aberta.
+5. Use **Sair do Ergo** e confirme que o processo e o ícone desaparecem. Abra novamente e confira que o login é solicitado. Repita a verificação na versão instalada.
 
 ## 🗄️ Configuração do Banco de Dados SQLite Local
 
@@ -80,7 +95,7 @@ As contas e os lembretes por usuário são persistidos no SQLite local. As rotas
 
 ### Disparo dos lembretes
 
-O agendador Rust acompanha os lembretes do usuário conectado a cada segundo e funciona em qualquer tela, com o aplicativo aberto ou minimizado. Fechar o aplicativo encerra o agendador; ele não funciona como um serviço do sistema operacional.
+O agendador Rust acompanha os lembretes do usuário conectado a cada segundo e funciona em qualquer tela, com a janela aberta, minimizada ou oculta na bandeja após clicar no X. Escolher **Sair do Ergo** encerra o agendador; ele não funciona como um serviço do sistema operacional.
 
 - Para lembretes recorrentes, o primeiro aviso ocorre após um intervalo contado a partir do início. Por exemplo, de 08h às 18h com intervalo de 60 minutos, os avisos ocorrem de 09h a 17h. O horário de fim é exclusivo.
 - As frequências respeitam os dias locais do computador: diariamente, segunda a sexta, sábado e domingo ou os dias personalizados.
