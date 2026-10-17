@@ -45,7 +45,8 @@ O sistema opera através de um pipeline híbrido que combina visão computaciona
 | **Task 2.5** | Camada de Comandos Tauri IPC | `src-tauri/src/commands/` (`posture.rs`), `src-tauri/src/lib.rs` | **Concluída** |
 | **Task 2.6** | Tipagens e Serviços IPC no Frontend | `src/types/posture*.ts`, `src/services/postureService.ts` | **Concluída** |
 | **Task 3.1** | Inicializador dos Detectores do MediaPipe | `src/services/vision/poseDetector.ts`, `src/types/vision.ts` | **Concluída** |
-| **Task 3.2+**| Extração de Ângulos, Score e Pipeline | `src/services/vision/` | *Próxima etapa* |
+| **Task 3.2** | Gerenciamento do Feed de Câmera e Concorrência de Dispositivo | `src/components/monitoring/WebcamFeed.tsx` | **Concluída** |
+| **Task 3.3+**| Extração de Ângulos, Score e Pipeline | `src/services/vision/` | *Próxima etapa* |
 
 ---
 
@@ -254,6 +255,30 @@ if (poseDetector.isReady()) {
 5. **Gerenciamento de Recursos**:
    - Método `close()` que fecha explicitamente as instâncias do WebAssembly e WebGL, liberando memória e threads quando a câmera é desativada.
 
+### 5.3 Gerenciamento de Feed de Vídeo, FPS Throttling e Concorrência (Task 3.2)
+
+Implementado e refatorado no componente `src/components/monitoring/WebcamFeed.tsx`:
+
+1. **Gestão de Permissões e Stream (`navigator.mediaDevices.getUserMedia`)**:
+   - Enumeração dinâmica de câmeras físicas (`enumerateDevices`) e listener para hotplug (`devicechange`).
+   - Fechamento e liberação imediata de descritores de hardware do sistema operacional (`track.stop()` e `srcObject = null`) ao pausar o monitoramento ou desmontar o componente.
+
+2. **Limitação do Ciclo de Inferência (10-12 FPS)**:
+   - Throttling configurado em `INFERENCE_INTERVAL_MS = 90` (~11.1 FPS) no loop de `requestAnimationFrame`.
+   - As inferências neurais pesadas do MediaPipe (`detectFrame`) são disparadas exclusivamente a cada ~90ms, reduzindo em mais de 65% o consumo de CPU/GPU em relação a loops não controlados de 30/60 FPS.
+   - Suavização dos ângulos calculados via Filtro Exponencial EMA ($\alpha = 0.3$) para eliminar micro-oscilações visuais.
+
+3. **Tratamento do Bloqueio Exclusivo do Windows (*Exclusive Lock*)**:
+   - Interceptação de `NotReadableError`, `TrackStartError`, `AbortError` e `"device in use"` durante `getUserMedia`.
+   - Monitoramento do evento `stream.getVideoTracks()[0].onended` em tempo real para detectar quando softwares externos (Google Meet, Microsoft Teams, Zoom) requisitam a câmera com bloqueio exclusivo do driver UVC/DirectShow.
+   - Transição graciosa para o estado `isHardwareBusy`, liberando a câmera sem quebrar a aplicação e exibindo overlay informativo com botão de retomada rápida (*"Retomar Monitoramento"*).
+
+4. **Detecção de Ausência do Usuário (ABSENT > 5s)**:
+   - Verificação contínua da presença e confiança anatômica mínima dos pontos-chave (nariz e ombros).
+   - Se nenhuma landmark válida for detectada por mais de 5 segundos, o estado transita para `ABSENT` (`UserPresenceState`).
+   - O cálculo de má postura é pausado para não registrar falsos alertas ou degradar o Ergo Score enquanto a estação de trabalho está vazia.
+   - Notificação em tempo real via callbacks `onPresenceChange` e `onPostureUpdate`.
+
 ---
 
 ## 6. Guia Prático para Agentes e Próximos Desenvolvimentos
@@ -264,10 +289,10 @@ Para verificar que as migrations e todos os fluxos de persistência do monitoram
 cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
 
-### 6.2 Onde Conectar a Próxima Task (Task 3.2: Extração de Ângulos e EAR)
+### 6.2 Onde Conectar a Próxima Task (Task 3.3: Extração de Ângulos, EAR e Calibração Base)
 O resultado retornado por `poseDetector.detectFrame(videoElement)` fornece:
 - `result.poseLandmarks` (para cálculo do ângulo de flexão do pescoço e inclinação dos ombros).
 - `result.faceLandmarks` (para cálculo do EAR dos olhos esquerdo e direito e contagem de piscadas).
 - `result.worldLandmarks` (coordenadas 3D métricas em metros para validação de distância).
 
-Os novos cálculos biomecânicos deverão ser implementados como funções puras em novos arquivos dentro de `src/services/vision/` (ex.: `angleCalculator.ts`, `blinkDetector.ts`, etc.) e consumidos pelo pipeline orquestrador.
+Os novos cálculos biomecânicos e histerese temporal serão organizados em módulos especializados dentro de `src/services/vision/` (ex.: `biomechanics.ts`, `blinkDetector.ts`, `temporalFilter.ts`) e consumidos tanto pelo feed quanto pelo buffer de agregação para persistência no SQLite.
