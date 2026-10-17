@@ -83,6 +83,7 @@ pub struct Reminder {
     pub end_time: Option<String>,
     pub reminder_date: Option<String>,
     pub custom_days: Option<Vec<String>>,
+    pub last_sent_at: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }
