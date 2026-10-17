@@ -51,6 +51,9 @@ export default function Reminders() {
             setErrorMessage(null);
             const data = await reminderService.getAll();
             setReminders(data);
+            setSelectedReminder((current) =>
+                current ? data.find((item) => item.id === current.id) ?? null : null
+            );
         } catch (err) {
             console.error("Failed to load reminders from backend:", err);
             setErrorMessage("Não foi possível carregar os lembretes. Tente novamente.");
@@ -62,13 +65,16 @@ export default function Reminders() {
     useEffect(() => {
         loadReminders();
         if (!isTauri()) return;
+        let disposed = false;
         let unlisten: (() => void) | undefined;
         listen("reminder-alarm", () => {
             loadReminders();
         }).then((fn) => {
-            unlisten = fn;
+            if (disposed) fn();
+            else unlisten = fn;
         });
         return () => {
+            disposed = true;
             unlisten?.();
         };
     }, [loadReminders]);

@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS reminders (
     end_time TEXT,
     reminder_date TEXT,
     custom_days TEXT,
+    last_sent_at TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
