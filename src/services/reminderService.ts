@@ -33,6 +33,7 @@ export interface ReminderItem {
   endTime?: string;
   reminderDate?: string;
   customDays?: string[];
+  lastSentAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
