@@ -1,7 +1,7 @@
 use crate::models::reminder::Reminder;
 use rusqlite::{params, Connection, OptionalExtension};
 
-pub const SELECT_REMINDER_FIELDS: &str = "id, title, message, description, category, interval, period, frequency, notification_tone, status, start_time, end_time, reminder_date, custom_days, created_at, updated_at, user_id";
+pub const SELECT_REMINDER_FIELDS: &str = "id, title, message, description, category, interval, period, frequency, notification_tone, status, start_time, end_time, reminder_date, custom_days, created_at, updated_at, user_id, last_sent_at";
 
 pub fn map_reminder_row(row: &rusqlite::Row<'_>) -> Result<Reminder, rusqlite::Error> {
     let notification_tone_int: i32 = row.get(8)?;
@@ -27,6 +27,7 @@ pub fn map_reminder_row(row: &rusqlite::Row<'_>) -> Result<Reminder, rusqlite::E
         end_time: row.get(11)?,
         reminder_date: row.get(12)?,
         custom_days,
+        last_sent_at: row.get(17)?,
         created_at: row.get(14)?,
         updated_at: row.get(15)?,
     })
@@ -73,8 +74,8 @@ pub fn insert(conn: &Connection, reminder: &Reminder) -> Result<(), rusqlite::Er
     conn.execute(
         "INSERT INTO reminders (
             id, title, message, description, category, interval, period,
-            frequency, notification_tone, status, start_time, end_time, reminder_date, custom_days, created_at, updated_at, user_id
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+            frequency, notification_tone, status, start_time, end_time, reminder_date, custom_days, created_at, updated_at, user_id, last_sent_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         params![
             reminder.id,
             reminder.title,
@@ -93,6 +94,7 @@ pub fn insert(conn: &Connection, reminder: &Reminder) -> Result<(), rusqlite::Er
             reminder.created_at,
             reminder.updated_at,
             reminder.user_id,
+            reminder.last_sent_at,
         ],
     )?;
 
@@ -148,6 +150,19 @@ pub fn delete(conn: &Connection, user_id: i64, id: &str) -> Result<usize, rusqli
     conn.execute(
         "DELETE FROM reminders WHERE id = ?1 AND user_id = ?2",
         params![id, user_id],
+    )
+}
+
+pub fn update_last_sent_at(
+    conn: &Connection,
+    user_id: i64,
+    id: &str,
+    last_sent_at: &str,
+) -> Result<usize, rusqlite::Error> {
+    // Dispatch metadata must not change the reminder's configuration timestamp.
+    conn.execute(
+        "UPDATE reminders SET last_sent_at = ?1 WHERE id = ?2 AND user_id = ?3",
+        params![last_sent_at, id, user_id],
     )
 }
 
