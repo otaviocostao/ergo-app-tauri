@@ -1,21 +1,26 @@
+import { lazy, Suspense } from "react";
 import { Routes, Route, Navigate, Outlet } from "react-router-dom";
-import MainLayout from "../components/MainLayout";
-import Dashboard from "../pages/Dashboard";
-import ErgonomicIndex from "../pages/ErgonomicIndex";
-import GoodPosture from "../pages/GoodPosture";
-import PreventiveAlerts from "../pages/PreventiveAlerts";
-import Reminders from "../pages/Reminders";
-import Monitoring from "../pages/Monitoring";
-import Settings from "../pages/Settings";
+import PageLoading from "../components/PageLoading";
 import Login from "../pages/Login";
-import Register from "../pages/Register";
 import AuthLayout from "../components/auth/AuthLayout";
 import { useAuth } from "../auth/AuthContext";
 import { useTheme } from "../theme/ThemeContext";
 
+const MainLayout = lazy(() => import("../components/MainLayout"));
+const Dashboard = lazy(() => import("../pages/Dashboard"));
+const ErgonomicIndex = lazy(() => import("../pages/ErgonomicIndex"));
+const GoodPosture = lazy(() => import("../pages/GoodPosture"));
+const PreventiveAlerts = lazy(() => import("../pages/PreventiveAlerts"));
+const Reminders = lazy(() => import("../pages/Reminders"));
+const Monitoring = lazy(() => import("../pages/Monitoring"));
+const Settings = lazy(() => import("../pages/Settings"));
+const Register = lazy(() => import("../pages/Register"));
+
 function RequireSession() {
   const { session } = useAuth();
-  return session.kind === "authenticated" ? <Outlet /> : <Navigate to="/login" replace />;
+  return session.kind === "authenticated"
+    ? <Suspense fallback={<PageLoading fullScreen />}><Outlet /></Suspense>
+    : <Navigate to="/login" replace />;
 }
 
 function AnonymousOnly() {

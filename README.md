@@ -44,6 +44,12 @@ No PowerShell, se `npm.ps1` estiver bloqueado, use `npm.cmd ci` e `npm.cmd run t
 
 `npm run dev` abre apenas a prévia web das telas de login e cadastro. Login/cadastro reais e acesso às telas internas exigem o app Tauri. A prévia não simula um cadastro bem-sucedido. A interface usa a pilha de fontes do sistema e não depende do download de fontes.
 
+### Carregamento das telas
+
+O login faz parte do carregamento inicial. O cadastro, a estrutura das páginas internas e cada página interna usam importações dinâmicas (`React.lazy`): seus módulos são carregados quando a rota é acessada. O redirecionamento de uma sessão anônima para o login acontece antes de carregar as páginas protegidas.
+
+Durante o primeiro carregamento de uma página, a interface mostra “Carregando página…”. Nas navegações internas, a barra lateral e o cabeçalho permanecem visíveis enquanto o conteúdo é carregado. As consultas de sessão e tema continuam ocorrendo antes da exibição das telas; os estilos globais continuam no carregamento inicial.
+
 ### Execução na bandeja do sistema
 
 - No aplicativo desktop, clicar no **X** (ou usar **Alt+F4** no Windows) oculta a janela e mantém o Ergo na bandeja. O processo, a sessão e o agendador de lembretes continuam ativos.
