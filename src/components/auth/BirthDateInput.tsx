@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
 import Input from "../Input";
 import CalendarSelect from "./CalendarSelect";
+import { authFieldStyles } from "./authStyles";
 
 interface BirthDateInputProps {
   value: string;
@@ -121,30 +122,29 @@ export default function BirthDateInput({ value, onChange, error, disabled = fals
       <Input ref={inputRef} label="Data de nascimento" type="date" lang="pt-BR" autoComplete="bday"
         value={value} max={todayValue} onChange={(event) => onChange(event.target.value)}
         error={error} disabled={disabled} aria-required="true"
-        inputSize="md" containerClassName="gap-2" helperClassName="text-xs dark:text-slate-500!"
-        labelClassName="text-sm! font-medium! text-slate-700! dark:text-slate-700!"
-        inputClassName="h-11 bg-slate-50/80 pr-32! text-slate-900 select-text focus:bg-white [color-scheme:light] [&::-webkit-calendar-picker-indicator]:hidden dark:border-slate-200! dark:bg-slate-50! dark:text-slate-900! dark:disabled:border-slate-200! dark:disabled:bg-slate-100! dark:disabled:text-slate-400! dark:aria-invalid:border-red-500!"
+        {...authFieldStyles}
+        inputClassName={`${authFieldStyles.inputClassName} pr-32! [&::-webkit-calendar-picker-indicator]:hidden`}
         rightIcon={
           <button ref={triggerRef} type="button" disabled={disabled} onClick={toggleCalendar}
             aria-label="Escolher data de nascimento no calendário" aria-haspopup="dialog" aria-expanded={open}
             aria-controls={open ? calendarId : undefined}
-            className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-primary-50 px-2.5 text-sm font-medium text-primary-800 transition-colors hover:bg-primary-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
+            className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-primary-50 px-2.5 text-sm font-medium text-primary-800 transition-colors hover:bg-primary-100 dark:bg-primary-950/50 dark:text-primary-200 dark:hover:bg-primary-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
             <CalendarDays size={16} aria-hidden="true" />
           </button>
         } />
       {open && !disabled && (
         <div id={calendarId} role="dialog" aria-label="Escolher data de nascimento"
-          className="absolute left-0 top-full z-30 mt-2 w-full max-w-sm rounded-xl border border-slate-200 bg-white p-4 text-slate-900 shadow-xl [color-scheme:light]">
+          className="absolute left-0 top-full z-30 mt-2 w-full max-w-sm rounded-xl border border-slate-200 bg-white p-4 text-slate-900 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
           <div className="mb-3 flex items-center justify-between gap-2">
             <p className="text-sm font-semibold">Selecione sua data de nascimento</p>
             <button type="button" onClick={closeCalendar} aria-label="Fechar calendário"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-primary-600">
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-primary-600">
               <X size={16} aria-hidden="true" />
             </button>
           </div>
           <div className="mb-4 flex items-center gap-2">
             <button type="button" onClick={() => changeMonth(year, month - 1)} disabled={year === 1 && month === 0}
-              aria-label="Mês anterior" className="flex h-9 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-primary-600 disabled:opacity-30">
+              aria-label="Mês anterior" className="flex h-9 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-primary-600 disabled:opacity-30">
               <ChevronLeft size={18} aria-hidden="true" />
             </button>
             <CalendarSelect label="Mês de nascimento" value={month} onChange={(value) => changeMonth(year, value)}
@@ -152,12 +152,12 @@ export default function BirthDateInput({ value, onChange, error, disabled = fals
             <CalendarSelect label="Ano de nascimento" value={year} onChange={(value) => changeMonth(value, month)}
               className="w-22 shrink-0" options={years.map((option) => ({ value: option, label: String(option) }))} />
             <button type="button" onClick={() => changeMonth(year, month + 1)} disabled={!canGoForward}
-              aria-label="Próximo mês" className="flex h-9 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-primary-600 disabled:opacity-30">
+              aria-label="Próximo mês" className="flex h-9 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-primary-600 disabled:opacity-30">
               <ChevronRight size={18} aria-hidden="true" />
             </button>
           </div>
           <p className="sr-only" aria-live="polite">{months[month]} de {year}</p>
-          <div className="mb-1 grid grid-cols-7 text-center text-xs font-medium text-slate-500" aria-hidden="true">
+          <div className="mb-1 grid grid-cols-7 text-center text-xs font-medium text-slate-500 dark:text-slate-400" aria-hidden="true">
             {weekdays.map((weekday) => <span key={weekday} className="py-1">{weekday}</span>)}
           </div>
           <div className="grid grid-cols-7 gap-1" role="group" aria-label={`Dias de ${months[month]} de ${year}`}>
@@ -172,7 +172,7 @@ export default function BirthDateInput({ value, onChange, error, disabled = fals
                 aria-current={iso === todayValue ? "date" : undefined} onFocus={() => setActiveDay(day)}
                 onKeyDown={(event) => navigateDays(event, day)}
                 onClick={() => { onChange(iso); setOpen(false); inputRef.current?.focus(); }}
-                className={`flex h-9 items-center justify-center rounded-lg text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:text-slate-300 ${isSelected ? "bg-primary-700 font-semibold text-white hover:bg-primary-800" : "text-slate-700 hover:bg-primary-50"} ${iso === todayValue && !isSelected ? "ring-1 ring-inset ring-primary-200 font-semibold" : ""}`}>
+                className={`flex h-9 items-center justify-center rounded-lg text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:text-slate-300 dark:disabled:text-slate-600 ${isSelected ? "bg-primary-700 font-semibold text-white hover:bg-primary-800 dark:bg-primary-500 dark:text-slate-950 dark:hover:bg-primary-400" : "text-slate-700 hover:bg-primary-50 dark:text-slate-300 dark:hover:bg-slate-800"} ${iso === todayValue && !isSelected ? "ring-1 ring-inset ring-primary-200 font-semibold dark:ring-primary-700" : ""}`}>
                 {day}
               </button>;
             })}

@@ -99,7 +99,7 @@ O campo `users.theme_preference` guarda `light`, `dark` ou `system`, com `light`
 
 Os comandos `get_user_theme_preference` e `update_user_theme_preference` consultam e alteram somente a conta da sessão autenticada. A atualização recebe `{ payload: { theme: "dark" } }`, sem identificador de usuário, e preserva os demais dados cadastrais. O serviço frontend `src/services/userThemeService.ts` disponibiliza essas operações.
 
-Esta primeira etapa prepara a persistência; a integração com Configurações e com as telas de login e cadastro será feita separadamente. O tema exibido ainda usa a preferência local do dispositivo. Como a coluna foi adicionada à migration inicial, bancos criados anteriormente precisam ser recriados conforme o procedimento de desenvolvimento acima; esta alteração não migra nem apaga dados automaticamente.
+A persistência está preparada, e login e cadastro já acompanham o tema ativo, incluindo campos, calendário de nascimento, mensagens e janelas de cadastro. O tema exibido ainda usa a preferência local do dispositivo; a integração entre Configurações, sessão e preferência da conta será feita separadamente. Como a coluna foi adicionada à migration inicial, bancos criados anteriormente precisam ser recriados conforme o procedimento de desenvolvimento acima; esta alteração não migra nem apaga dados automaticamente.
 
 ### Disparo dos lembretes
 
