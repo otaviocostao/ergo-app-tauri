@@ -32,7 +32,7 @@ O [índice da base de conhecimento](docs/base-conhecimento/README.md) reúne o e
 - Ao abrir o app, a tela inicial é o login (`/login`).
 - **Cadastrar** abre um modal para escolher entre o cadastro on-line de empresas e o cadastro off-line. Como ainda não há backend remoto, a opção **Cadastrar online** exibe o aviso de indisponibilidade; **Cadastrar offline** abre o cadastro no próprio app (`/cadastro`).
 - O cadastro local pede nome, e-mail, senha de 8 a 128 caracteres e confirmação da senha. Após o sucesso, uma animação de verificação é exibida antes do retorno ao login.
-- A conta permanece no SQLite após fechar o app. A sessão fica somente na memória do processo Rust: recarregar a tela mantém a sessão, mas fechar e reabrir o app exige novo login.
+- A conta permanece no SQLite após encerrar o app. A sessão fica somente na memória do processo Rust: recarregar a tela ou ocultar a janela pelo X mantém a sessão; usar **Sair do Ergo** e abrir novamente exige novo login.
 - Senhas são armazenadas como hash **Argon2id**, com salt aleatório por cadastro. O hash nunca é retornado ao frontend. Após cinco tentativas de login em 30 segundos, novas tentativas aguardam o fim dessa janela.
 - Não há envio de dados, confirmação de e-mail, recuperação de senha ou sincronização online nesta versão. O SQLite não é criptografado; o login não substitui as permissões de acesso aos arquivos do sistema operacional.
 
@@ -42,7 +42,22 @@ Compartilhe código, `package-lock.json`, `src-tauri/Cargo.lock` e migrações p
 
 No PowerShell, se `npm.ps1` estiver bloqueado, use `npm.cmd ci` e `npm.cmd run tauri dev`.
 
-`npm run dev` abre apenas a prévia web: é possível conferir as telas e navegar como visitante, mas login/cadastro reais exigem o app Tauri. A prévia não simula um cadastro bem-sucedido. A interface usa a pilha de fontes do sistema e não depende do download de fontes.
+`npm run dev` abre apenas a prévia web das telas de login e cadastro. Login/cadastro reais e acesso às telas internas exigem o app Tauri. A prévia não simula um cadastro bem-sucedido. A interface usa a pilha de fontes do sistema e não depende do download de fontes.
+
+### Execução na bandeja do sistema
+
+- No aplicativo desktop, clicar no **X** (ou usar **Alt+F4** no Windows) oculta a janela e mantém o Ergo na bandeja. O processo, a sessão e o agendador de lembretes continuam ativos.
+- Clique com o botão esquerdo no ícone da bandeja para reabrir a mesma janela, restaurando-a se estiver minimizada e trazendo-a para frente. O menu do botão direito também oferece **Abrir Ergo**.
+- Para encerrar completamente, escolha **Sair do Ergo** no menu da bandeja. Isso encerra o processo e interrompe o agendador. O botão de minimizar da janela mantém seu comportamento normal.
+- No Windows, o ícone pode estar na área de ícones ocultos, acessível pela seta junto ao relógio. A bandeja existe no app Tauri; fechar uma aba da prévia web continua fechando essa aba.
+
+Validação manual no Windows:
+
+1. Execute `npm run tauri dev`, entre na conta e abra uma tela interna.
+2. Clique no X: a janela deve desaparecer da barra de tarefas e o ícone do Ergo deve permanecer na bandeja.
+3. Reabra pelo clique esquerdo e pelo menu **Abrir Ergo**. Confira se a tela e a sessão foram mantidas. Repita após minimizar a janela e também com Alt+F4.
+4. Crie um lembrete para um horário próximo, oculte a janela pelo X e aguarde o aviso do sistema. Confira também a execução com a janela aberta.
+5. Use **Sair do Ergo** e confirme que o processo e o ícone desaparecem. Abra novamente e confira que o login é solicitado. Repita a verificação na versão instalada.
 
 ## 🗄️ Configuração do Banco de Dados SQLite Local
 
@@ -62,19 +77,36 @@ Ao rodar a aplicação em modo dev ou produção, o arquivo do banco de dados `e
 - **Linux:** `~/.config/com.ergo.ergo-app-tauri/ergo.db`
 
 ### 🔄 Migrações Automáticas
-O backend abre o banco e aplica as migrações SQLx de `src-tauri/migrations/` na inicialização. A primeira migração cria `users` (`id`, `full_name`, `email`, `password_hash`, `created_at`). A tabela `_sqlx_migrations` registra as versões aplicadas.
+O backend abre o banco e aplica a migração SQLx de `src-tauri/migrations/` na inicialização. Nesta fase do projeto, `0001_initial_migration.sql` contém todo o schema: usuários, lembretes, empresas e ambientes de trabalho. A tabela `_sqlx_migrations` registra a versão aplicada.
 
 Para adicionar novas tabelas ou alterar tabelas existentes:
-1. Crie um novo arquivo SQL numerado, por exemplo `src-tauri/migrations/0002_add_user_preferences.sql`.
-2. Não altere migrações já aplicadas: o SQLx verifica seus checksums.
+1. Atualize `src-tauri/migrations/0001_initial_migration.sql`, mantendo o schema completo na migração inicial.
+2. O SQLx verifica o checksum da migração. Quando ela for alterada nesta fase de desenvolvimento, feche o aplicativo e remova `ergo.db`, `ergo.db-wal` e `ergo.db-shm` (se existirem) do diretório de dados indicado acima. Isso apaga as contas e os dados locais; use este procedimento somente com dados descartáveis. Se for necessário preservar dados, mantenha as migrações aplicadas intactas e use novas migrações incrementais.
 3. Reinicie o app (`npm run tauri dev`). As migrações são embutidas no executável durante a compilação, portanto também funcionam no app instalado.
 
+A migração inicial inclui `reminders.user_id`, uma chave estrangeira para `users.id`, e um índice para consultas por usuário. O banco rejeita referências a usuários inexistentes e impede excluir usuários que tenham lembretes vinculados. O backend atribui o proprietário de novos lembretes pela sessão autenticada; o frontend não escolhe nem altera esse vínculo. Listar, consultar, editar, excluir e alternar o status exigem autenticação e se restringem aos lembretes do usuário conectado. Visitantes e sessões sem login não podem executar essas operações. Os exemplos sem proprietário (`user_id` nulo) ficam fora das listas das contas; não são atribuídos automaticamente a nenhum usuário.
+
 ### 🛠️ Como Utilizar o Banco no Frontend (TypeScript)
-Para autenticação, use `src/auth/authService.ts`, que chama os comandos `register_local`, `login_local`, `get_session`, `continue_offline` e `logout`. O `AuthProvider` mantém os dados públicos da sessão e as rotas internas exigem uma sessão autenticada ou de visitante.
+Para autenticação, use `src/auth/authService.ts`, que chama os comandos `register_local`, `login_local`, `get_session` e `logout`. O `AuthProvider` mantém os dados públicos da sessão e as rotas internas exigem uma sessão autenticada.
 
 As permissões de SQL genérico foram removidas de `src-tauri/capabilities/default.json` para impedir leitura/alteração da tabela de credenciais pelo WebView. O helper antigo `src/db.ts` não é usado nesse fluxo. Novas operações de dados devem ser implementadas como comandos Rust específicos, validando a sessão no backend quando precisarem de autenticação.
 
-Os lembretes e métricas existentes continuam sendo os dados demonstrativos do projeto; esta entrega persiste apenas as contas locais, não implementa ainda dados de ergonomia por usuário.
+As contas e os lembretes por usuário são persistidos no SQLite local. As rotas internas exigem uma conta autenticada. As métricas de ergonomia continuam demonstrativas.
+
+### Disparo dos lembretes
+
+O agendador Rust acompanha os lembretes do usuário conectado a cada segundo e funciona em qualquer tela, com a janela aberta, minimizada ou oculta na bandeja após clicar no X. Escolher **Sair do Ergo** encerra o agendador; ele não funciona como um serviço do sistema operacional.
+
+- Para lembretes recorrentes, o primeiro aviso ocorre após um intervalo contado a partir do início. Por exemplo, de 08h às 18h com intervalo de 60 minutos, os avisos ocorrem de 09h a 17h. O horário de fim é exclusivo.
+- As frequências respeitam os dias locais do computador: diariamente, segunda a sexta, sábado e domingo ou os dias personalizados.
+- “Não repetir” dispara uma vez na data e no horário de início escolhidos. O intervalo e o horário de fim não se aplicam.
+- Entrar na conta ou reiniciar o aplicativo agenda o próximo horário futuro. Após suspensão, avisos atrasados mais de dez segundos são ignorados; não há envio acumulado. O controle de disparos fica na memória, e horários passados não são reenviados na inicialização. Horários locais ambíguos ou inexistentes em transições de fuso são ignorados.
+- Edição, desativação e exclusão atualizam o agendamento na próxima verificação. Logout e troca de conta cancelam a programação anterior.
+- O aviso aparece dentro do aplicativo e também é enviado ao sistema pelo plugin de notificações do Tauri. No Windows, a opção de som usa o som padrão do sistema; lembretes silenciosos não solicitam som. Volume, modo de concentração e bloqueios de notificações do sistema podem impedir a apresentação ou o áudio. Na execução de desenvolvimento, o Windows pode identificar o aviso como PowerShell; valide também o aplicativo instalado.
+- Após o plugin aceitar o envio, `reminders.last_sent_at` registra o horário efetivo em UTC (RFC 3339). Falhas reportadas pelo plugin não alteram esse campo. Esse registro não confirma a exibição ou a leitura da notificação pelo usuário. O modal de detalhes mostra o último envio no fuso local do computador, ou “Nunca enviado”, e se atualiza quando está aberto durante um disparo.
+- Registrar o envio altera somente `last_sent_at`, preservando `updated_at` como referência das alterações do lembrete. Edições e mudanças de status continuam atualizando `updated_at`, inclusive a desativação automática de lembretes que não se repetem. O campo começa vazio e não recompõe envios anteriores a esta implementação.
+
+Para conferir manualmente: entre na conta, crie um lembrete diário com início no próximo minuto, intervalo de um minuto e fim pelo menos três minutos depois. O primeiro aviso deve acontecer um minuto após o início; confira o seguinte, desative o lembrete e confirme que não há novos avisos. Repita com notificação silenciosa, outra tela aberta e a janela minimizada. Para “Não repetir”, escolha a data local de hoje e um horário futuro.
 
 ### Testes
 

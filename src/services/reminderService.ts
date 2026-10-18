@@ -19,6 +19,7 @@ export {
 
 export interface ReminderItem {
   id: string;
+  userId?: number | null;
   title: string;
   message: string;
   description?: string;
@@ -32,6 +33,7 @@ export interface ReminderItem {
   endTime?: string;
   reminderDate?: string;
   customDays?: string[];
+  lastSentAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }

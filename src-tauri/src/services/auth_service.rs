@@ -32,6 +32,21 @@ impl AuthState {
             dummy_hash: hash_password("not-a-user-password")?,
         })
     }
+
+    pub(crate) fn with_authenticated_user<T>(
+        &self,
+        action: impl FnOnce(Option<i64>) -> T,
+    ) -> Result<T, String> {
+        let session = self
+            .session
+            .lock()
+            .map_err(|_| "Failed to read authentication session".to_string())?;
+        let user_id = match &*session {
+            Session::Authenticated { user } => Some(user.id),
+            _ => None,
+        };
+        Ok(action(user_id))
+    }
 }
 
 pub(crate) fn hash_password(password: &str) -> Result<String, AuthError> {
@@ -127,6 +142,15 @@ pub fn get_session(state: &AuthState) -> Result<Session, AuthError> {
         .map_err(|_| AuthError::internal())
 }
 
+pub fn require_authenticated_user_id(state: &AuthState) -> Result<i64, String> {
+    match get_session(state).map_err(|_| "Failed to read authentication session".to_string())? {
+        Session::Authenticated { user } => Ok(user.id),
+        Session::Anonymous | Session::Guest => {
+            Err("Authentication is required to manage reminders".to_string())
+        }
+    }
+}
+
 pub fn set_session(state: &AuthState, session: Session) -> Result<(), AuthError> {
     *state.session.lock().map_err(|_| AuthError::internal())? = session;
     Ok(())
@@ -160,7 +184,7 @@ mod tests {
             first_name: "Ana".into(),
             last_name: "Silva".into(),
             birth_date: "1995-05-20".into(),
-            password: "senha-segura-123".into(),
+            password: "Senha-segura-123!".into(),
             email: "ana@example.com".into(),
             phone: "(75) 99999-9999".into(),
             photo: None,
@@ -190,7 +214,7 @@ mod tests {
             &conn,
             &state,
             "ANA@EXAMPLE.COM".into(),
-            "senha-segura-123".into(),
+            "Senha-segura-123!".into(),
         )
         .unwrap();
         assert!(matches!(session, Session::Authenticated { .. }));
@@ -204,6 +228,26 @@ mod tests {
     }
 
     #[test]
+    fn existing_passwords_can_still_log_in_after_registration_policy_changes() {
+        let conn = test_connection();
+        let user = user_service::create_user(&conn, registration_payload()).unwrap();
+        let state = AuthState::new().unwrap();
+        for password in ["senha-antiga".to_string(), "x".repeat(128)] {
+            // Simulate a password created under the previous registration policy.
+            conn.execute(
+                "UPDATE users SET password_hash = ?1 WHERE id = ?2",
+                rusqlite::params![hash_password(&password).unwrap(), user.id],
+            )
+            .unwrap();
+            assert!(matches!(
+                login(&conn, &state, "ana@example.com".into(), password).unwrap(),
+                Session::Authenticated { .. }
+            ));
+            logout(&state).unwrap();
+        }
+    }
+
+    #[test]
     fn login_attempt_limit_resets_after_window() {
         let conn = test_connection();
         let state = AuthState::new().unwrap();
@@ -214,7 +258,7 @@ mod tests {
                     &conn,
                     &state,
                     "missing@example.com".into(),
-                    "senha-segura".into()
+                    "Senha-segura-123!".into()
                 )
                 .unwrap_err()
                 .code,
@@ -226,7 +270,7 @@ mod tests {
                 &conn,
                 &state,
                 "missing@example.com".into(),
-                "senha-segura".into()
+                "Senha-segura-123!".into()
             )
             .unwrap_err()
             .code,
@@ -240,7 +284,7 @@ mod tests {
                 &conn,
                 &state,
                 "missing@example.com".into(),
-                "senha-segura".into()
+                "Senha-segura-123!".into()
             )
             .unwrap_err()
             .code,

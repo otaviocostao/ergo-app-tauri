@@ -56,15 +56,20 @@ impl ToSql for ReminderFrequency {
 impl FromSql for ReminderFrequency {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
         let text = value.as_str()?;
-        text.parse::<ReminderFrequency>()
-            .map_err(|e| FromSqlError::Other(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e))))
+        text.parse::<ReminderFrequency>().map_err(|e| {
+            FromSqlError::Other(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                e,
+            )))
+        })
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Reminder {
     pub id: String,
+    pub user_id: Option<i64>,
     pub title: String,
     pub message: String,
     pub description: Option<String>,
@@ -78,8 +83,20 @@ pub struct Reminder {
     pub end_time: Option<String>,
     pub reminder_date: Option<String>,
     pub custom_days: Option<Vec<String>>,
+    pub last_sent_at: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReminderAlarm {
+    pub id: String,
+    pub user_id: i64,
+    pub title: String,
+    pub message: String,
+    pub notification_tone: bool,
+    pub scheduled_at: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

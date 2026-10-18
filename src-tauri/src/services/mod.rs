@@ -1,5 +1,11 @@
 pub mod auth_service;
 pub mod company_service;
+pub mod reminder_scheduler_service;
 pub mod reminder_service;
 pub mod user_service;
 pub mod workspace_service;
+pub mod posture_calibration_service;
+pub mod monitoring_session_service;
+pub mod posture_metric_snapshot_service;
+pub mod posture_alert_service;
+pub mod posture_service;

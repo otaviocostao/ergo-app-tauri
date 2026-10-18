@@ -9,13 +9,18 @@ import {
   REMINDER_FREQUENCY_OPTIONS,
   WEEK_DAYS_OPTIONS,
 } from "../../enums";
-import { Tag, Calendar } from "lucide-react";
+import { Tag, Calendar, Info } from "lucide-react";
 
 interface ReminderFormModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave?: (reminder: ReminderItem) => Promise<void> | void;
   reminder: ReminderItem | null;
+}
+
+function localToday(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
 function parseIntervalToMinutes(val?: string | number): string {
@@ -62,9 +67,7 @@ export default function ReminderFormModal({
   const [startTime, setStartTime] = useState("08:00");
   const [endTime, setEndTime] = useState("18:00");
   const [frequency, setFrequency] = useState<string>(ReminderFrequency.BUSINESS_DAYS);
-  const [reminderDate, setReminderDate] = useState<string>(() =>
-    new Date().toISOString().split("T")[0]
-  );
+  const [reminderDate, setReminderDate] = useState<string>(localToday);
   const [customDays, setCustomDays] = useState<string[]>([]);
   const [silentNotification, setSilentNotification] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -94,7 +97,7 @@ export default function ReminderFormModal({
 
         setFrequency(reminder.frequency || ReminderFrequency.BUSINESS_DAYS);
         setReminderDate(
-          reminder.reminderDate || new Date().toISOString().split("T")[0]
+          reminder.reminderDate || localToday()
         );
         setCustomDays(reminder.customDays || []);
         setSilentNotification(!reminder.notificationTone);
@@ -106,7 +109,7 @@ export default function ReminderFormModal({
         setStartTime("08:00");
         setEndTime("18:00");
         setFrequency(ReminderFrequency.BUSINESS_DAYS);
-        setReminderDate(new Date().toISOString().split("T")[0]);
+        setReminderDate(localToday());
         setCustomDays([]);
         setSilentNotification(false);
       }
@@ -119,12 +122,48 @@ export default function ReminderFormModal({
     );
   };
 
-  const periodDuration = calculatePeriodDuration(startTime, endTime);
+  const isOnce = frequency === ReminderFrequency.ONCE;
+  const periodDuration = isOnce ? null : calculatePeriodDuration(startTime, endTime);
   const parsedMinutes = parseInt(interval, 10);
   const isIntervalInvalid =
-    interval.trim() !== "" &&
+    !isOnce && interval.trim() !== "" &&
     (!isNaN(parsedMinutes) && periodDuration !== null && (parsedMinutes <= 0 || parsedMinutes >= periodDuration));
   const isTimeOrderInvalid = periodDuration !== null && periodDuration <= 0;
+
+  const frequencyInfo = (() => {
+    switch (frequency) {
+      case ReminderFrequency.ONCE:
+        return {
+          title: "Aviso único",
+          description: "O aviso toca apenas uma vez, na data e no horário selecionados.",
+        };
+      case ReminderFrequency.DAILY:
+        return {
+          title: "Repetição diária",
+          description: "O aviso se repete todos os dias da semana (segunda a domingo), seguindo o intervalo entre o início e o fim.",
+        };
+      case ReminderFrequency.BUSINESS_DAYS:
+        return {
+          title: "Dias úteis",
+          description: "O aviso se repete de segunda a sexta-feira, seguindo o intervalo entre o horário de início e fim.",
+        };
+      case ReminderFrequency.WEEKENDS:
+        return {
+          title: "Finais de semana",
+          description: "O aviso se repete aos sábados e domingos, seguindo o intervalo entre o horário de início e fim.",
+        };
+      case ReminderFrequency.CUSTOM:
+        return {
+          title: "Dias personalizados",
+          description: "O aviso se repete nos dias da semana marcados acima, respeitando o intervalo entre início e fim.",
+        };
+      default:
+        return {
+          title: "Como funciona a repetição",
+          description: "O primeiro aviso toca após o intervalo a partir do início. Os próximos seguem o intervalo, antes do horário de fim.",
+        };
+    }
+  })();
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -133,13 +172,17 @@ export default function ReminderFormModal({
       return;
     }
 
-    const minutes = parseInt(interval, 10);
+    if (!startTime || (!isOnce && !endTime)) {
+      setSubmitError("Preencha os horários do lembrete.");
+      return;
+    }
+    const minutes = isOnce ? 1 : parseInt(interval, 10);
     if (isNaN(minutes) || minutes < 1) {
       setSubmitError("Informe um intervalo válido de pelo menos 1 minuto.");
       return;
     }
 
-    const duration = calculatePeriodDuration(startTime, endTime);
+    const duration = isOnce ? null : calculatePeriodDuration(startTime, endTime);
     if (duration !== null && duration <= 0) {
       setSubmitError("O horário de término deve ser posterior ao horário de início.");
       return;
@@ -173,9 +216,9 @@ export default function ReminderFormModal({
         description: message.trim(),
         category,
         interval: minutes,
-        period: `${startTime} - ${endTime}`,
+        period: isOnce ? startTime : `${startTime} - ${endTime}`,
         startTime,
-        endTime,
+        endTime: isOnce ? undefined : endTime,
         frequency: frequency as ReminderFrequency,
         reminderDate:
           frequency === ReminderFrequency.ONCE ? reminderDate : undefined,
@@ -270,51 +313,6 @@ export default function ReminderFormModal({
           />
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
-          <Input
-            label="Intervalo (minutos)"
-            type="number"
-            min={1}
-            max={periodDuration && periodDuration > 1 ? periodDuration - 1 : undefined}
-            step={1}
-            placeholder="Ex: 10"
-            value={interval}
-            onChange={(e) => {
-              const val = e.target.value.replace(/[^0-9]/g, "");
-              setIntervalVal(val);
-              if (submitError) setSubmitError(null);
-            }}
-            rightIcon={<span className="text-xs text-slate-400 font-medium mr-1 select-none">min</span>}
-            error={
-              isIntervalInvalid
-                ? parsedMinutes <= 0
-                  ? "Mínimo de 1 min"
-                  : `Deve ser menor que o intervalo entre início e fim (${periodDuration} min).`
-                : undefined
-            }
-            required
-          />
-          <Input
-            label="Início"
-            type="time"
-            value={startTime}
-            onChange={(e) => {
-              setStartTime(e.target.value);
-              if (submitError) setSubmitError(null);
-            }}
-          />
-          <Input
-            label="Fim"
-            type="time"
-            value={endTime}
-            onChange={(e) => {
-              setEndTime(e.target.value);
-              if (submitError) setSubmitError(null);
-            }}
-            error={isTimeOrderInvalid ? "Deve ser posterior ao início" : undefined}
-          />
-        </div>
-
         <div className="flex flex-col sm:flex-row gap-4 items-start">
           <Select
             label="Frequência"
@@ -327,7 +325,7 @@ export default function ReminderFormModal({
             options={REMINDER_FREQUENCY_OPTIONS}
             containerClassName={
               frequency === ReminderFrequency.ONCE ||
-              frequency === ReminderFrequency.CUSTOM
+                frequency === ReminderFrequency.CUSTOM
                 ? "w-full sm:w-1/2"
                 : "w-full"
             }
@@ -374,6 +372,73 @@ export default function ReminderFormModal({
             </div>
           )}
         </div>
+
+        <div className="flex items-center gap-3 rounded-xl border border-primary-100 bg-primary-50/50 p-3.5 text-xs text-slate-700 dark:border-primary-950/60 dark:bg-primary-950/20 dark:text-slate-300">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-100 text-primary-700 dark:bg-primary-900/60 dark:text-primary-300">
+            <Info size={22} aria-hidden="true" />
+          </div>
+          <div className="flex-1 space-y-0.5 leading-relaxed">
+            <p className="font-semibold text-slate-900 dark:text-slate-100">
+              {frequencyInfo.title}
+            </p>
+            <p className="text-slate-600 dark:text-slate-400">
+              {frequencyInfo.description}
+            </p>
+          </div>
+        </div>
+
+        <div className={`grid gap-4 ${isOnce ? "grid-cols-1" : "grid-cols-3"}`}>
+          {!isOnce && (
+            <Input
+              label="Intervalo (minutos)"
+              type="number"
+              min={1}
+              max={periodDuration && periodDuration > 1 ? periodDuration - 1 : undefined}
+              step={1}
+              placeholder="Ex: 10"
+              value={interval}
+              onChange={(e) => {
+                const val = e.target.value.replace(/[^0-9]/g, "");
+                setIntervalVal(val);
+                if (submitError) setSubmitError(null);
+              }}
+              rightIcon={<span className="text-xs text-slate-400 font-medium mr-1 select-none">min</span>}
+              error={
+                isIntervalInvalid
+                  ? parsedMinutes <= 0
+                    ? "Mínimo de 1 min"
+                    : `Deve ser menor que o intervalo entre início e fim (${periodDuration} min).`
+                  : undefined
+              }
+              required
+            />
+          )}
+          <Input
+            label={isOnce ? "Horário do aviso" : "Início"}
+            type="time"
+            required
+            value={startTime}
+            onChange={(e) => {
+              setStartTime(e.target.value);
+              if (submitError) setSubmitError(null);
+            }}
+          />
+          {!isOnce && (
+            <Input
+              label="Fim"
+              type="time"
+              required
+              value={endTime}
+              onChange={(e) => {
+                setEndTime(e.target.value);
+                if (submitError) setSubmitError(null);
+              }}
+              error={isTimeOrderInvalid ? "Deve ser posterior ao início" : undefined}
+            />
+          )}
+        </div>
+
+
 
         <div className="flex items-center gap-2 pt-1">
           <input

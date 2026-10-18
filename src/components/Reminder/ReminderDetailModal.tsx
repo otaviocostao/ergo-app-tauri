@@ -136,7 +136,7 @@ export default function ReminderDetailModal({
             Intervalo
           </span>
           <span className="font-semibold text-slate-900 dark:text-slate-100">
-            {reminder.interval} min
+            {reminder.frequency === ReminderFrequency.ONCE ? "Uma vez" : `${reminder.interval} min`}
           </span>
         </div>
 
@@ -200,6 +200,20 @@ export default function ReminderDetailModal({
           </span>
           <span className="font-semibold text-slate-900 dark:text-slate-100">
             {reminder.notificationTone === true ? "Sim" : "Não"}
+          </span>
+        </div>
+
+        <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
+            <Clock size={15} className="text-slate-500 dark:text-slate-400" />
+            Último envio
+          </span>
+          <span className="font-semibold text-slate-900 dark:text-slate-100">
+            {reminder.lastSentAt ? (
+              <time dateTime={reminder.lastSentAt}>
+                {new Date(reminder.lastSentAt).toLocaleString("pt-BR")}
+              </time>
+            ) : "Nunca enviado"}
           </span>
         </div>
 

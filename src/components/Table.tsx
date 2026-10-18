@@ -44,7 +44,7 @@ export default function Table<T>({
 
   return (
     <div
-      className={`w-full overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 transition-colors ${className}`}
+      className={`w-full overflow-hidden rounded-md border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 transition-colors ${className}`}
     >
       <div className="w-full overflow-x-auto">
         <table className="w-full text-left text-sm text-slate-600 dark:text-slate-300 border-collapse">
@@ -98,8 +98,8 @@ export default function Table<T>({
                     key={key}
                     onClick={() => onRowClick && onRowClick(item)}
                     className={`transition-colors ${isClickable
-                        ? "cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                        : "hover:bg-slate-50/60 dark:hover:bg-slate-800/30"
+                      ? "cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                      : "hover:bg-slate-50/60 dark:hover:bg-slate-800/30"
                       }`}
                   >
                     {columns.map((col, colIdx) => {

@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
+import { isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import Header from "../components/Header";
 import Table, { ColumnDef } from "../components/Table";
 import Button from "../components/Button";
@@ -49,6 +51,9 @@ export default function Reminders() {
             setErrorMessage(null);
             const data = await reminderService.getAll();
             setReminders(data);
+            setSelectedReminder((current) =>
+                current ? data.find((item) => item.id === current.id) ?? null : null
+            );
         } catch (err) {
             console.error("Failed to load reminders from backend:", err);
             setErrorMessage("Não foi possível carregar os lembretes. Tente novamente.");
@@ -59,6 +64,19 @@ export default function Reminders() {
 
     useEffect(() => {
         loadReminders();
+        if (!isTauri()) return;
+        let disposed = false;
+        let unlisten: (() => void) | undefined;
+        listen("reminder-alarm", () => {
+            loadReminders();
+        }).then((fn) => {
+            if (disposed) fn();
+            else unlisten = fn;
+        });
+        return () => {
+            disposed = true;
+            unlisten?.();
+        };
     }, [loadReminders]);
 
     const handleConfirmDelete = async () => {
@@ -185,7 +203,7 @@ export default function Reminders() {
             cell: (item) => (
                 <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
                     <Clock size={14} className="text-slate-400" />
-                    <span>{item.interval} min</span>
+                    <span>{item.frequency === ReminderFrequency.ONCE ? "Uma vez" : `${item.interval} min`}</span>
                 </div>
             ),
         },
