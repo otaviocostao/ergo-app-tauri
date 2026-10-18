@@ -99,7 +99,13 @@ O campo `users.theme_preference` guarda `light`, `dark` ou `system`, com `light`
 
 Os comandos `get_user_theme_preference` e `update_user_theme_preference` consultam e alteram somente a conta da sessão autenticada. A atualização recebe `{ payload: { theme: "dark" } }`, sem identificador de usuário, e preserva os demais dados cadastrais. O serviço frontend `src/services/userThemeService.ts` disponibiliza essas operações.
 
-A persistência está preparada, e login e cadastro já acompanham o tema ativo, incluindo campos, calendário de nascimento, mensagens e janelas de cadastro. O tema exibido ainda usa a preferência local do dispositivo; a integração entre Configurações, sessão e preferência da conta será feita separadamente. Como a coluna foi adicionada à migration inicial, bancos criados anteriormente precisam ser recriados conforme o procedimento de desenvolvimento acima; esta alteração não migra nem apaga dados automaticamente.
+Ao entrar na conta, o aplicativo carrega sua preferência antes de mostrar as telas internas. Em Configurações, a escolha é aplicada imediatamente e gravada no banco; enquanto a operação está em andamento, o seletor fica desabilitado. Se a gravação falhar, a aparência anterior é restaurada e uma mensagem é exibida. Se a leitura falhar, o aplicativo usa claro temporariamente, informa a falha e permite tentar novamente antes de alterar a preferência.
+
+O registro local `ergo.theme` guarda somente a última aparência carregada ou salva com sucesso neste dispositivo. Ele é usado na abertura, no login e no cadastro, quando ainda não há uma conta identificada. Uma conta nova começa no tema claro; contas existentes recuperam a preferência do banco, sem herdar esse registro local. Login, cadastro, calendário de nascimento, mensagens e janelas acompanham o tema ativo. A opção Automático continua acompanhando o sistema nessas telas. Falhas de armazenamento desse registro visual não impedem consultar e salvar o tema da conta no banco.
+
+Logout e troca de conta invalidam respostas pendentes, para que uma operação anterior não altere a aparência ou as mensagens da conta atual. Atualizar os dados do mesmo perfil não recarrega o tema. A preferência permanece local a este dispositivo, sem sincronização com a plataforma online.
+
+Como a coluna foi adicionada à migration inicial, bancos criados anteriormente precisam ser recriados conforme o procedimento de desenvolvimento acima; esta alteração não migra nem apaga dados automaticamente.
 
 ### Disparo dos lembretes
 

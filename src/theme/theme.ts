@@ -1,6 +1,7 @@
 export type ThemePreference = "light" | "dark" | "system";
 export type ResolvedTheme = "light" | "dark";
 
+// Startup appearance only. Account preferences are persisted in SQLite.
 export const THEME_STORAGE_KEY = "ergo.theme";
 export const SYSTEM_THEME_QUERY = "(prefers-color-scheme: dark)";
 

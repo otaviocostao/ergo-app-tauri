@@ -36,7 +36,7 @@ export default function Settings() {
   const { session, refreshSession } = useAuth();
   const user = session.kind === "authenticated" ? session.user : null;
   const [activeTab, setActiveTab] = useState<SettingsTab>("user");
-  const { theme, resolvedTheme, setTheme } = useTheme();
+  const { theme, resolvedTheme, setTheme, isReady: themeReady, isSaving: themeSaving } = useTheme();
   const [company, setCompany] = useState<CompanyItem | null>(null);
   const [isLoadingCompany, setIsLoadingCompany] = useState<boolean>(true);
 
@@ -599,16 +599,16 @@ export default function Settings() {
       )}
 
       {activeTab === "theme" && (
-        <section className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
+        <section aria-busy={themeSaving} className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="text-base font-bold text-slate-800 dark:text-white">Tema</h2>
           <p className="mb-5 mt-1 text-sm text-gray-500 dark:text-slate-400">Escolha como o Ergo aparece para você. A mudança é aplicada na hora.</p>
 
-          <fieldset className="grid max-w-3xl grid-cols-1 gap-3 sm:grid-cols-3">
+          <fieldset disabled={themeSaving || !themeReady} className="grid max-w-3xl grid-cols-1 gap-3 sm:grid-cols-3 disabled:opacity-60">
             <legend className="sr-only">Aparência do aplicativo</legend>
             {themeOptions.map((option) => (
               <label
                 key={option.value}
-                className={`cursor-pointer rounded-lg border-2 p-3 text-left transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-primary-500 ${theme === option.value
+                className={`${themeSaving || !themeReady ? "cursor-default" : "cursor-pointer"} rounded-lg border-2 p-3 text-left transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-primary-500 ${theme === option.value
                   ? "border-primary-500 bg-primary-50/50 dark:bg-primary-950/30"
                   : "border-gray-200 hover:border-primary-200 dark:border-slate-700"
                   }`}
@@ -622,9 +622,11 @@ export default function Settings() {
             ))}
           </fieldset>
           <p className="mt-4 text-xs leading-5 text-slate-500 dark:text-slate-400" role="status">
-            {theme === "system"
-              ? `O sistema está usando o tema ${resolvedTheme === "dark" ? "escuro" : "claro"}. Sua preferência é salva neste dispositivo.`
-              : "Sua preferência é salva automaticamente neste dispositivo."}
+            {!themeReady ? "Sua preferência de tema ainda não foi carregada."
+              : themeSaving ? "Salvando sua preferência de tema…"
+              : theme === "system"
+                ? `O sistema está usando o tema ${resolvedTheme === "dark" ? "escuro" : "claro"}. Sua preferência fica salva na sua conta neste dispositivo.`
+                : "Sua preferência é salva automaticamente na sua conta neste dispositivo."}
           </p>
         </section>
       )}
