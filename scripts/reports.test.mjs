@@ -23,8 +23,34 @@ test("missing readings have no score or alert rate", () => {
 
 test("alert frequency is normalized by the monitored duration", () => {
   const record = day("2026-10-16", 120, 90);
-  record.alerts = Array.from({ length: 3 }, () => ({ date: record.date, time: "08:10", kind: "neck", title: "Example", detail: "" }));
+  record.alerts = Array.from({ length: 3 }, () => ({ date: record.date, time: "08:10", kind: "neck", severity: "warning", title: "Example", detail: "" }));
   assert.equal(summarize([record]).alertsPerHour, 1.5);
+});
+
+test("critical alerts count only danger severity, independently of alert type", () => {
+  const record = day("2026-10-16", 120, 90);
+  record.alerts = [
+    { kind: "neck", severity: "warning" }, { kind: "neck", severity: "danger" },
+    { kind: "shoulders", severity: "danger" }, { kind: "trunk", severity: "warning" },
+  ].map(alert => ({ ...alert, date: record.date, time: "08:10", title: "Example", detail: "" }));
+  assert.equal(summarize([record]).alerts, 4);
+  assert.equal(summarize([record]).criticalAlerts, 2);
+  record.alerts = record.alerts.filter(alert => alert.severity === "warning");
+  assert.equal(summarize([record]).criticalAlerts, 0);
+  assert.equal(summarize([]).criticalAlerts, 0);
+});
+
+test("critical alerts follow day, week and month filters and exclude future dates", () => {
+  const source = ["2026-09-30", "2026-10-10", "2026-10-11", "2026-10-16", "2026-10-17"].map(date => {
+    const record = day(date, 60, 45);
+    record.alerts = ["warning", "danger"].map(severity => ({ date, time: "08:10", kind: "neck", severity, title: "Example", detail: "" }));
+    return record;
+  });
+  for (const [period, expected] of [["day", 1], ["week", 2], ["month", 3]]) {
+    const report = buildReport(source, period, "2026-10-16", today);
+    assert.equal(report.summary.criticalAlerts, expected);
+    assert.equal(report.summary.alerts, expected * 2);
+  }
 });
 
 test("a day compares with the previous calendar day and excludes other dates", () => {
@@ -109,6 +135,7 @@ test("the example history is deterministic and its measurements stay internally 
       assert.ok(interval.goodMinutes >= 0 && interval.goodMinutes <= interval.monitoredMinutes);
     }
     for (const alert of record.alerts) {
+      assert.ok(["warning", "danger"].includes(alert.severity));
       assert.ok(record.intervals.some(interval => `${String(Math.floor(interval.minute / 60)).padStart(2, "0")}:${String(interval.minute % 60).padStart(2, "0")}` === alert.time));
     }
   }

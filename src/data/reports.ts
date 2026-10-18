@@ -12,6 +12,7 @@ export interface PostureAlert {
   date: string;
   time: string;
   kind: "neck" | "shoulders" | "trunk";
+  severity: "warning" | "danger";
   title: string;
   detail: string;
 }
@@ -29,6 +30,7 @@ export interface ReportSummary {
   goodMinutes: number;
   posturePercent: number | null;
   alerts: number;
+  criticalAlerts: number;
   alertsPerHour: number | null;
   breaks: number;
   goalDays: number;
@@ -105,7 +107,7 @@ export function shiftPeriod(period: ReportPeriod, anchor: string, direction: num
   return dateKey(start);
 }
 
-const alertKinds: Omit<PostureAlert, "date" | "time">[] = [
+const alertKinds: Omit<PostureAlert, "date" | "time" | "severity">[] = [
   { kind: "neck", title: "Pescoço projetado à frente", detail: "O alinhamento cervical saiu da faixa de referência." },
   { kind: "shoulders", title: "Desnível dos ombros", detail: "Foi registrada uma diferença no alinhamento dos ombros." },
   { kind: "trunk", title: "Inclinação do tronco", detail: "O tronco permaneceu fora da posição de referência." },
@@ -127,8 +129,9 @@ export function createReportPreview(today = new Date()): PostureDay[] {
       }),
     ).slice(0, 42 + seed % 7);
     const alertCount = Math.max(1, Math.round((100 - baseline) / 5) + seed % 3 - 1);
-    const alerts = Array.from({ length: alertCount }, (_, alertIndex) => ({
+    const alerts = Array.from({ length: alertCount }, (_, alertIndex): PostureAlert => ({
       ...alertKinds[(seed + alertIndex) % alertKinds.length],
+      severity: (seed + alertIndex) % 4 === 0 ? "danger" : "warning",
       date: key,
       time: formatTime(intervals[Math.floor((alertIndex + 1) * intervals.length / (alertCount + 1))].minute),
     }));
@@ -150,10 +153,11 @@ export function summarize(days: PostureDay[]): ReportSummary {
     summary.monitoredMinutes += total.monitoredMinutes;
     summary.goodMinutes += total.goodMinutes;
     summary.alerts += day.alerts.length;
+    summary.criticalAlerts += day.alerts.filter(alert => alert.severity === "danger").length;
     summary.breaks += day.breaks;
     if (total.goodMinutes >= dailyGoalMinutes) summary.goalDays++;
     return summary;
-  }, { days: measured.length, monitoredMinutes: 0, goodMinutes: 0, alerts: 0, breaks: 0, goalDays: 0 });
+  }, { days: measured.length, monitoredMinutes: 0, goodMinutes: 0, alerts: 0, criticalAlerts: 0, breaks: 0, goalDays: 0 });
   return {
     ...result,
     posturePercent: result.monitoredMinutes ? result.goodMinutes / result.monitoredMinutes * 100 : null,

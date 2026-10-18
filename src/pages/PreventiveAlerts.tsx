@@ -15,7 +15,7 @@ export default function PreventiveAlerts({ report }: { report: PostureReport }) 
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       <MetricCard title="Alertas registrados" value={summary.alerts} description="Ocorrências no período selecionado." />
       <MetricCard title="Frequência de alertas" value={`${summary.alertsPerHour?.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) ?? "—"}/h`} description="Alertas por hora de monitoramento." />
-      <MetricCard title="Pausas realizadas" value={summary.breaks} description={`Média de ${(summary.breaks / summary.days).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} por dia monitorado.`} />
+      <MetricCard title="Alertas críticos" value={summary.criticalAlerts} description="Ocorrências de maior gravidade no período selecionado." danger />
     </div>
     <div className="grid items-start gap-5 xl:grid-cols-[1fr_2fr]">
       <Panel title="Pontos de atenção" subtitle="Distribuição dos tipos de alerta no período.">
