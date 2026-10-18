@@ -26,10 +26,10 @@ function ThemePreview({ theme }: { theme: ThemePreference }) {
   }
 
   if (theme === "dark") {
-    return <div className="h-14 rounded-md bg-[linear-gradient(135deg,#101a2e_60%,#16233d_60%)]" />;
+    return <div className="h-14 rounded-md bg-[linear-gradient(135deg,var(--color-night-surface)_60%,var(--color-night-raised)_60%)]" />;
   }
 
-  return <div className="h-14 rounded-md bg-[linear-gradient(90deg,#ffffff_50%,#101a2e_50%)]" />;
+  return <div className="h-14 rounded-md bg-[linear-gradient(90deg,#ffffff_50%,var(--color-night-surface)_50%)]" />;
 }
 
 export default function Settings() {
