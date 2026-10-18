@@ -3,12 +3,8 @@ import { useAuth } from "../auth/AuthContext";
 import { userThemeService } from "../services/userThemeService";
 import {
   applyTheme,
-  parseThemePreference,
-  readThemePreference,
   resolveTheme,
-  saveThemePreference,
   SYSTEM_THEME_QUERY,
-  THEME_STORAGE_KEY,
   type ResolvedTheme,
   type ThemePreference,
 } from "./theme";
@@ -25,7 +21,7 @@ interface ThemeContextValue {
 }
 
 interface AccountTheme {
-  userId: number;
+  userId: number | null;
   theme: ThemePreference;
   status: "loading" | "ready" | "error";
   isSaving: boolean;
@@ -33,7 +29,7 @@ interface AccountTheme {
 }
 
 interface ThemeRequestScope {
-  userId: number;
+  userId: number | null;
   active: boolean;
   ready: boolean;
   saving: boolean;
@@ -47,13 +43,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const userId = session.kind === "authenticated" ? session.user.id : null;
   const userIdRef = useRef(userId);
   const scopeRef = useRef<ThemeRequestScope | null>(null);
-  const [deviceTheme, setDeviceTheme] = useState<ThemePreference>(readThemePreference);
   const [account, setAccount] = useState<AccountTheme | null>(null);
   const [reloadIndex, setReloadIndex] = useState(0);
   const [systemDark, setSystemDark] = useState(() => window.matchMedia(SYSTEM_THEME_QUERY).matches);
   const current = account?.userId === userId ? account : null;
-  const theme = userId === null ? deviceTheme : current?.theme ?? deviceTheme;
-  const isLoading = !authLoading && userId !== null && (!current || current.status === "loading");
+  const theme = current?.theme ?? "light";
+  const isLoading = !authLoading && (!current || current.status === "loading");
   const isReady = userId !== null && current?.status === "ready";
   const isSaving = current?.isSaving ?? false;
   const error = current?.error ?? "";
@@ -67,13 +62,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     applyTheme(resolvedTheme);
   }, [resolvedTheme]);
 
-  const rememberAppearance = useCallback((preference: ThemePreference) => {
-    setDeviceTheme(preference);
-    saveThemePreference(preference);
-  }, []);
-
   useEffect(() => {
-    if (authLoading || userId === null) {
+    if (authLoading) {
       scopeRef.current = null;
       setAccount(null);
       return;
@@ -83,15 +73,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       userId, active: true, ready: false, saving: false, savedTheme: "light",
     };
     scopeRef.current = scope;
-    setAccount({ userId, theme: readThemePreference(), status: "loading", isSaving: false, error: "" });
+    setAccount({ userId, theme: "light", status: "loading", isSaving: false, error: "" });
     const isCurrent = () => scope.active && scopeRef.current === scope && userIdRef.current === userId;
-    userThemeService.getPreference()
+    const request = userId === null
+      ? userThemeService.getStartupPreference() : userThemeService.getPreference();
+    request
       .then((preference) => {
         if (!isCurrent()) return;
         scope.savedTheme = preference;
         scope.ready = true;
         setAccount({ userId, theme: preference, status: "ready", isSaving: false, error: "" });
-        rememberAppearance(preference);
       })
       .catch(() => {
         if (!isCurrent()) return;
@@ -99,30 +90,21 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           error: "Não foi possível carregar sua preferência de tema. Tente novamente." });
       });
     return () => { scope.active = false; };
-  }, [authLoading, userId, reloadIndex, rememberAppearance]);
+  }, [authLoading, userId, reloadIndex]);
 
   useEffect(() => {
     const media = window.matchMedia(SYSTEM_THEME_QUERY);
     const onSystemThemeChange = (event: MediaQueryListEvent) => setSystemDark(event.matches);
-    const onStorageChange = (event: StorageEvent) => {
-      if (userIdRef.current === null && event.storageArea === window.localStorage
-        && (event.key === THEME_STORAGE_KEY || event.key === null)) {
-        setDeviceTheme(parseThemePreference(event.newValue));
-      }
-    };
-
     media.addEventListener("change", onSystemThemeChange);
-    window.addEventListener("storage", onStorageChange);
     setSystemDark(media.matches);
     return () => {
       media.removeEventListener("change", onSystemThemeChange);
-      window.removeEventListener("storage", onStorageChange);
     };
   }, []);
 
   const setTheme = useCallback(async (preference: ThemePreference) => {
     const scope = scopeRef.current;
-    if (!scope || !scope.active || !scope.ready || scope.saving || scope.userId !== userId
+    if (userId === null || !scope || !scope.active || !scope.ready || scope.saving || scope.userId !== userId
       || userIdRef.current !== userId || scope.savedTheme === preference) return;
     scope.saving = true;
     setAccount({ userId: scope.userId, theme: preference, status: "ready", isSaving: true, error: "" });
@@ -132,7 +114,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (!isCurrent()) return;
       scope.savedTheme = saved;
       setAccount({ userId: scope.userId, theme: saved, status: "ready", isSaving: false, error: "" });
-      rememberAppearance(saved);
     } catch {
       if (!isCurrent()) return;
       setAccount({ userId: scope.userId, theme: scope.savedTheme, status: "ready", isSaving: false,
@@ -140,7 +121,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     } finally {
       scope.saving = false;
     }
-  }, [userId, rememberAppearance]);
+  }, [userId]);
 
   const reloadTheme = useCallback(() => { setReloadIndex((index) => index + 1); }, []);
   const value = useMemo(() => ({ theme, resolvedTheme, isLoading, isSaving, isReady, error, setTheme, reloadTheme }),

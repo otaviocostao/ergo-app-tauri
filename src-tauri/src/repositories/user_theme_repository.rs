@@ -2,6 +2,28 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::models::user_theme::ThemePreference;
 
+pub fn find_startup_preference(
+    conn: &Connection,
+) -> Result<Option<ThemePreference>, rusqlite::Error> {
+    conn.query_row(
+        "SELECT users.theme_preference FROM app_theme_state
+         JOIN users ON users.id = app_theme_state.last_user_id
+         WHERE app_theme_state.id = 1",
+        [],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
+pub fn remember_last_user(conn: &Connection, user_id: i64) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO app_theme_state (id, last_user_id) VALUES (1, ?1)
+         ON CONFLICT(id) DO UPDATE SET last_user_id = excluded.last_user_id",
+        [user_id],
+    )?;
+    Ok(())
+}
+
 pub fn find_by_user_id(
     conn: &Connection,
     user_id: i64,

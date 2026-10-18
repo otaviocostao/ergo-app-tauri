@@ -4,6 +4,12 @@ use crate::models::user_theme::{ThemePreference, UpdateUserThemePayload};
 use crate::repositories::user_theme_repository;
 use crate::services::auth_service::AuthState;
 
+pub fn get_startup_theme_preference(conn: &Connection) -> Result<ThemePreference, String> {
+    user_theme_repository::find_startup_preference(conn)
+        .map(|theme| theme.unwrap_or_default())
+        .map_err(|error| error.to_string())
+}
+
 pub fn get_user_theme_preference(
     conn: &Connection,
     auth_state: &AuthState,
@@ -82,6 +88,115 @@ mod tests {
         assert_eq!(
             update_user_theme_preference(conn, state, UpdateUserThemePayload { theme }).unwrap(),
             theme
+        );
+    }
+
+    #[test]
+    fn startup_theme_is_light_without_a_successful_login() {
+        let conn = setup_database();
+        assert_eq!(
+            get_startup_theme_preference(&conn).unwrap(),
+            ThemePreference::Light
+        );
+        let id = create_user(&conn, "first@example.com");
+        user_theme_repository::update(&conn, id, ThemePreference::Dark).unwrap();
+        assert_eq!(
+            get_startup_theme_preference(&conn).unwrap(),
+            ThemePreference::Light
+        );
+    }
+
+    #[test]
+    fn startup_theme_follows_the_last_successful_login_and_its_saved_preference() {
+        let conn = setup_database();
+        let state = AuthState::new().unwrap();
+        let first_id = create_user(&conn, "first@example.com");
+        let second_id = create_user(&conn, "second@example.com");
+        let password = "Senha-segura-123!";
+        conn.execute(
+            "UPDATE users SET password_hash = ?1",
+            [auth_service::hash_password(password).unwrap()],
+        )
+        .unwrap();
+        auth_service::login(&conn, &state, "first@example.com".into(), password.into()).unwrap();
+        update_theme(&conn, &state, ThemePreference::Dark);
+        auth_service::logout(&state).unwrap();
+        assert_eq!(
+            get_startup_theme_preference(&conn).unwrap(),
+            ThemePreference::Dark
+        );
+
+        assert!(auth_service::login(
+            &conn,
+            &state,
+            "second@example.com".into(),
+            "wrong-password".into()
+        )
+        .is_err());
+        create_user(&conn, "new@example.com");
+        assert_eq!(
+            get_startup_theme_preference(&conn).unwrap(),
+            ThemePreference::Dark
+        );
+
+        auth_service::login(&conn, &state, "second@example.com".into(), password.into()).unwrap();
+        assert_eq!(
+            get_user_theme_preference(&conn, &state).unwrap(),
+            ThemePreference::Light
+        );
+        assert_eq!(
+            get_startup_theme_preference(&conn).unwrap(),
+            ThemePreference::Light
+        );
+        update_theme(&conn, &state, ThemePreference::System);
+        auth_service::logout(&state).unwrap();
+        assert_eq!(
+            get_startup_theme_preference(&conn).unwrap(),
+            ThemePreference::System
+        );
+
+        auth_service::login(&conn, &state, "first@example.com".into(), password.into()).unwrap();
+        assert_eq!(
+            get_user_theme_preference(&conn, &state).unwrap(),
+            ThemePreference::Dark
+        );
+        assert_eq!(
+            get_startup_theme_preference(&conn).unwrap(),
+            ThemePreference::Dark
+        );
+        assert_eq!(
+            user_theme_repository::find_by_user_id(&conn, second_id).unwrap(),
+            Some(ThemePreference::System)
+        );
+
+        conn.execute("DELETE FROM users WHERE id = ?1", [first_id])
+            .unwrap();
+        assert_eq!(
+            get_startup_theme_preference(&conn).unwrap(),
+            ThemePreference::Light
+        );
+        conn.execute("DELETE FROM users", []).unwrap();
+        assert_eq!(
+            get_startup_theme_preference(&conn).unwrap(),
+            ThemePreference::Light
+        );
+    }
+
+    #[test]
+    fn a_recreated_database_starts_light_instead_of_reusing_the_old_theme() {
+        let conn = setup_database();
+        let id = create_user(&conn, "first@example.com");
+        user_theme_repository::remember_last_user(&conn, id).unwrap();
+        user_theme_repository::update(&conn, id, ThemePreference::Dark).unwrap();
+        assert_eq!(
+            get_startup_theme_preference(&conn).unwrap(),
+            ThemePreference::Dark
+        );
+        drop(conn);
+        let recreated = setup_database();
+        assert_eq!(
+            get_startup_theme_preference(&recreated).unwrap(),
+            ThemePreference::Light
         );
     }
 
@@ -183,10 +298,15 @@ mod tests {
         update_theme(&conn, &state, ThemePreference::Dark);
         authenticate(&conn, &state, second_id);
         update_theme(&conn, &state, ThemePreference::System);
+        user_theme_repository::remember_last_user(&conn, second_id).unwrap();
         drop(conn);
         drop(state);
         let conn = Connection::open(&path).unwrap();
         let state = AuthState::new().unwrap();
+        assert_eq!(
+            get_startup_theme_preference(&conn).unwrap(),
+            ThemePreference::System
+        );
         for (id, expected) in [
             (first_id, ThemePreference::Dark),
             (second_id, ThemePreference::System),

@@ -14,6 +14,11 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
+CREATE TABLE IF NOT EXISTS app_theme_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
+
 CREATE TABLE IF NOT EXISTS reminders (
     id TEXT PRIMARY KEY NOT NULL,
     user_id INTEGER REFERENCES users(id) ON DELETE RESTRICT,

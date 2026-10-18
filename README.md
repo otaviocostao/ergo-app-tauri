@@ -101,11 +101,13 @@ Os comandos `get_user_theme_preference` e `update_user_theme_preference` consult
 
 Ao entrar na conta, o aplicativo carrega sua preferência antes de mostrar as telas internas. Em Configurações, a escolha é aplicada imediatamente e gravada no banco; enquanto a operação está em andamento, o seletor fica desabilitado. Se a gravação falhar, a aparência anterior é restaurada e uma mensagem é exibida. Se a leitura falhar, o aplicativo usa claro temporariamente, informa a falha e permite tentar novamente antes de alterar a preferência.
 
-O registro local `ergo.theme` guarda somente a última aparência carregada ou salva com sucesso neste dispositivo. Ele é usado na abertura, no login e no cadastro, quando ainda não há uma conta identificada. Uma conta nova começa no tema claro; contas existentes recuperam a preferência do banco, sem herdar esse registro local. Login, cadastro, calendário de nascimento, mensagens e janelas acompanham o tema ativo. A opção Automático continua acompanhando o sistema nessas telas. Falhas de armazenamento desse registro visual não impedem consultar e salvar o tema da conta no banco.
+Na abertura e após sair da conta, o comando `get_startup_theme_preference` consulta o banco antes de mostrar login e cadastro. A tabela `app_theme_state` referencia somente a última conta que fez login com sucesso; o tema é lido diretamente de `users.theme_preference`. Sem essa referência (banco vazio, nenhuma entrada bem-sucedida ou última conta excluída), o padrão é claro. Apenas cadastrar uma conta ou errar a senha não altera essa referência. O comando público retorna somente `light`, `dark` ou `system`, sem dados da conta.
+
+O antigo registro `ergo.theme` do navegador não é mais consultado nem gravado. Assim, recriar o banco faz login, cadastro e a primeira entrada de uma conta nova usarem claro, mesmo que o navegador ainda tenha uma preferência antiga. Contas existentes recuperam seu próprio tema ao entrar. Login, cadastro, calendário de nascimento, mensagens e janelas acompanham o tema ativo. A opção Automático continua acompanhando o sistema nessas telas. A prévia web, sem banco Tauri, inicia em claro.
 
 Logout e troca de conta invalidam respostas pendentes, para que uma operação anterior não altere a aparência ou as mensagens da conta atual. Atualizar os dados do mesmo perfil não recarrega o tema. A preferência permanece local a este dispositivo, sem sincronização com a plataforma online.
 
-Como a coluna foi adicionada à migration inicial, bancos criados anteriormente precisam ser recriados conforme o procedimento de desenvolvimento acima; esta alteração não migra nem apaga dados automaticamente.
+Como a coluna de tema e a tabela `app_theme_state` foram adicionadas à migration inicial, bancos criados antes dessas alterações precisam ser recriados conforme o procedimento de desenvolvimento acima; esta alteração não migra nem apaga dados automaticamente.
 
 ### Disparo dos lembretes
 

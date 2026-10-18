@@ -6,6 +6,12 @@ use crate::services::auth_service::AuthState;
 use crate::services::user_theme_service;
 
 #[tauri::command]
+pub fn get_startup_theme_preference(state: State<'_, AppState>) -> Result<ThemePreference, String> {
+    let conn = state.db.lock().map_err(|error| error.to_string())?;
+    user_theme_service::get_startup_theme_preference(&conn)
+}
+
+#[tauri::command]
 pub fn get_user_theme_preference(
     state: State<'_, AppState>,
     auth_state: State<'_, AuthState>,
