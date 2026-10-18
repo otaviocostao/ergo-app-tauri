@@ -50,6 +50,8 @@ O login faz parte do carregamento inicial. O cadastro, a estrutura das páginas 
 
 Durante o primeiro carregamento de uma página, a interface mostra “Carregando página…”. Nas navegações internas, a barra lateral e o cabeçalho permanecem visíveis enquanto o conteúdo é carregado. As consultas de sessão e tema continuam ocorrendo antes da exibição das telas; os estilos globais continuam no carregamento inicial.
 
+O Tailwind procura classes em `src/` e `index.html`, incluindo as páginas carregadas sob demanda. Classes usadas por novos componentes devem estar nesses arquivos. O observador de desenvolvimento do Vite ignora `src-tauri/`, `logs/` e `dist/`, evitando acompanhar o backend, os perfis de navegador dos testes e os arquivos compilados. Mudanças no frontend continuam atualizando a prévia automaticamente.
+
 ### Execução na bandeja do sistema
 
 - No aplicativo desktop, clicar no **X** (ou usar **Alt+F4** no Windows) oculta a janela e mantém o Ergo na bandeja. O processo, a sessão e o agendador de lembretes continuam ativos.
