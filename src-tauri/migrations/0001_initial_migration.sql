@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT NOT NULL COLLATE NOCASE UNIQUE,
     phone TEXT NOT NULL,
     photo TEXT,
+    theme_preference TEXT NOT NULL DEFAULT 'light'
+        CHECK (theme_preference IN ('light', 'dark', 'system')),
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );

@@ -93,6 +93,14 @@ As permissões de SQL genérico foram removidas de `src-tauri/capabilities/defau
 
 As contas e os lembretes por usuário são persistidos no SQLite local. As rotas internas exigem uma conta autenticada. As métricas de ergonomia continuam demonstrativas.
 
+### Preferência de tema por usuário
+
+O campo `users.theme_preference` guarda `light`, `dark` ou `system`, com `light` como padrão de novas contas. `system` representa a preferência de acompanhar o sistema, sem fixar o resultado atual em claro ou escuro.
+
+Os comandos `get_user_theme_preference` e `update_user_theme_preference` consultam e alteram somente a conta da sessão autenticada. A atualização recebe `{ payload: { theme: "dark" } }`, sem identificador de usuário, e preserva os demais dados cadastrais. O serviço frontend `src/services/userThemeService.ts` disponibiliza essas operações.
+
+Esta primeira etapa prepara a persistência; a integração com Configurações e com as telas de login e cadastro será feita separadamente. O tema exibido ainda usa a preferência local do dispositivo. Como a coluna foi adicionada à migration inicial, bancos criados anteriormente precisam ser recriados conforme o procedimento de desenvolvimento acima; esta alteração não migra nem apaga dados automaticamente.
+
 ### Disparo dos lembretes
 
 O agendador Rust acompanha os lembretes do usuário conectado a cada segundo e funciona em qualquer tela, com a janela aberta, minimizada ou oculta na bandeja após clicar no X. Escolher **Sair do Ergo** encerra o agendador; ele não funciona como um serviço do sistema operacional.
