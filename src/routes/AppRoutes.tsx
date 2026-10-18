@@ -1,9 +1,7 @@
 import { Routes, Route, Navigate, Outlet } from "react-router-dom";
 import MainLayout from "../components/MainLayout";
 import Dashboard from "../pages/Dashboard";
-import ErgonomicIndex from "../pages/ErgonomicIndex";
-import GoodPosture from "../pages/GoodPosture";
-import PreventiveAlerts from "../pages/PreventiveAlerts";
+import Reports from "../pages/Reports";
 import Reminders from "../pages/Reminders";
 import Monitoring from "../pages/Monitoring";
 import Settings from "../pages/Settings";
@@ -34,9 +32,10 @@ export default function AppRoutes() {
       <Route element={<RequireSession />}>
         <Route element={<MainLayout />}>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/dashboard/indice-ergonomico" element={<ErgonomicIndex />} />
-          <Route path="/dashboard/boa-postura" element={<GoodPosture />} />
-          <Route path="/dashboard/alertas-preventivos" element={<PreventiveAlerts />} />
+          <Route path="/reports" element={<Reports />} />
+          <Route path="/dashboard/indice-ergonomico" element={<Navigate to="/reports?view=index&period=day" replace />} />
+          <Route path="/dashboard/boa-postura" element={<Navigate to="/reports?view=posture&period=day" replace />} />
+          <Route path="/dashboard/alertas-preventivos" element={<Navigate to="/reports?view=alerts&period=day" replace />} />
           <Route path="/monitoring" element={<Monitoring />} />
           <Route path="/reminders" element={<Reminders />} />
           <Route path="/settings" element={<Settings />} />
