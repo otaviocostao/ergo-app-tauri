@@ -8,9 +8,7 @@ import { useTheme } from "../theme/ThemeContext";
 
 const MainLayout = lazy(() => import("../components/MainLayout"));
 const Dashboard = lazy(() => import("../pages/Dashboard"));
-const ErgonomicIndex = lazy(() => import("../pages/ErgonomicIndex"));
-const GoodPosture = lazy(() => import("../pages/GoodPosture"));
-const PreventiveAlerts = lazy(() => import("../pages/PreventiveAlerts"));
+const Reports = lazy(() => import("../pages/Reports"));
 const Reminders = lazy(() => import("../pages/Reminders"));
 const Monitoring = lazy(() => import("../pages/Monitoring"));
 const Settings = lazy(() => import("../pages/Settings"));
@@ -42,9 +40,10 @@ export default function AppRoutes() {
       <Route element={<RequireSession />}>
         <Route element={<MainLayout />}>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/dashboard/indice-ergonomico" element={<ErgonomicIndex />} />
-          <Route path="/dashboard/boa-postura" element={<GoodPosture />} />
-          <Route path="/dashboard/alertas-preventivos" element={<PreventiveAlerts />} />
+          <Route path="/reports" element={<Reports />} />
+          <Route path="/dashboard/indice-ergonomico" element={<Navigate to="/reports?view=index&period=day" replace />} />
+          <Route path="/dashboard/boa-postura" element={<Navigate to="/reports?view=posture&period=day" replace />} />
+          <Route path="/dashboard/alertas-preventivos" element={<Navigate to="/reports?view=alerts&period=day" replace />} />
           <Route path="/monitoring" element={<Monitoring />} />
           <Route path="/reminders" element={<Reminders />} />
           <Route path="/settings" element={<Settings />} />
