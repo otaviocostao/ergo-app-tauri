@@ -237,3 +237,14 @@ def render(progress, clock=0):
                 (507, 252 + pulse)], GREEN, 3, True)
 
     return c.image.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
+
+
+def main():
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    path = OUTPUT / "chair-height-still.png"
+    render(1).save(path, optimize=True)
+    print(path.relative_to(ROOT))
+
+
+if __name__ == "__main__":
+    main()
