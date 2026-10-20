@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import Modal from "../Modal";
 import Button from "../Button";
 import Select from "../Select";
+import chairHeightGif from "../../assets/calibration/chair-height.gif";
 import { workspaceService, type CreateWorkspacePayload } from "../../services/workspaceService";
 import {
   CheckCircle2,
@@ -62,6 +63,9 @@ export default function WorkspaceCalibrationModal({
     {
       id: 1,
       title: "1. Ajuste da Cadeira",
+      imageSrc: chairHeightGif,
+      imageAlt:
+        "Ajuste da altura da cadeira: pessoa vista de lado, com os pés apoiados no chão e os joelhos formando um ângulo de 90 graus.",
       description:
         "O primeiro passo para começar a ajustar seu ambiente de trabalho é certificar-se de que sua cadeira está na altura ideal. O esperado é que a altura dela permita que seus pés toquem o chão ou a base de apoio, formando um ângulo de 90 graus nos seus joelhos. Isso fará com que você fique bem apoiado.",
     },
