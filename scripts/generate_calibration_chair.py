@@ -241,9 +241,41 @@ def render(progress, clock=0):
 
 def main():
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    path = OUTPUT / "chair-height-still.png"
-    render(1).save(path, optimize=True)
-    print(path.relative_to(ROOT))
+    still = render(1)
+    still.save(OUTPUT / "chair-height-still.png", optimize=True)
+
+    # Shared palette avoids color flicker. The long final hold aids comprehension.
+    palette_source = Image.new("RGB", (WIDTH, HEIGHT * 2), BG)
+    palette_source.paste(render(0), (0, 0))
+    palette_source.paste(still, (0, HEIGHT))
+    palette = palette_source.quantize(colors=192, method=Image.Quantize.MEDIANCUT)
+    frames = []
+    durations = []
+    for i in range(96):
+        time = i * 0.08
+        progress = ease((time - 0.8) / 2)
+        if time < 6.56:
+            frame = render(progress, time)
+        elif time < 7.04:
+            frame = Image.blend(still, Image.new("RGB", still.size, BG),
+                                ease((time - 6.56) / 0.48))
+        else:
+            frame = Image.blend(Image.new("RGB", still.size, BG), render(0, time),
+                                ease((time - 7.04) / 0.56))
+        frames.append(frame.quantize(palette=palette, dither=Image.Dither.NONE))
+        durations.append(80)
+    path = OUTPUT / "chair-height.gif"
+    frames[0].save(path, save_all=True, append_images=frames[1:],
+                   duration=durations, loop=0, disposal=1, optimize=True)
+    with Image.open(path) as gif:
+        duration = sum(frame_duration(gif, n) for n in range(gif.n_frames))
+        print(f"{path.relative_to(ROOT)}: {gif.n_frames} frames, "
+              f"{duration / 1000:.2f}s, {path.stat().st_size / 1024:.0f} KiB")
+
+
+def frame_duration(gif, index):
+    gif.seek(index)
+    return gif.info["duration"]
 
 
 if __name__ == "__main__":
