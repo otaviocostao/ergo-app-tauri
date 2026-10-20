@@ -494,11 +494,13 @@ export default function WorkspaceCalibrationModal({
 
               <div className="w-full flex-1 min-h-[300px] max-h-[350px] bg-slate-200 dark:bg-slate-800 rounded-xl border border-slate-300/70 dark:border-slate-700 flex flex-col items-center justify-center relative overflow-hidden group shadow-inner">
                 {currentStep.imageSrc ? (
-                  <img
-                    src={currentStep.imageSrc}
-                    alt={currentStep.imageAlt || currentStep.title}
-                    className="w-full h-full object-cover rounded-xl"
-                  />
+                  <picture className="absolute inset-0 block">
+                    <img
+                      src={currentStep.imageSrc}
+                      alt={currentStep.imageAlt || currentStep.title}
+                      className="w-full h-full object-contain rounded-xl"
+                    />
+                  </picture>
                 ) : (
                   <div className="flex flex-col items-center gap-2.5 text-slate-400 dark:text-slate-500 p-6 text-center select-none">
                     <div className="p-3.5 rounded-full bg-slate-300/50 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400">
