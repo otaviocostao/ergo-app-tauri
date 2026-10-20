@@ -104,15 +104,15 @@ def draw_person(canvas, desk_top):
 
     # The forearm follows the keyboard; the upper arm remains beside the torso.
     # Keep the rounded upper end inside the cuff instead of above the sleeve.
-    canvas.line([(614, 181), (614, 201)], SKIN, 17, True)
-    canvas.line([(614, 201), (700, desk_top - 9)], SKIN, 14, True)
+    canvas.line([(598, 181), (598, 201)], SKIN, 17, True)
+    canvas.line([(598, 201), (700, desk_top - 9)], SKIN, 14, True)
     canvas.ellipse((690, desk_top - 16, 718, desk_top - 2), SKIN)
-    # Center the straight sleeve on the same vertical axis as the upper arm.
+    # Center the shoulder on the torso and align the sleeve with the upper arm.
     canvas.path([
-        ("M", 601, 179), ("L", 601, 155),
-        ("C", 601, 147, 607, 142, 614, 142),
-        ("C", 621, 142, 627, 147, 627, 155),
-        ("L", 627, 179), ("L", 601, 179),
+        ("M", 585, 179), ("L", 585, 155),
+        ("C", 585, 147, 591, 142, 598, 142),
+        ("C", 605, 142, 611, 147, 611, 155),
+        ("L", 611, 179), ("L", 585, 179),
     ], "#5bb9a5")
 
     canvas.path([
@@ -135,11 +135,11 @@ def draw_person(canvas, desk_top):
 
 def draw_elbow_angle(canvas):
     # The vertical upper arm and horizontal forearm meet at the highlighted joint.
-    canvas.line([(614, 179), (636, 179), (636, 201)], GREEN, 2.5)
-    canvas.ellipse((610, 197, 618, 205), GREEN)
-    canvas.line([(640, 176), (648, 168)], "#80bead", 2)
-    canvas.box((652, 144, 729, 181), "#ffffff", 10)
-    canvas.text((665, 147), "90°", 24, GREEN, True)
+    canvas.line([(598, 179), (620, 179), (620, 201)], GREEN, 2.5)
+    canvas.ellipse((594, 197, 602, 205), GREEN)
+    canvas.line([(624, 176), (632, 168)], "#80bead", 2)
+    canvas.box((636, 144, 713, 181), "#ffffff", 10)
+    canvas.text((649, 147), "90°", 24, GREEN, True)
 
 
 def render(progress=0, chair_progress=0, fixed_desk=False):
