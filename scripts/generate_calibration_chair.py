@@ -220,4 +220,20 @@ def render(progress, clock=0):
     c.ellipse((617, 88 + dy, 620, 91 + dy), INK)
     c.line([(622, 107 + dy), (626, 106 + dy)], "#a66d54", 1.4, True)
 
+    if settled:
+        # Overlay the actual knee joint and label its interior right angle.
+        c.line([(691, 237), (691, 263), (717, 263)], GREEN, 2.5)
+        c.ellipse((713, 233, 721, 241), GREEN)
+        c.box((754, 235, 835, 276), "#ffffff", 12)
+        c.text((768, 239), "90°", 24, GREEN, True)
+        c.line([(735, 252), (748, 252)], "#80bead", 2)
+        c.text((690, 373), "PÉS NO CHÃO", 11, GREEN, True)
+        check(c, 669, 375)
+    else:
+        # Moving arrow alongside the chair indicates its adjustment direction.
+        pulse = 3 * sin(clock * 2 * pi)
+        c.line([(499, 210 + pulse), (499, 260 + pulse)], GREEN, 3, True)
+        c.line([(491, 252 + pulse), (499, 260 + pulse),
+                (507, 252 + pulse)], GREEN, 3, True)
+
     return c.image.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
