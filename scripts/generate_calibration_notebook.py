@@ -1,6 +1,6 @@
 from PIL import Image
 
-from generate_calibration_chair import Canvas, GREEN, HEIGHT, INK, MUTED, WIDTH
+from generate_calibration_chair import Canvas, GREEN, HEIGHT, INK, MUTED, WIDTH, check
 
 
 def draw_desk(canvas):
@@ -54,8 +54,41 @@ def draw_notebook(canvas, lift):
     canvas.line([(557, 320 + dy), (844, 320 + dy)], "#8da7b0", 2)
 
 
-def render(progress=0):
+def draw_accessories(canvas, progress):
+    if progress <= 0:
+        return
+    before = canvas.image.copy()
+    keyboard_dx = -28 * (1 - progress)
+    mouse_dx = 28 * (1 - progress)
+
+    # The external keyboard stays on the desk while the notebook is elevated.
+    canvas.ellipse((502 + keyboard_dx, 312, 741 + keyboard_dx, 323), "#b4cdc2")
+    canvas.box((507 + keyboard_dx, 290, 737 + keyboard_dx, 320), "#3d5c67", 6)
+    canvas.box((510 + keyboard_dx, 290, 734 + keyboard_dx, 316), "#5e7d86", 4)
+    for row in range(3):
+        for column in range(13):
+            x = 517 + column * 16 + keyboard_dx
+            y = 295 + row * 5
+            canvas.box((x, y, x + 11, y + 3), "#e0eee8", 1)
+    canvas.box((587 + keyboard_dx, 311, 653 + keyboard_dx, 314), "#e0eee8", 1)
+    canvas.box((518 + keyboard_dx, 311, 542 + keyboard_dx, 314), "#b2d6ca", 1)
+    canvas.box((696 + keyboard_dx, 311, 721 + keyboard_dx, 314), "#b2d6ca", 1)
+
+    # A separate mouse completes the setup without using the raised trackpad.
+    canvas.ellipse((781 + mouse_dx, 312, 828 + mouse_dx, 323), "#b4cdc2")
+    canvas.box((785 + mouse_dx, 282, 823 + mouse_dx, 319), "#3d5c67", 17)
+    canvas.box((788 + mouse_dx, 283, 820 + mouse_dx, 314), "#5e7d86", 15)
+    canvas.line([(804 + mouse_dx, 285), (804 + mouse_dx, 300)], "#b2d6ca", 1.5)
+    canvas.line([(790 + mouse_dx, 300), (818 + mouse_dx, 300)], "#b2d6ca", 1.5)
+    canvas.box((802 + mouse_dx, 288, 806 + mouse_dx, 295), "#e0eee8", 2)
+
+    # Fade and slide together keep the arrival of the peripherals easy to follow.
+    canvas.image.paste(Image.blend(before, canvas.image, progress))
+
+
+def render(progress=0, accessories=0):
     progress = max(0, min(1, progress))
+    accessories = max(0, min(1, accessories))
     lift = 90 * progress
     canvas = Canvas()
     canvas.box((44, 42, 224, 71), "#e4f2ee", 14)
@@ -64,16 +97,25 @@ def render(progress=0):
     canvas.text((44, 143), "notebook.", 37, INK, True)
     canvas.text((46, 210), "Use um suporte, teclado", 17, MUTED)
     canvas.text((46, 236), "e mouse externos.", 17, MUTED)
-    canvas.box((44, 295, 288, 337), "#e7efef", 21)
-    status = "Agora, teclado e mouse" if progress >= 1 else "Eleve com um suporte"
-    canvas.text((65, 304), status, 16, INK, True)
+    if progress >= 1 and accessories >= 1:
+        canvas.box((44, 295, 288, 337), "#def3ea", 21)
+        check(canvas, 63, 309)
+        canvas.text((90, 304), "Tudo no lugar", 16, GREEN, True)
+    else:
+        canvas.box((44, 295, 288, 337), "#e7efef", 21)
+        status = "Adicione teclado e mouse" if progress >= 1 else "Eleve com um suporte"
+        canvas.text((65, 304), status, 16, INK, True)
 
     canvas.ellipse((474, 31, 880, 373), "#e7f3ef")
     draw_desk(canvas)
     canvas.ellipse((560, 310, 846, 323), "#c4d9d0")
     draw_stand(canvas, lift)
     draw_notebook(canvas, lift)
+    draw_accessories(canvas, accessories)
     if progress < 1:
         canvas.line([(872, 239), (872, 186)], GREEN, 3, True)
         canvas.line([(864, 194), (872, 186), (880, 194)], GREEN, 3, True)
+    if progress >= 1 and accessories >= 1:
+        check(canvas, 550, 375)
+        canvas.text((575, 373), "SUPORTE + TECLADO + MOUSE", 11, GREEN, True)
     return canvas.image.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
