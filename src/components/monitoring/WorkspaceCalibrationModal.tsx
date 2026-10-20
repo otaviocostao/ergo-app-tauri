@@ -4,6 +4,8 @@ import Button from "../Button";
 import Select from "../Select";
 import chairHeightGif from "../../assets/calibration/chair-height.gif";
 import chairHeightStill from "../../assets/calibration/chair-height-still.png";
+import notebookSetupGif from "../../assets/calibration/notebook-setup.gif";
+import notebookSetupStill from "../../assets/calibration/notebook-setup-still.png";
 import { workspaceService, type CreateWorkspacePayload } from "../../services/workspaceService";
 import {
   CheckCircle2,
@@ -95,6 +97,10 @@ export default function WorkspaceCalibrationModal({
   const notebookStep: SetupStep = {
     id: 5,
     title: "Recomendação para Notebook",
+    imageSrc: notebookSetupGif,
+    imageStillSrc: notebookSetupStill,
+    imageAlt:
+      "Notebook elevado sobre um suporte, com teclado e mouse externos apoiados na mesa.",
     description:
       "Como você utiliza um notebook/laptop para trabalhar, recomendamos utilizar teclado e mouse externos. Também é recomendado utilizar um suporte para apoiar e regular a altura ou conectar a um monitor externo.",
   };
