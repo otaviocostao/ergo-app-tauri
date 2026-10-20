@@ -129,4 +129,25 @@ def render(progress, clock=0):
     if settled:
         c.box((695, 346, 780, 353), "#83cbb7", 3)
 
+    # Five-star chair base, telescopic cylinder, and back support.
+    c.line([(608, 306), (608, 334)], "#7e919c", 12, True)
+    c.line([(608, 260 + dy), (608, 308)], "#a8b9c0", 8, True)
+    c.line([(608, 330), (559, 341)], "#607583", 6, True)
+    c.line([(608, 330), (658, 341)], "#607583", 6, True)
+    c.line([(608, 330), (607, 346)], "#607583", 6, True)
+    for x, y in [(553, 338), (650, 338), (600, 341)]:
+        c.box((x, y, x + 16, y + 11), "#344b5c", 4)
+    c.path([
+        ("M", 567, 199), ("L", 579, 200), ("L", 588, 249),
+        ("L", 609, 249), ("L", 609, 261), ("L", 578, 261),
+        ("L", 567, 199),
+    ], "#7a9099", dy)
+    c.box((540, 139 + dy, 570, 244 + dy), "#456876", 13)
+    c.box((540, 141 + dy, 550, 241 + dy), "#597f89", 7)
+    c.box((562, 247 + dy, 688, 262 + dy), "#456876", 7)
+    c.box((567, 247 + dy, 687, 254 + dy), "#5a7f8b", 4)
+    # Height lever.
+    c.line([(631, 265 + dy), (660, 274 + dy)], "#7a9099", 4, True)
+    c.box((652, 268 + dy, 677, 278 + dy), INK, 4)
+
     return c.image.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
