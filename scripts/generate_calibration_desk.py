@@ -5,19 +5,51 @@ from generate_calibration_chair import (
 )
 
 
-def draw_chair(canvas):
-    canvas.line([(608, 260), (608, 334)], "#a8b9c0", 8, True)
+class TranslatedCanvas:
+    def __init__(self, canvas, dy):
+        self.canvas = canvas
+        self.dy = dy
+
+    def box(self, bounds, *args, **kwargs):
+        x1, y1, x2, y2 = bounds
+        self.canvas.box((x1, y1 + self.dy, x2, y2 + self.dy), *args, **kwargs)
+
+    def ellipse(self, bounds, *args, **kwargs):
+        x1, y1, x2, y2 = bounds
+        self.canvas.ellipse((x1, y1 + self.dy, x2, y2 + self.dy), *args, **kwargs)
+
+    def line(self, points, *args, **kwargs):
+        self.canvas.line([(x, y + self.dy) for x, y in points], *args, **kwargs)
+
+    def path(self, commands, fill, dy=0):
+        self.canvas.path(commands, fill, dy + self.dy)
+
+    def text(self, position, *args, **kwargs):
+        x, y = position
+        self.canvas.text((x, y + self.dy), *args, **kwargs)
+
+
+def draw_chair(canvas, lift=0):
+    canvas.line([(608, 260 - lift), (608, 334)], "#a8b9c0", 8, True)
     canvas.line([(608, 306), (608, 334)], "#7e919c", 12, True)
     canvas.line([(608, 330), (559, 341)], "#607583", 6, True)
     canvas.line([(608, 330), (658, 341)], "#607583", 6, True)
     canvas.line([(608, 330), (607, 346)], "#607583", 6, True)
     for x, y in [(553, 338), (650, 338), (600, 341)]:
         canvas.box((x, y, x + 16, y + 11), "#344b5c", 4)
-    canvas.line([(558, 210), (582, 253), (607, 253)], "#7a9099", 10, True)
-    canvas.box((540, 139, 570, 244), "#456876", 13)
-    canvas.box((540, 141, 550, 241), "#597f89", 7)
-    canvas.box((562, 247, 688, 262), "#456876", 7)
-    canvas.box((567, 247, 687, 254), "#5a7f8b", 4)
+    raised = TranslatedCanvas(canvas, -lift)
+    raised.line([(558, 210), (582, 253), (607, 253)], "#7a9099", 10, True)
+    raised.box((540, 139, 570, 244), "#456876", 13)
+    raised.box((540, 141, 550, 241), "#597f89", 7)
+    raised.box((562, 247, 688, 262), "#456876", 7)
+    raised.box((567, 247, 687, 254), "#5a7f8b", 4)
+
+
+def draw_footrest(canvas, lift):
+    if lift <= 0:
+        return
+    canvas.box((687, 352 - lift, 775, 352), "#72998d", 3)
+    canvas.box((684, 350 - lift, 778, min(355 - lift, 352)), "#a8d4c4", 2)
 
 
 def draw_desk(canvas, top):
@@ -102,32 +134,48 @@ def draw_elbow_angle(canvas):
     canvas.text((665, 147), "90°", 24, GREEN, True)
 
 
-def render(progress=0):
+def render(progress=0, chair_progress=0, fixed_desk=False):
     progress = max(0, min(1, progress))
-    desk_top = 172 + 38 * progress
+    chair_progress = max(0, min(1, chair_progress))
+    desk_top = 172 if fixed_desk else 172 + 38 * progress
+    chair_lift = 38 * chair_progress if fixed_desk else 0
+    settled = chair_progress >= 1 if fixed_desk else progress >= 1
     canvas = Canvas()
     canvas.box((44, 42, 278, 71), "#e4f2ee", 14)
     canvas.text((58, 47), "02  /  MESA E COTOVELOS", 11, GREEN, True)
-    canvas.text((44, 99), "Ajuste a mesa.", 37, INK, True)
-    canvas.text((44, 143), "Relaxe os braços.", 37, INK, True)
-    canvas.text((46, 210), "Mantenha os cotovelos a 90°.", 17, MUTED)
-    canvas.text((46, 236), "Se precisar, use apoio para os pés.", 17, MUTED)
-    if progress >= 1:
+    if fixed_desk:
+        canvas.text((44, 99), "Mesa sem ajuste?", 37, INK, True)
+        canvas.text((44, 143), "Eleve a cadeira.", 37, INK, True)
+        canvas.text((46, 210), "Ajuste a cadeira e mantenha", 17, MUTED)
+        canvas.text((46, 236), "os pés apoiados em uma base.", 17, MUTED)
+    else:
+        canvas.text((44, 99), "Ajuste a mesa.", 37, INK, True)
+        canvas.text((44, 143), "Relaxe os braços.", 37, INK, True)
+        canvas.text((46, 210), "Mantenha os cotovelos a 90°.", 17, MUTED)
+        canvas.text((46, 236), "Se precisar, use apoio para os pés.", 17, MUTED)
+    if settled:
         canvas.box((44, 295, 302, 337), "#def3ea", 21)
         check(canvas, 63, 309)
-        canvas.text((90, 304), "Cotovelos a 90°", 16, GREEN, True)
+        status = "Pés bem apoiados" if fixed_desk else "Cotovelos a 90°"
+        canvas.text((90, 304), status, 16, GREEN, True)
     else:
         canvas.box((44, 295, 302, 337), "#e7efef", 21)
-        canvas.text((65, 304), "Ajuste a altura da mesa", 16, INK, True)
+        status = "Eleve e apoie os pés" if fixed_desk else "Ajuste a altura da mesa"
+        canvas.text((65, 304), status, 16, INK, True)
 
     canvas.ellipse((474, 31, 906, 373), "#e7f3ef")
     canvas.ellipse((518, 334, 799, 363), "#dce9e5")
     canvas.line([(457, 353), (919, 353)], "#c4d7d1", 2)
-    draw_chair(canvas)
+    draw_chair(canvas, chair_lift)
     draw_desk(canvas, desk_top)
-    draw_person(canvas, desk_top)
-    if progress >= 1:
-        draw_elbow_angle(canvas)
+    draw_footrest(canvas, chair_lift)
+    raised = TranslatedCanvas(canvas, -chair_lift)
+    draw_person(raised, desk_top + chair_lift)
+    if settled:
+        draw_elbow_angle(raised)
+    elif fixed_desk:
+        canvas.line([(499, 245), (499, 195)], GREEN, 3, True)
+        canvas.line([(491, 203), (499, 195), (507, 203)], GREEN, 3, True)
     else:
         canvas.line([(932, desk_top - 25), (932, desk_top + 20)], GREEN, 3, True)
         canvas.line([(924, desk_top + 12), (932, desk_top + 20),
