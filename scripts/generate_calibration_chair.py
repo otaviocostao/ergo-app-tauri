@@ -96,3 +96,37 @@ def ease(t):
 
 def check(canvas, x, y, color=GREEN):
     canvas.line([(x, y + 5), (x + 5, y + 10), (x + 15, y)], color, 2.5, True)
+
+
+def render(progress, clock=0):
+    c = Canvas()
+    dy = -44 * (1 - progress)
+    settled = progress >= 0.999
+
+    # Editorial copy stays still while the chair moves.
+    c.box((44, 42, 263, 71), "#e4f2ee", 14)
+    c.text((58, 47), "01  /  AJUSTE DA CADEIRA", 11, GREEN, True)
+    c.text((44, 99), "Encontre a", 37, INK, True)
+    c.text((44, 143), "altura ideal.", 37, INK, True)
+    c.text((46, 210), "Ajuste a cadeira até apoiar os pés", 17, MUTED)
+    c.text((46, 236), "e manter os joelhos a 90°.", 17, MUTED)
+
+    if settled:
+        c.box((44, 295, 280, 337), "#def3ea", 21)
+        check(c, 62, 309)
+        c.text((88, 304), "Pés bem apoiados", 16, GREEN, True)
+    else:
+        c.box((44, 295, 280, 337), "#e7efef", 21)
+        c.line([(67, 306), (67, 324)], MUTED, 2, True)
+        c.line([(62, 319), (67, 324), (72, 319)], MUTED, 2, True)
+        c.text((88, 304), "Regule a altura", 16, INK, True)
+
+    # Quiet backdrop and floor are fixed in place to make height changes clear.
+    c.ellipse((474, 31, 880, 373), "#e7f3ef")
+    c.ellipse((518, 334, 799, 363), "#dce9e5")
+    c.line([(457, 353), (898, 353)], "#c4d7d1", 2)
+
+    if settled:
+        c.box((695, 346, 780, 353), "#83cbb7", 3)
+
+    return c.image.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
