@@ -103,13 +103,16 @@ def draw_person(canvas, desk_top):
     ], "#359a89")
 
     # The forearm follows the keyboard; the upper arm remains beside the torso.
-    canvas.line([(614, 157), (614, 201)], SKIN, 17, True)
+    # Keep the rounded upper end inside the cuff instead of above the sleeve.
+    canvas.line([(614, 181), (614, 201)], SKIN, 17, True)
     canvas.line([(614, 201), (700, desk_top - 9)], SKIN, 14, True)
     canvas.ellipse((690, desk_top - 16, 718, desk_top - 2), SKIN)
+    # Center the straight sleeve on the same vertical axis as the upper arm.
     canvas.path([
-        ("M", 600, 143), ("C", 610, 142, 617, 150, 621, 164),
-        ("L", 625, 174), ("L", 603, 177), ("L", 594, 163),
-        ("C", 590, 153, 591, 145, 600, 143),
+        ("M", 601, 179), ("L", 601, 155),
+        ("C", 601, 147, 607, 142, 614, 142),
+        ("C", 621, 142, 627, 147, 627, 155),
+        ("L", 627, 179), ("L", 601, 179),
     ], "#5bb9a5")
 
     canvas.path([
