@@ -3,6 +3,7 @@ import Modal from "../Modal";
 import Button from "../Button";
 import Select from "../Select";
 import chairHeightGif from "../../assets/calibration/chair-height.gif";
+import chairHeightStill from "../../assets/calibration/chair-height-still.png";
 import { workspaceService, type CreateWorkspacePayload } from "../../services/workspaceService";
 import {
   CheckCircle2,
@@ -26,6 +27,7 @@ export interface SetupStep {
   title: string;
   description: string;
   imageSrc?: string;
+  imageStillSrc?: string;
   imageAlt?: string;
 }
 
@@ -64,6 +66,7 @@ export default function WorkspaceCalibrationModal({
       id: 1,
       title: "1. Ajuste da Cadeira",
       imageSrc: chairHeightGif,
+      imageStillSrc: chairHeightStill,
       imageAlt:
         "Ajuste da altura da cadeira: pessoa vista de lado, com os pés apoiados no chão e os joelhos formando um ângulo de 90 graus.",
       description:
@@ -492,9 +495,15 @@ export default function WorkspaceCalibrationModal({
                 {currentStep.description}
               </p>
 
-              <div className="w-full flex-1 min-h-[300px] max-h-[350px] bg-slate-200 dark:bg-slate-800 rounded-xl border border-slate-300/70 dark:border-slate-700 flex flex-col items-center justify-center relative overflow-hidden group shadow-inner">
+              <div className={`w-full flex-1 min-h-[300px] max-h-[350px] ${currentStep.imageSrc ? "bg-[#f5faf9]" : "bg-slate-200 dark:bg-slate-800"} rounded-xl border border-slate-300/70 dark:border-slate-700 flex flex-col items-center justify-center relative overflow-hidden group shadow-inner`}>
                 {currentStep.imageSrc ? (
                   <picture className="absolute inset-0 block">
+                    {currentStep.imageStillSrc && (
+                      <source
+                        media="(prefers-reduced-motion: reduce)"
+                        srcSet={currentStep.imageStillSrc}
+                      />
+                    )}
                     <img
                       src={currentStep.imageSrc}
                       alt={currentStep.imageAlt || currentStep.title}
