@@ -1,7 +1,7 @@
 from PIL import Image
 
 from generate_calibration_chair import (
-    Canvas, GREEN, HEIGHT, INK, MUTED, PANTS, SKIN, WIDTH,
+    Canvas, GREEN, HEIGHT, INK, MUTED, PANTS, SKIN, WIDTH, check,
 )
 
 
@@ -93,7 +93,18 @@ def draw_person(canvas, desk_top):
     canvas.line([(622, 107), (626, 106)], "#a66d54", 1.4, True)
 
 
-def render():
+def draw_elbow_angle(canvas):
+    # The vertical upper arm and horizontal forearm meet at the highlighted joint.
+    canvas.line([(614, 179), (636, 179), (636, 201)], GREEN, 2.5)
+    canvas.ellipse((610, 197, 618, 205), GREEN)
+    canvas.line([(640, 176), (648, 168)], "#80bead", 2)
+    canvas.box((652, 144, 729, 181), "#ffffff", 10)
+    canvas.text((665, 147), "90°", 24, GREEN, True)
+
+
+def render(progress=0):
+    progress = max(0, min(1, progress))
+    desk_top = 172 + 38 * progress
     canvas = Canvas()
     canvas.box((44, 42, 278, 71), "#e4f2ee", 14)
     canvas.text((58, 47), "02  /  MESA E COTOVELOS", 11, GREEN, True)
@@ -101,13 +112,24 @@ def render():
     canvas.text((44, 143), "Relaxe os braços.", 37, INK, True)
     canvas.text((46, 210), "Mantenha os cotovelos a 90°.", 17, MUTED)
     canvas.text((46, 236), "Se precisar, use apoio para os pés.", 17, MUTED)
-    canvas.box((44, 295, 302, 337), "#e7efef", 21)
-    canvas.text((65, 304), "Ajuste a altura da mesa", 16, INK, True)
+    if progress >= 1:
+        canvas.box((44, 295, 302, 337), "#def3ea", 21)
+        check(canvas, 63, 309)
+        canvas.text((90, 304), "Cotovelos a 90°", 16, GREEN, True)
+    else:
+        canvas.box((44, 295, 302, 337), "#e7efef", 21)
+        canvas.text((65, 304), "Ajuste a altura da mesa", 16, INK, True)
 
     canvas.ellipse((474, 31, 906, 373), "#e7f3ef")
     canvas.ellipse((518, 334, 799, 363), "#dce9e5")
     canvas.line([(457, 353), (919, 353)], "#c4d7d1", 2)
     draw_chair(canvas)
-    draw_desk(canvas, 172)
-    draw_person(canvas, 172)
+    draw_desk(canvas, desk_top)
+    draw_person(canvas, desk_top)
+    if progress >= 1:
+        draw_elbow_angle(canvas)
+    else:
+        canvas.line([(932, desk_top - 25), (932, desk_top + 20)], GREEN, 3, True)
+        canvas.line([(924, desk_top + 12), (932, desk_top + 20),
+                     (940, desk_top + 12)], GREEN, 3, True)
     return canvas.image.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
