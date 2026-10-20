@@ -1,14 +1,16 @@
 from math import hypot, sqrt
+from pathlib import Path
 
 from PIL import Image
 
-from generate_calibration_chair import Canvas, GREEN, HEIGHT, INK, MUTED, WIDTH, check
+from generate_calibration_chair import BG, Canvas, GREEN, HEIGHT, INK, MUTED, WIDTH, check, ease
 from generate_calibration_desk import draw_chair, draw_desk, draw_person
 from generate_calibration_monitor import EYE_LEVEL, LOW_SCREEN_TOP, draw_monitor, draw_screen
 
 
 CLOSE_OFFSET = -36
 FAR_OFFSET = 24
+OUTPUT = Path(__file__).resolve().parents[1] / "src" / "assets" / "calibration"
 
 
 class HorizontalCanvas:
@@ -116,3 +118,51 @@ def render(progress=0, articulated=False):
             canvas.line([(monitor_left + 41, 177), (monitor_left + 49, 185),
                          (monitor_left + 41, 193)], GREEN, 3, True)
     return canvas.image.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
+
+
+def main():
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    start = render()
+    monitor_adjusted = render(1)
+    articulated_start = render(articulated=True)
+    articulated_adjusted = render(1, articulated=True)
+    monitor_adjusted.save(OUTPUT / "monitor-distance-still.png", optimize=True)
+
+    # Share colors between the two examples and the transition frames.
+    palette_source = Image.new("RGB", (WIDTH, HEIGHT * 4), BG)
+    for index, scene in enumerate((start, monitor_adjusted, articulated_start, articulated_adjusted)):
+        palette_source.paste(scene, (0, HEIGHT * index))
+    palette = palette_source.quantize(colors=192, method=Image.Quantize.MEDIANCUT)
+
+    blank = Image.new("RGB", start.size, BG)
+    frames = []
+    for index in range(200):
+        time = index * 0.08
+        if time < 5.6:
+            frame = render(ease((time - 0.8) / 2))
+        elif time < 6.16:
+            frame = Image.blend(monitor_adjusted, blank, ease((time - 5.6) / 0.56))
+        elif time < 6.72:
+            frame = Image.blend(blank, articulated_start, ease((time - 6.16) / 0.56))
+        elif time < 14.88:
+            frame = render(ease((time - 7.2) / 2), articulated=True)
+        elif time < 15.44:
+            frame = Image.blend(articulated_adjusted, blank, ease((time - 14.88) / 0.56))
+        else:
+            frame = Image.blend(blank, start, ease((time - 15.44) / 0.56))
+        frames.append(frame.quantize(palette=palette, dither=Image.Dither.NONE))
+
+    path = OUTPUT / "monitor-distance.gif"
+    frames[0].save(path, save_all=True, append_images=frames[1:],
+                   duration=80, loop=0, disposal=1, optimize=True)
+    with Image.open(path) as gif:
+        duration = 0
+        for index in range(gif.n_frames):
+            gif.seek(index)
+            duration += gif.info["duration"]
+        print(f"{path.name}: {gif.n_frames} frames, {duration / 1000:.2f}s, "
+              f"{path.stat().st_size / 1024:.0f} KiB")
+
+
+if __name__ == "__main__":
+    main()
