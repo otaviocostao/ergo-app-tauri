@@ -1,6 +1,11 @@
+from pathlib import Path
+
 from PIL import Image
 
-from generate_calibration_chair import Canvas, GREEN, HEIGHT, INK, MUTED, WIDTH, check
+from generate_calibration_chair import BG, Canvas, GREEN, HEIGHT, INK, MUTED, WIDTH, check, ease
+
+
+OUTPUT = Path(__file__).resolve().parents[1] / "src" / "assets" / "calibration"
 
 
 def draw_desk(canvas):
@@ -119,3 +124,47 @@ def render(progress=0, accessories=0):
         check(canvas, 550, 375)
         canvas.text((575, 373), "SUPORTE + TECLADO + MOUSE", 11, GREEN, True)
     return canvas.image.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
+
+
+def main():
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    start = render(0, 0)
+    raised = render(1, 0)
+    still = render(1, 1)
+    still.save(OUTPUT / "notebook-setup-still.png", optimize=True)
+
+    # One shared palette keeps the screen, stand and peripherals consistent.
+    palette_source = Image.new("RGB", (WIDTH, HEIGHT * 3), BG)
+    for index, scene in enumerate((start, raised, still)):
+        palette_source.paste(scene, (0, HEIGHT * index))
+    palette = palette_source.quantize(colors=192, method=Image.Quantize.MEDIANCUT)
+
+    blank = Image.new("RGB", still.size, BG)
+    frames = []
+    for index in range(120):
+        time = index * 0.08
+        if time < 8.48:
+            # Raise the notebook first, then introduce the external peripherals.
+            lift = ease((time - 0.8) / 2)
+            accessories = ease((time - 3.2) / 1.2)
+            frame = render(lift, accessories)
+        elif time < 9.04:
+            frame = Image.blend(still, blank, ease((time - 8.48) / 0.56))
+        else:
+            frame = Image.blend(blank, start, ease((time - 9.04) / 0.56))
+        frames.append(frame.quantize(palette=palette, dither=Image.Dither.NONE))
+
+    path = OUTPUT / "notebook-setup.gif"
+    frames[0].save(path, save_all=True, append_images=frames[1:],
+                   duration=80, loop=0, disposal=1, optimize=True)
+    with Image.open(path) as gif:
+        duration = 0
+        for index in range(gif.n_frames):
+            gif.seek(index)
+            duration += gif.info["duration"]
+        print(f"{path.name}: {gif.n_frames} frames, {duration / 1000:.2f}s, "
+              f"{path.stat().st_size / 1024:.0f} KiB")
+
+
+if __name__ == "__main__":
+    main()
