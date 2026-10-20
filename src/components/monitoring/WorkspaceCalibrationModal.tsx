@@ -6,6 +6,8 @@ import chairHeightGif from "../../assets/calibration/chair-height.gif";
 import chairHeightStill from "../../assets/calibration/chair-height-still.png";
 import notebookSetupGif from "../../assets/calibration/notebook-setup.gif";
 import notebookSetupStill from "../../assets/calibration/notebook-setup-still.png";
+import deskHeightGif from "../../assets/calibration/desk-height.gif";
+import deskHeightStill from "../../assets/calibration/desk-height-still.png";
 import { workspaceService, type CreateWorkspacePayload } from "../../services/workspaceService";
 import {
   CheckCircle2,
@@ -77,6 +79,10 @@ export default function WorkspaceCalibrationModal({
     {
       id: 2,
       title: "2. Altura da Mesa e Cotovelos",
+      imageSrc: deskHeightGif,
+      imageStillSrc: deskHeightStill,
+      imageAlt:
+        "Ajuste da mesa ou da cadeira para manter os cotovelos a 90 graus, com apoio para os pés quando a cadeira é elevada.",
       description:
         "O segundo passo é avaliar a altura da mesa. O ideal é que seus cotovelos formem um ângulo de 90 graus. Se possível, ajuste a altura da mesa; caso não consiga, ajuste a altura da cadeira para cima ou para baixo. Se a cadeira ficar alta para atingir a angulação ideal, utilize um apoio para os pés.",
     },
