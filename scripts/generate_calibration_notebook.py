@@ -11,40 +11,52 @@ def draw_desk(canvas):
     canvas.box((864, 333, 876, 365), "#91afa5", 4)
 
 
-def draw_notebook(canvas):
+def draw_stand(canvas, lift):
+    if lift <= 0:
+        return
+    canvas.line([(628, 323 - lift), (680, 315)], "#72998d", 12, True)
+    canvas.line([(774, 323 - lift), (722, 315)], "#527e72", 12, True)
+    canvas.box((600, 314, 802, 321), "#8aafa1", 3)
+    canvas.box((600, 318 - lift, 802, 325 - lift), "#8aafa1", 3)
+    canvas.box((611, 317 - lift, 790, 320 - lift), "#bed8cd", 1)
+
+
+def draw_notebook(canvas, lift):
+    dy = -lift
     # Front view keeps the screen and the built-in keyboard easy to identify.
-    canvas.ellipse((560, 310, 846, 323), "#c4d9d0")
-    canvas.box((579, 153, 822, 304), INK, 10)
-    canvas.box((587, 162, 814, 294), "#d8eee7", 4)
-    canvas.ellipse((698, 156, 702, 160), "#8ca6ae")
+    canvas.box((579, 153 + dy, 822, 304 + dy), INK, 10)
+    canvas.box((587, 162 + dy, 814, 294 + dy), "#d8eee7", 4)
+    canvas.ellipse((698, 156 + dy, 702, 160 + dy), "#8ca6ae")
 
     # A quiet, generic screen avoids adding product-specific interface details.
-    canvas.box((607, 180, 793, 197), "#ffffff", 5)
-    canvas.box((607, 209, 666, 273), "#a3d9c7", 6)
-    canvas.box((679, 210, 783, 220), "#ffffff", 4)
-    canvas.box((679, 230, 768, 237), "#b1d5c9", 3)
-    canvas.box((679, 246, 776, 253), "#b1d5c9", 3)
-    canvas.box((679, 262, 746, 269), "#b1d5c9", 3)
+    canvas.box((607, 180 + dy, 793, 197 + dy), "#ffffff", 5)
+    canvas.box((607, 209 + dy, 666, 273 + dy), "#a3d9c7", 6)
+    canvas.box((679, 210 + dy, 783, 220 + dy), "#ffffff", 4)
+    canvas.box((679, 230 + dy, 768, 237 + dy), "#b1d5c9", 3)
+    canvas.box((679, 246 + dy, 776, 253 + dy), "#b1d5c9", 3)
+    canvas.box((679, 262 + dy, 746, 269 + dy), "#b1d5c9", 3)
 
     canvas.path([
         ("M", 579, 302), ("L", 822, 302),
         ("L", 848, 318), ("L", 848, 321),
         ("L", 553, 321), ("L", 553, 318),
-    ], "#a6bbc2")
+    ], "#a6bbc2", dy)
     canvas.path([
         ("M", 579, 302), ("L", 822, 302),
         ("L", 848, 318), ("L", 553, 318),
-    ], "#dce6e8")
+    ], "#dce6e8", dy)
     for row in range(2):
         for column in range(12):
             x = 590 + column * 18
-            y = 305 + row * 4
+            y = 305 + row * 4 + dy
             canvas.box((x, y, x + 13, y + 2), "#829ba5", 1)
-    canvas.box((670, 313, 731, 317), "#b7cad0", 2)
-    canvas.line([(557, 320), (844, 320)], "#8da7b0", 2)
+    canvas.box((670, 313 + dy, 731, 317 + dy), "#b7cad0", 2)
+    canvas.line([(557, 320 + dy), (844, 320 + dy)], "#8da7b0", 2)
 
 
-def render():
+def render(progress=0):
+    progress = max(0, min(1, progress))
+    lift = 90 * progress
     canvas = Canvas()
     canvas.box((44, 42, 224, 71), "#e4f2ee", 14)
     canvas.text((58, 47), "PREPARE SEU NOTEBOOK", 11, GREEN, True)
@@ -53,9 +65,15 @@ def render():
     canvas.text((46, 210), "Use um suporte, teclado", 17, MUTED)
     canvas.text((46, 236), "e mouse externos.", 17, MUTED)
     canvas.box((44, 295, 288, 337), "#e7efef", 21)
-    canvas.text((65, 304), "Comece pelo suporte", 16, INK, True)
+    status = "Agora, teclado e mouse" if progress >= 1 else "Eleve com um suporte"
+    canvas.text((65, 304), status, 16, INK, True)
 
     canvas.ellipse((474, 31, 880, 373), "#e7f3ef")
     draw_desk(canvas)
-    draw_notebook(canvas)
+    canvas.ellipse((560, 310, 846, 323), "#c4d9d0")
+    draw_stand(canvas, lift)
+    draw_notebook(canvas, lift)
+    if progress < 1:
+        canvas.line([(872, 239), (872, 186)], GREEN, 3, True)
+        canvas.line([(864, 194), (872, 186), (880, 194)], GREEN, 3, True)
     return canvas.image.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
