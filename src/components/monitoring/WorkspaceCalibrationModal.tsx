@@ -8,6 +8,8 @@ import notebookSetupGif from "../../assets/calibration/notebook-setup.gif";
 import notebookSetupStill from "../../assets/calibration/notebook-setup-still.png";
 import deskHeightGif from "../../assets/calibration/desk-height.gif";
 import deskHeightStill from "../../assets/calibration/desk-height-still.png";
+import monitorHeightGif from "../../assets/calibration/monitor-height.gif";
+import monitorHeightStill from "../../assets/calibration/monitor-height-still.png";
 import { workspaceService, type CreateWorkspacePayload } from "../../services/workspaceService";
 import {
   CheckCircle2,
@@ -89,6 +91,10 @@ export default function WorkspaceCalibrationModal({
     {
       id: 3,
       title: "3. Altura do Monitor",
+      imageSrc: monitorHeightGif,
+      imageStillSrc: monitorHeightStill,
+      imageAlt:
+        "Monitor ou notebook sobre suporte sendo elevado até o topo da tela se alinhar à altura dos olhos.",
       description:
         "O terceiro passo é ajustar a altura do seu monitor. O ideal é que a parte superior da tela fique na altura dos seus olhos; para isso, ajuste a base para cima ou para baixo. Caso você utilize notebook no seu ambiente de trabalho, recomendamos utilizar uma base para não deixá-lo muito baixo.",
     },
