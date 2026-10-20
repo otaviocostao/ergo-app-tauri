@@ -10,6 +10,8 @@ import deskHeightGif from "../../assets/calibration/desk-height.gif";
 import deskHeightStill from "../../assets/calibration/desk-height-still.png";
 import monitorHeightGif from "../../assets/calibration/monitor-height.gif";
 import monitorHeightStill from "../../assets/calibration/monitor-height-still.png";
+import monitorDistanceGif from "../../assets/calibration/monitor-distance.gif";
+import monitorDistanceStill from "../../assets/calibration/monitor-distance-still.png";
 import { workspaceService, type CreateWorkspacePayload } from "../../services/workspaceService";
 import {
   CheckCircle2,
@@ -101,6 +103,10 @@ export default function WorkspaceCalibrationModal({
     {
       id: 4,
       title: "4. Distância do Monitor",
+      imageSrc: monitorDistanceGif,
+      imageStillSrc: monitorDistanceStill,
+      imageAlt:
+        "Monitor afastado sobre a mesa ou aproximado por um suporte articulado até ficar a cerca de um braço de distância, entre 50 e 70 centímetros.",
       description:
         "O quarto passo é ajustar a distância do seu monitor. O ideal é que ele fique a um braço de distância de você (cerca de 50 a 70 centímetros). Ajuste-o para a frente ou para trás na sua mesa ou mova o suporte articulado para a distância recomendada.",
     },
