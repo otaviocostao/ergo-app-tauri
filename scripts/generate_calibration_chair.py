@@ -150,4 +150,29 @@ def render(progress, clock=0):
     c.line([(631, 265 + dy), (660, 274 + dy)], "#7a9099", 4, True)
     c.box((652, 268 + dy, 677, 278 + dy), INK, 4)
 
+    # Far leg is slightly offset; both feet descend with the seat.
+    c.line([(611, 229 + dy), (703, 235 + dy), (701, 330 + dy)],
+           "#526b7d", 23, True)
+    c.box((692, 323 + dy, 711, 338 + dy), "#bc8564", 5)
+    c.path([
+        ("M", 692, 332), ("C", 706, 335, 712, 331, 719, 335),
+        ("L", 738, 340), ("C", 745, 341, 747, 346, 744, 350),
+        ("L", 691, 350), ("C", 686, 345, 688, 337, 692, 332),
+    ], "#d9e3e6", dy)
+
+    # Near leg: horizontal thigh and vertical shin give a true right angle.
+    c.line([(607, 231 + dy), (717, 237 + dy)], PANTS, 31, True)
+    c.line([(717, 237 + dy), (717, 328 + dy)], PANTS, 27, True)
+    c.line([(724, 256 + dy), (724, 314 + dy)], "#405c72", 3, True)
+    c.box((706, 319 + dy, 727, 338 + dy), SKIN, 5)
+    c.path([
+        ("M", 705, 331), ("C", 714, 335, 721, 336, 729, 332),
+        ("C", 736, 338, 745, 338, 754, 341),
+        ("C", 762, 343, 764, 347, 761, 351),
+        ("L", 703, 351), ("C", 699, 345, 700, 337, 705, 331),
+    ], "#ffffff", dy)
+    c.line([(704, 350 + dy), (760, 350 + dy)], "#b6c9cd", 3, True)
+    c.line([(730, 338 + dy), (725, 342 + dy)], "#9bb2bc", 2, True)
+    c.line([(737, 340 + dy), (733, 344 + dy)], "#9bb2bc", 2, True)
+
     return c.image.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
