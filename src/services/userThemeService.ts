@@ -1,10 +1,11 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import type { ThemePreference } from "../theme/theme";
+import { getInitialThemePreference, type ThemePreference } from "../theme/theme";
 
 export const userThemeService = {
   getStartupPreference: (): Promise<ThemePreference> => isTauri()
-    ? invoke("get_startup_theme_preference") : Promise.resolve("light"),
-  getPreference: (): Promise<ThemePreference> => invoke("get_user_theme_preference"),
+    ? invoke("get_startup_theme_preference") : Promise.resolve(getInitialThemePreference()),
+  getPreference: (): Promise<ThemePreference> => isTauri()
+    ? invoke("get_user_theme_preference") : Promise.resolve(getInitialThemePreference()),
   updatePreference: (theme: ThemePreference): Promise<ThemePreference> =>
-    invoke("update_user_theme_preference", { payload: { theme } }),
+    isTauri() ? invoke("update_user_theme_preference", { payload: { theme } }) : Promise.resolve(theme),
 };

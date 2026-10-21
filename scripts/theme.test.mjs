@@ -80,3 +80,33 @@ test("unavailable storage does not break theme persistence feedback", () => {
   const theme = loadModule("../src/theme/theme.ts", env.globals);
   assert.doesNotThrow(() => theme.rememberThemePreference("dark"));
 });
+
+test("theme services resolve in a browser without accessing the Tauri bridge", async () => {
+  const env = environment({ cached: "dark" });
+  const theme = loadModule("../src/theme/theme.ts", env.globals);
+  const { userThemeService } = loadModule("../src/services/userThemeService.ts", {}, {
+    "@tauri-apps/api/core": { isTauri: () => false, invoke: () => assert.fail("Browser invoked Tauri") },
+    "../theme/theme": theme,
+  });
+  assert.equal(await userThemeService.getStartupPreference(), "dark");
+  assert.equal(await userThemeService.getPreference(), "dark");
+  assert.equal(await userThemeService.updatePreference("system"), "system");
+});
+
+test("desktop theme services preserve the command names and update payload", async () => {
+  const calls = [];
+  const { userThemeService } = loadModule("../src/services/userThemeService.ts", {}, {
+    "@tauri-apps/api/core": {
+      isTauri: () => true,
+      invoke: async (command, payload) => { calls.push([command, payload]); return "dark"; },
+    },
+    "../theme/theme": { getInitialThemePreference: () => assert.fail("Desktop skipped SQLite") },
+  });
+  assert.equal(await userThemeService.getStartupPreference(), "dark");
+  assert.equal(await userThemeService.getPreference(), "dark");
+  assert.equal(await userThemeService.updatePreference("dark"), "dark");
+  assert.deepEqual(calls.map(([command]) => command), [
+    "get_startup_theme_preference", "get_user_theme_preference", "update_user_theme_preference",
+  ]);
+  assert.equal(JSON.stringify(calls[2][1]), JSON.stringify({ payload: { theme: "dark" } }));
+});
