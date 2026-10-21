@@ -1,20 +1,30 @@
-import { DashboardPage, Legend, MetricCard, Panel } from "../components/dashboard/DashboardWidgets";
-import { alertTimeline, postureAchievements, preventiveAlerts } from "../data/dashboard";
+import { AlertTriangle } from "lucide-react";
+import { MetricCard, Panel, ProgressBar } from "../components/dashboard/DashboardWidgets";
+import { Comparison } from "../components/reports/ReportWidgets";
+import { formatDate, type PostureReport } from "../data/reports";
 
-export default function PreventiveAlerts() {
-  return <DashboardPage title="Alertas preventivos" subtitle="Alertas emitidos pelo sistema e parabenizações por posicionamento correto." detail>
-    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
-      <MetricCard title="Alertas emitidos" value={preventiveAlerts.length} description="Correções preventivas no período." progress={35} />
-      <MetricCard title="Parabenizações" value={postureAchievements.length} description="Reconhecimentos por postura correta." progress={92} />
-      <MetricCard title="Status atual" value="Risco baixo" description="Últimas leituras dentro da faixa." progress={86} />
-      <MetricCard title="Último evento" value="16:30" description="Parabenização por alinhamento estável." progress={78} />
+export default function PreventiveAlerts({ report }: { report: PostureReport }) {
+  const { summary, previous } = report;
+  const alerts = report.days.flatMap(day => day.alerts).sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`));
+  const groups = [
+    { kind: "neck", label: "Pescoço projetado à frente" },
+    { kind: "shoulders", label: "Desnível dos ombros" },
+    { kind: "trunk", label: "Inclinação do tronco" },
+  ].map(group => ({ ...group, count: alerts.filter(alert => alert.kind === group.kind).length })).sort((a, b) => b.count - a.count);
+  return <div className="flex flex-col gap-5">
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <MetricCard title="Alertas registrados" value={summary.alerts} description="Ocorrências no período selecionado." />
+      <MetricCard title="Frequência de alertas" value={`${summary.alertsPerHour?.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) ?? "—"}/h`} description="Alertas por hora de monitoramento." />
+      <MetricCard title="Alertas críticos" value={summary.criticalAlerts} description="Ocorrências de maior gravidade no período selecionado." danger />
     </div>
-    <div className="grid gap-5 xl:grid-cols-2">
-      <Panel title="Alertas do sistema" subtitle="Eventos que exigiram correção ou pausa preventiva durante o monitoramento."><ul className="space-y-4">{preventiveAlerts.map(item => <li key={item.time} className="flex items-center gap-3 rounded-lg bg-slate-100 p-4 dark:bg-slate-800/60"><span aria-hidden="true" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-100 font-bold text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">!</span><time className="shrink-0 text-xs font-semibold">{item.time}</time><div className="min-w-0"><h3 className="text-sm font-semibold">{item.title}</h3><p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{item.detail}</p></div></li>)}</ul></Panel>
-      <Panel title="Posicionamento correto" subtitle="Mensagens positivas emitidas quando a postura permaneceu estável e dentro da faixa ideal."><ul className="space-y-3">{postureAchievements.map(item => <li key={item.time} className="flex items-center gap-3 rounded-lg bg-primary-50/70 px-4 py-3 dark:bg-primary-950/30"><span aria-hidden="true" className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary-500 text-xs font-semibold text-white">✓</span><time className="shrink-0 text-xs font-medium text-primary-700 dark:text-primary-400">{item.time}</time><div className="min-w-0"><h3 className="text-xs font-semibold">{item.title}</h3><p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{item.detail}</p></div></li>)}</ul></Panel>
+    <div className="grid items-start gap-5 xl:grid-cols-[1fr_2fr]">
+      <Panel title="Pontos de atenção" subtitle="Distribuição dos tipos de alerta no período.">
+        <ul className="space-y-6">{groups.map(group => <li key={group.kind}><div className="mb-2 flex items-center justify-between gap-3 text-sm"><span>{group.label}</span><span className="font-semibold">{group.count}</span></div><ProgressBar label={group.label} value={summary.alerts ? group.count / summary.alerts * 100 : 0} /></li>)}</ul>
+        <div className="mt-7 border-t border-slate-100 pt-5 dark:border-slate-800"><p className="mb-2 text-xs text-slate-500 dark:text-slate-400">Frequência em relação ao período anterior</p><Comparison change={summary.alertsPerHour === null || previous.alertsPerHour === null ? null : summary.alertsPerHour - previous.alertsPerHour} unit="/h" lowerIsBetter /></div>
+      </Panel>
+      <Panel title="Registro de alertas" subtitle={`${alerts.length} ocorrência(s), da mais recente à mais antiga.`}>
+        {alerts.length === 0 ? <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Nenhum alerta registrado neste período.</p> : <ul className="max-h-[520px] space-y-3 overflow-y-auto pr-1">{alerts.map((alert, index) => <li key={`${alert.date}-${alert.time}-${index}`} className="flex items-start gap-3 rounded-lg bg-slate-50 p-4 dark:bg-slate-800/50"><span className="mt-0.5 rounded-lg bg-amber-50 p-2 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400"><AlertTriangle size={16} aria-hidden="true" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap justify-between gap-2"><h3 className="text-sm font-semibold">{alert.title}</h3><time dateTime={`${alert.date}T${alert.time}`} className="text-xs text-slate-500 dark:text-slate-400">{formatDate(alert.date)} · {alert.time}</time></div><p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{alert.detail}</p></div></li>)}</ul>}
+      </Panel>
     </div>
-    <Panel title="Linha do tempo dos eventos" subtitle="Alertas exibidos para entender a evolução do posicionamento ao longo do dia." action={<Legend items={[{ label: "Alerta", className: "bg-slate-600" }, { label: "Boa postura", className: "bg-primary-500" }]} />}>
-      <div className="overflow-x-auto pb-2" tabIndex={0} role="region" aria-label="Linha do tempo de alertas e boa postura"><ol className="relative flex min-w-[580px] justify-between gap-3 before:absolute before:inset-x-0 before:top-1.5 before:h-1 before:rounded-full before:bg-slate-200 dark:before:bg-slate-700">{alertTimeline.map(item => <li key={item.time} className="relative flex flex-col items-center gap-3 px-3"><span className={`h-3.5 w-3.5 rounded-full ring-4 ring-white dark:ring-slate-900 ${item.positive ? "bg-primary-500" : "bg-slate-600"}`} aria-hidden="true" /><time className="text-xs text-slate-500 dark:text-slate-400">{item.time}</time><span className="sr-only">{item.positive ? "Boa postura" : "Alerta preventivo"}</span></li>)}</ol></div>
-    </Panel>
-  </DashboardPage>;
+  </div>;
 }

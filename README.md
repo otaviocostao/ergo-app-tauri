@@ -44,6 +44,14 @@ No PowerShell, se `npm.ps1` estiver bloqueado, use `npm.cmd ci` e `npm.cmd run t
 
 `npm run dev` abre apenas a prévia web das telas de login e cadastro. Login/cadastro reais e acesso às telas internas exigem o app Tauri. A prévia não simula um cadastro bem-sucedido. A interface usa a pilha de fontes do sistema e não depende do download de fontes.
 
+### Carregamento das telas
+
+As páginas de login, cadastro e as páginas internas usam importações estáticas e fazem parte do bundle inicial. As rotas internas exigem autenticação; sessões anônimas são redirecionadas para o login.
+
+Durante a consulta inicial da sessão e a primeira leitura do tema de cada conta, a interface mostra um indicador de carregamento em tela cheia. Nas navegações internas, a barra lateral e o cabeçalho permanecem montados. Novas tentativas de leitura do tema mostram o progresso em um aviso dentro da página, preservando formulários e alterações ainda não salvas. Os estilos globais fazem parte do carregamento inicial.
+
+O Tailwind procura classes em `src/` e `index.html`. Classes usadas por novos componentes devem estar nesses arquivos. O observador de desenvolvimento do Vite ignora `src-tauri/`, `logs/` e `dist/`, evitando acompanhar o backend, os perfis de navegador dos testes e os arquivos compilados. Mudanças no frontend continuam atualizando a prévia automaticamente.
+
 ### Execução na bandeja do sistema
 
 - No aplicativo desktop, clicar no **X** (ou usar **Alt+F4** no Windows) oculta a janela e mantém o Ergo na bandeja. O processo, a sessão e o agendador de lembretes continuam ativos.
@@ -77,7 +85,7 @@ Ao rodar a aplicação em modo dev ou produção, o arquivo do banco de dados `e
 - **Linux:** `~/.config/com.ergo.ergo-app-tauri/ergo.db`
 
 ### 🔄 Migrações Automáticas
-O backend abre o banco e aplica a migração SQLx de `src-tauri/migrations/` na inicialização. Nesta fase do projeto, `0001_initial_migration.sql` contém todo o schema: usuários, lembretes, empresas e ambientes de trabalho. A tabela `_sqlx_migrations` registra a versão aplicada.
+O backend abre o banco e aplica a migração SQLx de `src-tauri/migrations/` na inicialização. Nesta fase do projeto, os dados locais são considerados descartáveis e `0001_initial_migration.sql` contém todo o schema: usuários, lembretes, empresas e ambientes de trabalho. A tabela `_sqlx_migrations` registra a versão aplicada.
 
 Para adicionar novas tabelas ou alterar tabelas existentes:
 1. Atualize `src-tauri/migrations/0001_initial_migration.sql`, mantendo o schema completo na migração inicial.
@@ -92,6 +100,24 @@ Para autenticação, use `src/auth/authService.ts`, que chama os comandos `regis
 As permissões de SQL genérico foram removidas de `src-tauri/capabilities/default.json` para impedir leitura/alteração da tabela de credenciais pelo WebView. O helper antigo `src/db.ts` não é usado nesse fluxo. Novas operações de dados devem ser implementadas como comandos Rust específicos, validando a sessão no backend quando precisarem de autenticação.
 
 As contas e os lembretes por usuário são persistidos no SQLite local. As rotas internas exigem uma conta autenticada. As métricas de ergonomia continuam demonstrativas.
+
+### Preferência de tema por usuário
+
+O campo `users.theme_preference` guarda `light`, `dark` ou `system`. Novas contas recebem `system` (Automático), tanto no cadastro pelo aplicativo quanto no padrão SQL da coluna. Essa preferência acompanha o tema do computador, inclusive quando ele muda com o aplicativo aberto.
+
+Os comandos `get_user_theme_preference` e `update_user_theme_preference` consultam e alteram somente a conta da sessão autenticada. A atualização recebe `{ payload: { theme: "dark" } }`, sem identificador de usuário, e preserva os demais dados cadastrais. O serviço frontend `src/services/userThemeService.ts` disponibiliza essas operações.
+
+Ao entrar na conta, o aplicativo carrega sua preferência antes de mostrar as telas internas. Em Configurações, a escolha é aplicada imediatamente e gravada no banco; enquanto a operação está em andamento, o seletor fica desabilitado. Se a gravação falhar, a aparência anterior é restaurada e uma mensagem é exibida. Se a primeira leitura falhar, o aplicativo acompanha o tema do sistema temporariamente, informa a falha e permite tentar novamente antes de alterar a preferência.
+
+O botão **Tentar novamente** recarrega a preferência mantendo a página e seus formulários montados. Durante essa leitura, o aviso mostra o progresso e o seletor de tema permanece desabilitado. Se a nova tentativa falhar, a aparência atual é mantida e o botão volta a ficar disponível.
+
+Na abertura e após sair da conta, login e cadastro usam o tema do computador. Um script no HTML aplica essa aparência antes do bundle React, e as telas acompanham mudanças do sistema enquanto permanecem abertas. A preferência de uma conta é consultada somente após sua autenticação. Contas com `light` ou `dark` usam a escolha explícita ao entrar; contas com `system` acompanham o computador.
+
+O antigo registro `ergo.theme` do navegador não é consultado nem gravado. Login, cadastro, calendário de nascimento, mensagens e janelas acompanham o tema ativo. A prévia web, sem banco Tauri, também acompanha o sistema.
+
+Logout e troca de conta invalidam respostas pendentes, para que uma operação anterior não altere a aparência ou as mensagens da conta atual. Atualizar os dados do mesmo perfil não recarrega o tema. A preferência permanece local a este dispositivo, sem sincronização com a plataforma online.
+
+Como o schema de tema foi alterado na migração inicial, bancos criados com uma versão anterior dessa migração precisam ser recriados conforme o procedimento de desenvolvimento acima. Isso inclui bancos com o padrão antigo `light` ou com a antiga tabela de tema da última conta. A recriação descarta contas e dados locais; o aplicativo não migra nem apaga esses arquivos automaticamente. Quando os dados precisarem ser preservados, será necessário adotar migrações incrementais.
 
 ### Disparo dos lembretes
 
@@ -108,14 +134,29 @@ O agendador Rust acompanha os lembretes do usuário conectado a cada segundo e f
 
 Para conferir manualmente: entre na conta, crie um lembrete diário com início no próximo minuto, intervalo de um minuto e fim pelo menos três minutos depois. O primeiro aviso deve acontecer um minuto após o início; confira o seguinte, desative o lembrete e confirme que não há novos avisos. Repita com notificação silenciosa, outra tela aberta e a janela minimizada. Para “Não repetir”, escolha a data local de hoje e um horário futuro.
 
+### Relatórios de postura
+
+A opção **Relatórios** no menu abre `/reports`. Os três cartões **Ver detalhes** da tela inicial abrem as respectivas seções: índice ergonômico, boa postura e alertas. Os endereços antigos em `/dashboard/` redirecionam para essas seções.
+
+- Filtros de dia, semana (domingo a sábado) e mês, com seleção de data e navegação entre períodos. Filtros e seção ficam na URL para preservar a navegação de voltar/avançar.
+- Visão geral com evolução em pontos percentuais, tempo em boa postura, alertas por hora, tempo em monitoramento, meta demonstrativa de 6h e histórico diário. A seção de alertas inclui a contagem de alertas críticos.
+- Detalhes com distribuição do tempo dentro/fora da faixa, mapa de intervalos de 10 minutos, melhores horários e registro de alertas por tipo.
+- O índice é ponderado pelo tempo monitorado; dias sem leituras não recebem pontuação. Períodos em andamento comparam os dias decorridos com o mesmo trecho do período anterior (limitado ao tamanho do mês anterior).
+
+O **histórico demonstrativo** é gerado em `src/data/reports.ts` para os últimos 120 dias, com leituras em dias úteis. A tela inicial usa essa mesma fonte; o aviso demonstrativo foi removido da interface. Os relatórios ainda não consultam as medições persistidas pelo backend nem o monitoramento ao vivo; a evolução exibida é ilustrativa.
+
 ### Testes
 
 ```bash
 npm run build
 npm run test:auth
+npm run test:reports
+npm run test:theme
 ```
 
-- `test:auth`: testes Rust com SQLite temporário, cobrindo cadastro, validações, duplicidade, hash, login, sessões, limite de tentativas e persistência.
+- `test:auth`: testes Rust com SQLite temporário, cobrindo cadastro, validações, duplicidade, hash, login, sessões, limite de tentativas, persistência e preferências de tema por conta, incluindo o padrão SQL automático.
+- `test:reports`: testes de agregação, comparação entre períodos, dias sem leituras, limites de calendário e consistência dos dados demonstrativos (Node.js 22.6+).
+- `test:theme`: testes do tema inicial e dos contratos de comunicação, além de testes de integração com React e jsdom. Exercita os providers de autenticação e tema, as rotas, o layout e Configurações em Strict Mode, com comunicação Tauri simulada. Cobre carregamento inicial, preservação de formulários em novas tentativas, restauração após falha ao salvar, mudanças do sistema e respostas atrasadas após logout ou troca de conta. As páginas sem relação com esses cenários são substituídas por componentes simples; os testes não acessam câmera, contas ou bancos reais.
 
 ### 🔍 Como Inspecionar / Visualizar os Dados
 Para abrir e visualizar as tabelas do banco de dados na sua máquina local durante o desenvolvimento, utilize uma destas opções:
