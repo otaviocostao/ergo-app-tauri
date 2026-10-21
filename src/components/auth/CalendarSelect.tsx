@@ -111,20 +111,20 @@ export default function CalendarSelect({ label, value, options, onChange, classN
         aria-haspopup="listbox" aria-controls={listId}
         aria-activedescendant={open ? `${listId}-${activeIndex}` : undefined}
         onClick={() => { if (open) setOpen(false); else openList(); }} onKeyDown={handleKeyDown}
-        className={`flex h-9 w-full cursor-pointer items-center justify-between gap-1 rounded-lg border px-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 ${open ? "border-primary-200 bg-primary-50 text-primary-800" : "border-slate-200 bg-slate-50 text-slate-700 hover:border-primary-200 hover:bg-primary-50"}`}>
+        className={`flex h-9 w-full cursor-pointer items-center justify-between gap-1 rounded-lg border px-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 ${open ? "border-primary-200 bg-primary-50 text-primary-800 dark:border-primary-700 dark:bg-primary-950/50 dark:text-primary-200" : "border-slate-200 bg-slate-50 text-slate-700 hover:border-primary-200 hover:bg-primary-50 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-200 dark:hover:border-primary-700 dark:hover:bg-slate-800"}`}>
         <span className="truncate">{options[selectedIndex]?.label}</span>
-        <ChevronDown size={14} aria-hidden="true" className={`shrink-0 text-primary-700 transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown size={14} aria-hidden="true" className={`shrink-0 text-primary-700 transition-transform dark:text-primary-400 ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
         <div ref={listRef} id={listId} role="listbox" aria-label={label}
-          className="absolute left-0 top-full z-40 mt-1.5 max-h-44 w-max min-w-full max-w-48 overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg border border-primary-100 bg-white p-1 shadow-lg [scrollbar-color:var(--color-primary-200)_transparent] [scrollbar-width:thin]">
+          className="absolute left-0 top-full z-40 mt-1.5 max-h-44 w-max min-w-full max-w-48 overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg border border-primary-100 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-950 [scrollbar-color:var(--color-primary-200)_transparent] [scrollbar-width:thin]">
           {options.map((option, index) => (
             <div key={option.value} id={`${listId}-${index}`} role="option" aria-selected={option.value === value}
               aria-disabled={option.disabled || undefined} onMouseDown={(event) => event.preventDefault()}
               onClick={() => choose(index)}
-              className={`flex min-h-8 items-center justify-between gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-sm ${option.disabled ? "cursor-not-allowed text-slate-300" : `cursor-pointer ${index === activeIndex ? "bg-primary-50 text-primary-800" : "text-slate-600 hover:bg-primary-50 hover:text-primary-800"}`} ${option.value === value ? "font-semibold text-primary-800" : ""}`}>
+              className={`flex min-h-8 items-center justify-between gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-sm ${option.disabled ? "cursor-not-allowed text-slate-300 dark:text-slate-600" : `cursor-pointer ${index === activeIndex ? "bg-primary-50 text-primary-800 dark:bg-primary-950/60 dark:text-primary-200" : "text-slate-600 hover:bg-primary-50 hover:text-primary-800 dark:text-slate-300 dark:hover:bg-primary-950/60 dark:hover:text-primary-200"}`} ${option.value === value ? "font-semibold text-primary-800 dark:text-primary-200" : ""}`}>
               {option.label}
-              {option.value === value && <Check size={14} className="shrink-0 text-primary-700" aria-hidden="true" />}
+              {option.value === value && <Check size={14} className="shrink-0 text-primary-700 dark:text-primary-400" aria-hidden="true" />}
             </div>
           ))}
         </div>

@@ -1,4 +1,6 @@
-@import "tailwindcss";
+@import "tailwindcss" source("./");
+
+@source "../index.html";
 
 @variant dark (&:where(.dark, .dark *));
 
@@ -16,6 +18,10 @@
   --color-primary-700: #0b7c68;
   --color-primary-800: #0b6253;
   --color-primary-950: #032d26;
+
+  --color-night-canvas: #131918;
+  --color-night-surface: #1c2422;
+  --color-night-raised: #293330;
 
   @keyframes modal-backdrop-in {
     from {
@@ -53,6 +59,21 @@
 }
 
 @layer base {
+  .dark {
+    /* A neutral scale with a subtle green tint, shared by all dark surfaces. */
+    --color-slate-50: #f7faf8;
+    --color-slate-100: #edf2ee;
+    --color-slate-200: #d8e2dc;
+    --color-slate-300: #c0cec7;
+    --color-slate-400: #9aada3;
+    --color-slate-500: #84998e;
+    --color-slate-600: #53655c;
+    --color-slate-700: #3b4843;
+    --color-slate-800: var(--color-night-raised);
+    --color-slate-900: var(--color-night-surface);
+    --color-slate-950: var(--color-night-canvas);
+  }
+
   body {
     @apply bg-slate-50 font-sans text-slate-900 antialiased select-none dark:bg-slate-950 dark:text-slate-100;
   }

@@ -8,6 +8,7 @@ import BirthDateInput from "../components/auth/BirthDateInput";
 import AuthCard from "../components/auth/AuthCard";
 import PasswordRequirements from "../components/auth/PasswordRequirements";
 import PhoneInput from "../components/auth/PhoneInput";
+import { authFieldStyles, authPrimaryButtonClass } from "../components/auth/authStyles";
 import { authErrorMessage, authService, type Registration } from "../auth/authService";
 import { PASSWORD_MAX_LENGTH, passwordValidationMessage } from "../auth/passwordPolicy";
 
@@ -102,13 +103,6 @@ export default function Register() {
     ];
 
   function renderInput({ field, ...input }: typeof inputs[number]) {
-    const styles = {
-      inputSize: "md" as const,
-      containerClassName: "gap-2",
-      helperClassName: "text-xs dark:text-slate-500!",
-      labelClassName: "text-sm! font-medium! text-slate-700! dark:text-slate-700!",
-      inputClassName: "h-11 bg-slate-50/80 text-slate-900 select-text placeholder:text-slate-400 focus:bg-white dark:border-slate-200! dark:bg-slate-50! dark:text-slate-900! dark:placeholder:text-slate-400! dark:disabled:border-slate-200! dark:disabled:bg-slate-100! dark:disabled:text-slate-400! dark:aria-invalid:border-red-500!",
-    };
     return field === "birthDate" ? (
       <div key={field} className="sm:col-span-2">
         <BirthDateInput value={fields.birthDate} onChange={(value) => update("birthDate", value)}
@@ -117,12 +111,12 @@ export default function Register() {
     ) : field === "phone" ? (
       <PhoneInput key={field} id="register-phone" name="phone" label={input.label} placeholder={input.placeholder}
         autoComplete={input.autoComplete} value={fields.phone} onChange={(value) => update("phone", value)}
-        error={errors.phone} disabled={pending} aria-required="true" {...styles} />
+        error={errors.phone} disabled={pending} aria-required="true" {...authFieldStyles} />
     ) : (
       <div key={field} className={`min-w-0${field === "confirmation" ? " sm:col-start-1 sm:row-start-2" : ""}`}>
         <Input id={`register-${field}`} name={field} {...input} value={fields[field]} onChange={(event) => update(field, event.target.value)}
           {...(field === "password" ? { "aria-describedby": `register-password-requirements${errors.password ? " register-password-error" : ""}` } : {})}
-          error={errors[field]} disabled={pending} aria-required="true" {...styles} />
+          error={errors[field]} disabled={pending} aria-required="true" {...authFieldStyles} />
       </div>
     );
   }
@@ -138,23 +132,23 @@ export default function Register() {
       />
       <AuthCard titleId="register-title">
         <button type="button" disabled={pending} onClick={() => navigate("/login", { viewTransition: true })}
-          className="mb-6 inline-flex cursor-pointer items-center gap-1.5 rounded-md text-xs font-medium text-slate-500 transition-colors hover:text-primary-700 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-600 disabled:cursor-default disabled:opacity-50">
+          className="mb-6 inline-flex cursor-pointer items-center gap-1.5 rounded-md text-xs font-medium text-slate-500 transition-colors hover:text-primary-700 dark:text-slate-400 dark:hover:text-primary-400 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-600 disabled:cursor-default disabled:opacity-50">
           <ArrowLeft size={14} aria-hidden="true" /> Voltar ao login
         </button>
         <header className="mb-6">
-          <h1 id="register-title" className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Crie sua conta</h1>
-          <p className="mt-2 text-sm leading-6 text-slate-500">Preencha seus dados para começar a usar o Ergo.</p>
+          <h1 id="register-title" className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100 sm:text-3xl">Crie sua conta</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">Preencha seus dados para começar a usar o Ergo.</p>
         </header>
         <form className="flex flex-col gap-6" onSubmit={submit} noValidate aria-busy={pending}>
           <fieldset disabled={pending} className="min-w-0">
-            <legend className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-800">
-              <UserRound size={16} className="text-primary-700" aria-hidden="true" /> Informações pessoais
+            <legend className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-200">
+              <UserRound size={16} className="text-primary-700 dark:text-primary-400" aria-hidden="true" /> Informações pessoais
             </legend>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">{inputs.slice(0, 5).map(renderInput)}</div>
           </fieldset>
-          <fieldset disabled={pending} className="min-w-0 border-t border-slate-100 pt-5">
-            <legend className="flex items-center gap-2 bg-white pr-3 text-sm font-semibold text-slate-800">
-              <LockKeyhole size={16} className="text-primary-700" aria-hidden="true" /> Seu acesso
+          <fieldset disabled={pending} className="min-w-0 border-t border-slate-100 pt-5 dark:border-slate-800">
+            <legend className="flex items-center gap-2 bg-white pr-3 text-sm font-semibold text-slate-800 dark:bg-slate-900 dark:text-slate-200">
+              <LockKeyhole size={16} className="text-primary-700 dark:text-primary-400" aria-hidden="true" /> Seu acesso
             </legend>
             <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
               {renderInput(inputs[5])}
@@ -165,7 +159,7 @@ export default function Register() {
             </div>
           </fieldset>
           <div>
-            <Button type="submit" size="lg" className="h-12 w-full rounded-xl! bg-primary-700! text-sm! shadow-none hover:bg-primary-800! dark:bg-primary-700! dark:hover:bg-primary-800!" isLoading={pending}>
+            <Button type="submit" size="lg" className={`h-12 ${authPrimaryButtonClass}`} isLoading={pending}>
               {pending ? "Criando sua conta…" : "Criar conta"}
               {!pending && <ArrowRight size={18} aria-hidden="true" />}
             </Button>
