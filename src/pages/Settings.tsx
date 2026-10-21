@@ -509,7 +509,7 @@ export default function Settings() {
                 required={canEditUser}
               />
               <Input
-                label="Data de nascimento"
+                label="Data de nascimento (opcional)"
                 type="date"
                 value={birthDate}
                 onChange={(e) => {
@@ -517,7 +517,6 @@ export default function Settings() {
                   setUserFeedback(null);
                 }}
                 disabled={!canEditUser || isSavingUser}
-                required={canEditUser}
               />
               <Input
                 label="E-mail"
@@ -531,14 +530,13 @@ export default function Settings() {
                 required={canEditUser}
               />
               <Input
-                label="Telefone"
+                label="Telefone (opcional)"
                 value={phone}
                 onChange={(e) => {
                   setPhone(FormatterHelper.formatPhone(e.target.value));
                   setUserFeedback(null);
                 }}
                 disabled={!canEditUser || isSavingUser}
-                required={canEditUser}
               />
             </div>
 
