@@ -197,10 +197,10 @@ export default function WorkspaceCalibrationModal({
 
       if (canvas.parentElement) {
         const rect = canvas.parentElement.getBoundingClientRect();
-        if (canvas.width !== rect.width || canvas.height !== rect.height) {
-          canvas.width = rect.width;
-          canvas.height = rect.height;
-        }
+        const width = Math.max(1, Math.round(rect.width));
+        const height = Math.max(1, Math.round(rect.height));
+        if (canvas.width !== width) canvas.width = width;
+        if (canvas.height !== height) canvas.height = height;
       }
 
       const w = canvas.width;
