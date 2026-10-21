@@ -1,4 +1,14 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useAuth } from "../auth/AuthContext";
 import { userThemeService } from "../services/userThemeService";
 import {
@@ -46,6 +56,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [account, setAccount] = useState<AccountTheme | null>(null);
   const [reloadIndex, setReloadIndex] = useState(0);
   const [systemDark, setSystemDark] = useState(() => window.matchMedia(SYSTEM_THEME_QUERY).matches);
+
   const current = account?.userId === userId ? account : null;
   const theme = current?.theme ?? "light";
   const isLoading = !authLoading && (!current || current.status === "loading");
@@ -70,62 +81,152 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
 
     const scope: ThemeRequestScope = {
-      userId, active: true, ready: false, saving: false, savedTheme: "light",
+      userId,
+      active: true,
+      ready: false,
+      saving: false,
+      savedTheme: "light",
     };
     scopeRef.current = scope;
-    setAccount({ userId, theme: "light", status: "loading", isSaving: false, error: "" });
-    const isCurrent = () => scope.active && scopeRef.current === scope && userIdRef.current === userId;
-    const request = userId === null
-      ? userThemeService.getStartupPreference() : userThemeService.getPreference();
+    setAccount({
+      userId,
+      theme: "light",
+      status: "loading",
+      isSaving: false,
+      error: "",
+    });
+
+    const isCurrent = () =>
+      scope.active && scopeRef.current === scope && userIdRef.current === userId;
+
+    const request =
+      userId === null
+        ? userThemeService.getStartupPreference()
+        : userThemeService.getPreference();
+
     request
       .then((preference) => {
         if (!isCurrent()) return;
         scope.savedTheme = preference;
         scope.ready = true;
-        setAccount({ userId, theme: preference, status: "ready", isSaving: false, error: "" });
+        setAccount({
+          userId,
+          theme: preference,
+          status: "ready",
+          isSaving: false,
+          error: "",
+        });
       })
       .catch(() => {
         if (!isCurrent()) return;
-        setAccount({ userId, theme: "light", status: "error", isSaving: false,
-          error: "Não foi possível carregar sua preferência de tema. Tente novamente." });
+        setAccount({
+          userId,
+          theme: "light",
+          status: "error",
+          isSaving: false,
+          error: "Não foi possível carregar sua preferência de tema. Tente novamente.",
+        });
       });
-    return () => { scope.active = false; };
+
+    return () => {
+      scope.active = false;
+    };
   }, [authLoading, userId, reloadIndex]);
 
   useEffect(() => {
     const media = window.matchMedia(SYSTEM_THEME_QUERY);
     const onSystemThemeChange = (event: MediaQueryListEvent) => setSystemDark(event.matches);
+
     media.addEventListener("change", onSystemThemeChange);
     setSystemDark(media.matches);
+
     return () => {
       media.removeEventListener("change", onSystemThemeChange);
     };
   }, []);
 
-  const setTheme = useCallback(async (preference: ThemePreference) => {
-    const scope = scopeRef.current;
-    if (userId === null || !scope || !scope.active || !scope.ready || scope.saving || scope.userId !== userId
-      || userIdRef.current !== userId || scope.savedTheme === preference) return;
-    scope.saving = true;
-    setAccount({ userId: scope.userId, theme: preference, status: "ready", isSaving: true, error: "" });
-    const isCurrent = () => scope.active && scopeRef.current === scope && userIdRef.current === scope.userId;
-    try {
-      const saved = await userThemeService.updatePreference(preference);
-      if (!isCurrent()) return;
-      scope.savedTheme = saved;
-      setAccount({ userId: scope.userId, theme: saved, status: "ready", isSaving: false, error: "" });
-    } catch {
-      if (!isCurrent()) return;
-      setAccount({ userId: scope.userId, theme: scope.savedTheme, status: "ready", isSaving: false,
-        error: "Não foi possível salvar sua preferência de tema. A escolha anterior foi mantida. Tente novamente." });
-    } finally {
-      scope.saving = false;
-    }
-  }, [userId]);
+  const setTheme = useCallback(
+    async (preference: ThemePreference) => {
+      const scope = scopeRef.current;
+      if (
+        userId === null ||
+        !scope ||
+        !scope.active ||
+        !scope.ready ||
+        scope.saving ||
+        scope.userId !== userId ||
+        userIdRef.current !== userId ||
+        scope.savedTheme === preference
+      ) {
+        return;
+      }
 
-  const reloadTheme = useCallback(() => { setReloadIndex((index) => index + 1); }, []);
-  const value = useMemo(() => ({ theme, resolvedTheme, isLoading, isSaving, isReady, error, setTheme, reloadTheme }),
-    [theme, resolvedTheme, isLoading, isSaving, isReady, error, setTheme, reloadTheme]);
+      scope.saving = true;
+      setAccount({
+        userId: scope.userId,
+        theme: preference,
+        status: "ready",
+        isSaving: true,
+        error: "",
+      });
+
+      const isCurrent = () =>
+        scope.active && scopeRef.current === scope && userIdRef.current === scope.userId;
+
+      try {
+        const saved = await userThemeService.updatePreference(preference);
+        if (!isCurrent()) return;
+        scope.savedTheme = saved;
+        setAccount({
+          userId: scope.userId,
+          theme: saved,
+          status: "ready",
+          isSaving: false,
+          error: "",
+        });
+      } catch {
+        if (!isCurrent()) return;
+        setAccount({
+          userId: scope.userId,
+          theme: scope.savedTheme,
+          status: "ready",
+          isSaving: false,
+          error:
+            "Não foi possível salvar sua preferência de tema. A escolha anterior foi mantida. Tente novamente.",
+        });
+      } finally {
+        scope.saving = false;
+      }
+    },
+    [userId],
+  );
+
+  const reloadTheme = useCallback(() => {
+    setReloadIndex((index) => index + 1);
+  }, []);
+
+  const value = useMemo(
+    () => ({
+      theme,
+      resolvedTheme,
+      isLoading,
+      isSaving,
+      isReady,
+      error,
+      setTheme,
+      reloadTheme,
+    }),
+    [
+      theme,
+      resolvedTheme,
+      isLoading,
+      isSaving,
+      isReady,
+      error,
+      setTheme,
+      reloadTheme,
+    ],
+  );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
