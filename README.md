@@ -155,7 +155,7 @@ npm run test:reports
 npm run test:theme
 ```
 
-- `test`: testes unitários dos cálculos de pescoço e ombros, incluindo rotações, deslocamentos, espelhamento, escala e pontos inválidos. Use `npm run test:watch` durante o desenvolvimento.
+- `test`: testes geométricos, adaptação dos landmarks do MediaPipe e integração do componente de câmera com captura e detector simulados. Cobrem resolução do vídeo, espelhamento, confiança, oclusão, ausência, suavização, pausa, retomada, erros e liberação de streams pendentes. Use `npm run test:watch` durante o desenvolvimento.
 - `test:auth`: testes Rust com SQLite temporário, cobrindo cadastro, validações, duplicidade, hash, login, sessões, limite de tentativas, persistência e preferências de tema por conta, incluindo o padrão SQL automático.
 - `test:reports`: testes de agregação, comparação entre períodos, dias sem leituras, limites de calendário e consistência dos dados demonstrativos (Node.js 22.6+).
 - `test:theme`: testes do tema inicial e dos contratos de comunicação, além de testes de integração com React e jsdom. Exercita os providers de autenticação e tema, as rotas, o layout e Configurações em Strict Mode, com comunicação Tauri simulada. Cobre carregamento inicial, preservação de formulários em novas tentativas, restauração após falha ao salvar, mudanças do sistema e respostas atrasadas após logout ou troca de conta. As páginas sem relação com esses cenários são substituídas por componentes simples; os testes não acessam câmera, contas ou bancos reais.
@@ -167,7 +167,13 @@ O módulo `src/services/vision/biomechanics.ts` expõe funções puras que receb
 - `calculateNeckAngle(nose, ear, shoulderCenter)` retorna o ângulo em graus entre a vertical para cima e o vetor do centro dos ombros até o ponto médio entre nariz e orelha. Varia de 0° a 180°; 0° indica alinhamento vertical. Em vista lateral, o deslocamento horizontal representa projeção anterior; em vista frontal, representa inclinação lateral. O resultado é uma medida bruta em 2D; a comparação com uma postura neutra calibrada fica a cargo de quem chama a função.
 - `calculateShoulderBalance(leftShoulder, rightShoulder)` usa `atan2` para obter a inclinação aguda em relação à horizontal, independentemente da ordem dos ombros ou do espelhamento. Retorna `max(0, 100 - ângulo * 10)`: 0° → 100%, 3° → 70% e ≥ 10° → 0%.
 
-Ambas retornam `null` para coordenadas não finitas ou vetores de comprimento zero, preservando a distinção entre medida indisponível e postura alinhada. O módulo está disponível para integração futura com o detector; o monitoramento exibido na interface continua demonstrativo.
+Ambas retornam `null` para coordenadas não finitas ou vetores de comprimento zero, preservando a distinção entre medida indisponível e postura alinhada.
+
+O feed da câmera usa essas funções através de `src/services/vision/poseAngles.ts`. O adaptador converte as coordenadas normalizadas pela largura e altura reais do vídeo, independentemente do tamanho da prévia. Usa o ponto médio das duas orelhas visíveis na vista frontal ou a orelha visível na vista lateral, evitando selecionar sempre um lado. Nariz, ombros e ao menos uma orelha precisam ter coordenadas finitas e confiança acima de 0,35. Pontos insuficientes pausam as métricas e solicitam ajuste do enquadramento; ausência corporal por cinco segundos pausa o rastreamento.
+
+A suavização EMA começa na primeira medida válida e mantém a precisão decimal internamente, arredondando apenas os valores exibidos. O modo simulado é ativado explicitamente e usa o mesmo adaptador. A inclinação do pescoço continua sendo uma medida bruta em 2D: uma câmera frontal mede inclinação lateral e não comprova flexão anterior. A distância permanece uma estimativa pela largura dos ombros; a comparação com uma referência neutra calibrada e a persistência de uma sessão real continuam em outras tarefas.
+
+Para conferir com a webcam física, execute `npm run tauri -- dev`, abra **Monitoramento**, permita a captura e enquadre cabeça, orelhas e ombros. Compare postura alinhada e inclinada; redimensionar a janela deve preservar os ângulos para os mesmos landmarks. Pause e confirme a liberação da câmera, retome e verifique o retorno das métricas. Cubra os pontos necessários e saia do enquadramento por mais de cinco segundos para conferir os estados de detecção parcial e ausência. Os testes automatizados simulam a captura e o detector; disponibilidade do hardware, permissões do Windows e precisão do modelo com pessoas reais exigem essa conferência manual.
 
 ### 🔍 Como Inspecionar / Visualizar os Dados
 Para abrir e visualizar as tabelas do banco de dados na sua máquina local durante o desenvolvimento, utilize uma destas opções:
