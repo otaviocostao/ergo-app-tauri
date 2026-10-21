@@ -21,8 +21,8 @@ export type { UserPresenceState };
 
 export interface WebcamFeedProps {
   isMonitoring: boolean;
-  onToggleMonitoring: () => void;
-  onCalibrate: () => void;
+  onToggleMonitoring?: () => void;
+  onCalibrate?: () => void;
   onPostureUpdate?: (metrics: {
     neckAngle: number;
     shoulderBalance: number;
@@ -603,12 +603,21 @@ export default function WebcamFeed({
         // Redraw the latest valid pose on every animation frame, between inferences.
         if (lastOverlayRef.current) {
           const { head: headPt, leftShoulder: leftShoulderPt, rightShoulder: rightShoulderPt } = lastOverlayRef.current;
-          const headCanvasX = (1 - headPt.x) * w;
-          const headCanvasY = headPt.y * h;
-          const leftShoulderCanvasX = (1 - leftShoulderPt.x) * w;
-          const leftShoulderCanvasY = leftShoulderPt.y * h;
-          const rightShoulderCanvasX = (1 - rightShoulderPt.x) * w;
-          const rightShoulderCanvasY = rightShoulderPt.y * h;
+          // Match the video's centered object-cover crop and horizontal mirror.
+          const frameWidth = !isSimulatedMode && video?.videoWidth ? video.videoWidth : w;
+          const frameHeight = !isSimulatedMode && video?.videoHeight ? video.videoHeight : h;
+          const scale = Math.max(w / frameWidth, h / frameHeight);
+          const renderedWidth = frameWidth * scale;
+          const renderedHeight = frameHeight * scale;
+          const offsetX = (w - renderedWidth) / 2;
+          const offsetY = (h - renderedHeight) / 2;
+          const project = (point: Point2D) => ({
+            x: (1 - point.x) * renderedWidth + offsetX,
+            y: point.y * renderedHeight + offsetY,
+          });
+          const { x: headCanvasX, y: headCanvasY } = project(headPt);
+          const { x: leftShoulderCanvasX, y: leftShoulderCanvasY } = project(leftShoulderPt);
+          const { x: rightShoulderCanvasX, y: rightShoulderCanvasY } = project(rightShoulderPt);
 
           const neckCanvasX = (leftShoulderCanvasX + rightShoulderCanvasX) / 2;
           const neckCanvasY = (leftShoulderCanvasY + rightShoulderCanvasY) / 2;
@@ -918,33 +927,39 @@ export default function WebcamFeed({
         )}
 
         {/* Barra de Ações Inferior: Iniciar/Pausar e Calibrar Postura */}
-        <div className="absolute bottom-4 flex items-center justify-center gap-2 z-20">
-          <Button
-            variant="primary"
-            size="md"
-            onClick={onToggleMonitoring}
-            className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white border border-slate-700 backdrop-blur-md transition-all shadow-lg"
-          >
-            {isMonitoring ? (
-              <>
-                <VideoOff size={16} /> Pausar Monitoramento
-              </>
-            ) : (
-              <>
-                <Video size={16} /> Iniciar Monitoramento
-              </>
+        {(onToggleMonitoring || onCalibrate) && (
+          <div className="absolute bottom-4 flex items-center justify-center gap-2 z-20">
+            {onToggleMonitoring && (
+              <Button
+                variant="primary"
+                size="md"
+                onClick={onToggleMonitoring}
+                className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white border border-slate-700 backdrop-blur-md transition-all shadow-lg"
+              >
+                {isMonitoring ? (
+                  <>
+                    <VideoOff size={16} /> Pausar Monitoramento
+                  </>
+                ) : (
+                  <>
+                    <Video size={16} /> Iniciar Monitoramento
+                  </>
+                )}
+              </Button>
             )}
-          </Button>
 
-          <Button
-            size="md"
-            onClick={onCalibrate}
-            className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white border border-slate-700 backdrop-blur-md transition-all shadow-lg"
-          >
-            <Crosshair size={14} />
-            Calibrar Postura Base
-          </Button>
-        </div>
+            {onCalibrate && (
+              <Button
+                size="md"
+                onClick={onCalibrate}
+                className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white border border-slate-700 backdrop-blur-md transition-all shadow-lg"
+              >
+                <Crosshair size={14} />
+                Calibrar Postura Base
+              </Button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
