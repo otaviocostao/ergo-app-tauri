@@ -8,6 +8,13 @@ export interface Point2D {
   readonly y: number;
 }
 
+/** MediaPipe canonical-face transform, flattened in column-major order. */
+export interface FaceTransformationMatrix {
+  readonly rows: number;
+  readonly columns: number;
+  readonly data: readonly number[];
+}
+
 const RADIANS_TO_DEGREES = 180 / Math.PI;
 
 function isFinitePoint(point: Point2D): boolean {
@@ -46,6 +53,38 @@ export function calculateNeckAngle(
   }
 
   return Math.atan2(Math.abs(dx), upwardY) * RADIANS_TO_DEGREES;
+}
+
+/**
+ * Signed vertical head rotation in degrees [-180, 180], relative to the camera.
+ * Extracts pitch from R = Rz(roll) * Ry(yaw) * Rx(pitch), independently of
+ * translation and uniform scale. This estimates head orientation, not a
+ * calibrated anatomical cervical angle. Use its magnitude for posture checks.
+ * Returns null for missing/invalid transforms or a singular yaw orientation.
+ */
+export function calculateHeadPitch(matrix: FaceTransformationMatrix | null | undefined): number | null {
+  if (!matrix || matrix.rows !== 4 || matrix.columns !== 4 || matrix.data.length !== 16 ||
+    !matrix.data.every(Number.isFinite)) return null;
+
+  const m = matrix.data;
+  const tolerance = 1e-3;
+  if (Math.abs(m[3]) > tolerance || Math.abs(m[7]) > tolerance ||
+    Math.abs(m[11]) > tolerance || Math.abs(m[15] - 1) > tolerance) return null;
+
+  const columns = [0, 4, 8].map(offset => [m[offset], m[offset + 1], m[offset + 2]]);
+  const lengths = columns.map(column => Math.hypot(...column));
+  if (lengths.some(length => !Number.isFinite(length) || length <= 1e-8) ||
+    lengths.some(length => Math.abs(length / lengths[0] - 1) > tolerance)) return null;
+
+  const [x, y, z] = columns.map((column, index) => column.map(value => value / lengths[index]));
+  const dot = (a: number[], b: number[]) => a.reduce((sum, value, index) => sum + value * b[index], 0);
+  const crossXY = [x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0]];
+  if (Math.abs(dot(x, y)) > tolerance || Math.abs(dot(x, z)) > tolerance ||
+    Math.abs(dot(y, z)) > tolerance || Math.abs(dot(crossXY, z) - 1) > tolerance) return null;
+
+  // At yaw +/-90 degrees pitch and roll cannot be separated reliably.
+  if (Math.hypot(x[0], x[1]) < 1e-3) return null;
+  return Math.atan2(y[2], z[2]) * RADIANS_TO_DEGREES;
 }
 
 /**
