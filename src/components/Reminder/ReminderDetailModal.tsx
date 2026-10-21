@@ -1,6 +1,6 @@
 import Modal from "../Modal";
 import Button from "../Button";
-import { ReminderItem } from "../../pages/Reminders";
+import type { ReminderItem } from "../../services/reminderService";
 import {
   ReminderFrequency,
   REMINDER_FREQUENCY_LABELS,
@@ -23,6 +23,7 @@ interface ReminderDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   reminder: ReminderItem | null;
+  onEdit: () => void;
 }
 
 const CATEGORY_COLORS: Record<ReminderItem["category"], { bg: string; text: string; border: string }> = {
@@ -51,7 +52,8 @@ const CATEGORY_COLORS: Record<ReminderItem["category"], { bg: string; text: stri
 export default function ReminderDetailModal({
   isOpen,
   onClose,
-  reminder
+  reminder,
+  onEdit,
 }: ReminderDetailModalProps) {
   if (!reminder) return null;
 
@@ -70,10 +72,10 @@ export default function ReminderDetailModal({
         <div className="flex items-center gap-2">
           <div>
             <h3 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-              Detalhes do Lembrete
+              {reminder.systemType ? "Detalhes do Aviso de Ergonomia" : "Detalhes do Lembrete"}
             </h3>
             <p className="text-sm text-slate-500 font-normal">
-              Informações completas do lembrete personalizado
+              {reminder.systemType ? "Aviso padrão do sistema com configurações de envio da sua conta" : "Informações do lembrete personalizado"}
             </p>
           </div>
         </div>
@@ -81,6 +83,9 @@ export default function ReminderDetailModal({
       footer={
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-2 ml-auto">
+            <Button variant="primary" size="md" onClick={onEdit}>
+              {reminder.systemType ? "Configurar aviso" : "Editar lembrete"}
+            </Button>
             <Button variant="secondary" size="md" onClick={onClose}>
               Fechar
             </Button>
@@ -226,7 +231,7 @@ export default function ReminderDetailModal({
             )}
             Status
           </span>
-          <div>
+          <div className="flex items-center gap-2">
             <span
               className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${reminder.status === "ativo"
                 ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800"
