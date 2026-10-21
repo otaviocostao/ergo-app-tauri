@@ -6,6 +6,37 @@ use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SystemReminderType {
+    PostureCheck,
+    VisualBreak,
+    MovementBreak,
+}
+
+impl SystemReminderType {
+    pub const ALL: [Self; 3] = [Self::PostureCheck, Self::VisualBreak, Self::MovementBreak];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::PostureCheck => "POSTURE_CHECK",
+            Self::VisualBreak => "VISUAL_BREAK",
+            Self::MovementBreak => "MOVEMENT_BREAK",
+        }
+    }
+
+    pub fn reminder_id(self, user_id: i64) -> String {
+        format!("system-reminder:{user_id}:{}", self.as_str())
+    }
+
+    pub fn from_reminder_id(id: &str, user_id: Option<i64>) -> Option<Self> {
+        let user_id = user_id?;
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.reminder_id(user_id) == id)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ReminderFrequency {
     Once,
     Daily,
@@ -70,6 +101,9 @@ impl FromSql for ReminderFrequency {
 pub struct Reminder {
     pub id: String,
     pub user_id: Option<i64>,
+    /// Derived from a server-owned ID; custom reminders use UUIDs.
+    #[serde(default)]
+    pub system_type: Option<SystemReminderType>,
     pub title: String,
     pub message: String,
     pub description: Option<String>,
