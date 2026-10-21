@@ -2,13 +2,13 @@ import { useState, useEffect, useRef } from "react";
 import Modal from "../Modal";
 import Button from "../Button";
 import Select from "../Select";
+import WebcamFeed, { type WebcamFeedProps } from "./WebcamFeed";
 import { workspaceService, type CreateWorkspacePayload } from "../../services/workspaceService";
 import {
   CheckCircle2,
   Image as ImageIcon,
   Laptop,
   Monitor,
-  Sparkles,
 } from "lucide-react";
 
 export interface WorkspaceCalibrationModalProps {
@@ -16,8 +16,8 @@ export interface WorkspaceCalibrationModalProps {
   onClose: () => void;
   onCalibrateSubmit: () => void;
   isNotebookUser?: boolean;
-  neckAngle?: number;
-  shoulderBalance?: number;
+  onPostureUpdate?: WebcamFeedProps["onPostureUpdate"];
+  onPresenceChange?: WebcamFeedProps["onPresenceChange"];
 }
 
 export interface SetupStep {
@@ -32,8 +32,8 @@ export default function WorkspaceCalibrationModal({
   isOpen,
   onClose,
   onCalibrateSubmit,
-  neckAngle = 12,
-  shoulderBalance = 96,
+  onPostureUpdate,
+  onPresenceChange,
 }: WorkspaceCalibrationModalProps) {
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
 
@@ -53,10 +53,7 @@ export default function WorkspaceCalibrationModal({
   const [saveError, setSaveError] = useState<string | null>(null);
   const savingRef = useRef(false);
 
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
-  const [isSimulatedMode, setIsSimulatedMode] = useState<boolean>(false);
+  const [liveMetrics, setLiveMetrics] = useState<{ neckAngle: number; shoulderBalance: number } | null>(null);
 
   const baseSteps: SetupStep[] = [
     {
@@ -110,7 +107,11 @@ export default function WorkspaceCalibrationModal({
   const isFinalWebcamStep = currentStepIndex === totalInformativeSteps + 1;
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setCurrentStepIndex(0);
+      setLiveMetrics(null);
+      return;
+    }
 
     let cancelled = false;
     setCurrentStepIndex(0);
@@ -118,6 +119,7 @@ export default function WorkspaceCalibrationModal({
     setLoadError(null);
     setSaveError(null);
     setWorkspaceId(null);
+    setLiveMetrics(null);
 
     async function loadWorkspace() {
       try {
@@ -146,124 +148,6 @@ export default function WorkspaceCalibrationModal({
     return () => { cancelled = true; };
   }, [isOpen, loadAttempt]);
 
-  useEffect(() => {
-    let stream: MediaStream | null = null;
-
-    async function startWebcam() {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-        });
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play();
-        }
-        setHasCameraPermission(true);
-        setIsSimulatedMode(false);
-      } catch (err) {
-        console.warn("Camera access in calibration modal unavailable, using fallback:", err);
-        setHasCameraPermission(false);
-        setIsSimulatedMode(true);
-      }
-    }
-
-    if (isOpen && isFinalWebcamStep) {
-      startWebcam();
-    } else {
-      if (videoRef.current && videoRef.current.srcObject) {
-        const s = videoRef.current.srcObject as MediaStream;
-        s.getTracks().forEach((track) => track.stop());
-        videoRef.current.srcObject = null;
-      }
-    }
-
-    return () => {
-      if (stream) {
-        stream.getTracks().forEach((t) => t.stop());
-      }
-    };
-  }, [isOpen, isFinalWebcamStep]);
-
-  useEffect(() => {
-    if (!isOpen || !isFinalWebcamStep) return;
-
-    let animationFrameId: number;
-
-    const drawOverlay = () => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      if (canvas.parentElement) {
-        const rect = canvas.parentElement.getBoundingClientRect();
-        const width = Math.max(1, Math.round(rect.width));
-        const height = Math.max(1, Math.round(rect.height));
-        if (canvas.width !== width) canvas.width = width;
-        if (canvas.height !== height) canvas.height = height;
-      }
-
-      const w = canvas.width;
-      const h = canvas.height;
-
-      ctx.clearRect(0, 0, w, h);
-
-      const now = Date.now() / 1000;
-      const headX = w / 2 + Math.sin(now * 0.8) * 8;
-      const headY = h * 0.35 + Math.cos(now * 0.5) * 5;
-      const neckX = headX;
-      const neckY = headY + 45;
-      const leftShoulderX = headX - 85;
-      const leftShoulderY = neckY + 35;
-      const rightShoulderX = headX + 85;
-      const rightShoulderY = neckY + 37;
-
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.strokeStyle = "rgba(19, 184, 154, 0.85)";
-      ctx.moveTo(leftShoulderX, leftShoulderY);
-      ctx.lineTo(rightShoulderX, rightShoulderY);
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.strokeStyle = "rgba(19, 184, 154, 0.85)";
-      ctx.moveTo(headX, headY);
-      ctx.lineTo(neckX, neckY);
-      ctx.stroke();
-
-      const points = [
-        { x: headX, y: headY, r: 6, color: "#13b89a" },
-        { x: neckX, y: neckY, r: 5, color: "#6366f1" },
-        { x: leftShoulderX, y: leftShoulderY, r: 5, color: "#3b82f6" },
-        { x: rightShoulderX, y: rightShoulderY, r: 5, color: "#3b82f6" },
-      ];
-
-      points.forEach((p) => {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fillStyle = p.color;
-        ctx.fill();
-        ctx.lineWidth = 1.5;
-        ctx.strokeStyle = "#ffffff";
-        ctx.stroke();
-      });
-
-      ctx.beginPath();
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
-      ctx.setLineDash([5, 5]);
-      ctx.strokeRect(w * 0.2, h * 0.15, w * 0.6, h * 0.7);
-      ctx.setLineDash([]);
-
-      animationFrameId = requestAnimationFrame(drawOverlay);
-    };
-
-    drawOverlay();
-
-    return () => {
-      cancelAnimationFrame(animationFrameId);
-    };
-  }, [isOpen, isFinalWebcamStep]);
-
   const handleNext = () => {
     if (isLoadingWorkspace || loadError || savingRef.current) return;
     if (currentStepIndex <= totalInformativeSteps) {
@@ -274,6 +158,7 @@ export default function WorkspaceCalibrationModal({
   const handlePrev = () => {
     if (savingRef.current) return;
     setSaveError(null);
+    setLiveMetrics(null);
     if (currentStepIndex > 0) {
       setCurrentStepIndex((prev) => prev - 1);
     }
@@ -541,44 +426,29 @@ export default function WorkspaceCalibrationModal({
         {isFinalWebcamStep && (
           <div className="space-y-4 animate-in fade-in duration-150">
             <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200">
-              Agora que seu ambiente de trabalho está ajustado, vamos calibrar o aplicativo para identificar os pontos anatômicos corretos do seu corpo. Siga as instruções exibidas na tela.
+              Enquadre rosto e ombros e observe os pontos acompanhando seus movimentos. Mantenha a câmera de frente, aproximadamente na altura dos olhos.
             </p>
 
-            <div className="relative w-full aspect-video min-h-[260px] max-h-[310px] bg-slate-950 rounded-xl overflow-hidden border border-slate-800 shadow-md flex items-center justify-center">
-              <video
-                ref={videoRef}
-                playsInline
-                muted
-                className={`absolute inset-0 w-full h-full object-cover transform -scale-x-100 ${isSimulatedMode ? "opacity-0 pointer-events-none" : "opacity-100"
-                  }`}
-              />
-
-              {(isSimulatedMode || hasCameraPermission === false) && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center bg-slate-900 text-slate-400">
-                  <div className="p-3 rounded-full bg-slate-800 text-emerald-400 mb-2 animate-pulse">
-                    <Sparkles size={28} />
-                  </div>
-                  <p className="text-xs font-semibold text-slate-200">
-                    Sintonizando Feed de Calibração da Câmera
-                  </p>
-                  <p className="text-[11px] text-slate-400 mt-1 max-w-xs">
-                    Sentado de forma ereta, olhe para o centro do monitor para fixar os pontos de referência.
-                  </p>
-                </div>
-              )}
-
-              <canvas
-                ref={canvasRef}
-                className="absolute inset-0 w-full h-full pointer-events-none z-10"
-              />
-            </div>
+            <WebcamFeed
+              isMonitoring={isOpen}
+              onPostureUpdate={(metrics) => {
+                setLiveMetrics(metrics.presence === "ACTIVE" ? metrics : null);
+                onPostureUpdate?.(metrics);
+              }}
+              onPresenceChange={(presence) => {
+                if (presence !== "ACTIVE") setLiveMetrics(null);
+                onPresenceChange?.(presence);
+              }}
+            />
 
             <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 text-xs flex justify-between items-center">
               <span className="text-slate-500 dark:text-slate-400 font-medium">
-                Métricas de Referência Capturadas:
+                Métricas ao vivo:
               </span>
               <span className="font-bold text-slate-900 dark:text-white">
-                Pescoço: {neckAngle}° | Ombros: {shoulderBalance}%
+                {liveMetrics
+                  ? `Pescoço: ${liveMetrics.neckAngle}° | Ombros: ${liveMetrics.shoulderBalance}%`
+                  : "Aguardando detecção confiável"}
               </span>
             </div>
 
