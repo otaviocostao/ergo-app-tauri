@@ -3,7 +3,7 @@ import Modal from "../Modal";
 import Button from "../Button";
 import Input from "../Input";
 import Select from "../Select";
-import { ReminderItem } from "../../pages/Reminders";
+import type { ReminderItem } from "../../services/reminderService";
 import {
   ReminderFrequency,
   REMINDER_FREQUENCY_OPTIONS,
@@ -58,7 +58,7 @@ export default function ReminderFormModal({
   onSave,
   reminder,
 }: ReminderFormModalProps) {
-  const isEditing = reminder !== null;
+  const isSystem = Boolean(reminder?.systemType);
 
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
@@ -70,6 +70,7 @@ export default function ReminderFormModal({
   const [reminderDate, setReminderDate] = useState<string>(localToday);
   const [customDays, setCustomDays] = useState<string[]>([]);
   const [silentNotification, setSilentNotification] = useState(false);
+  const [status, setStatus] = useState<"ativo" | "inativo">("ativo");
   const [isSaving, setIsSaving] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -101,6 +102,7 @@ export default function ReminderFormModal({
         );
         setCustomDays(reminder.customDays || []);
         setSilentNotification(!reminder.notificationTone);
+        setStatus(reminder.status === "ativo" ? "ativo" : "inativo");
       } else {
         setTitle("");
         setMessage("");
@@ -112,6 +114,7 @@ export default function ReminderFormModal({
         setReminderDate(localToday());
         setCustomDays([]);
         setSilentNotification(false);
+        setStatus("ativo");
       }
     }
   }, [isOpen, reminder]);
@@ -167,6 +170,7 @@ export default function ReminderFormModal({
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (isSaving) return;
     if (!title.trim() || !message.trim()) {
       setSubmitError("Preencha o título e a mensagem do lembrete.");
       return;
@@ -211,6 +215,7 @@ export default function ReminderFormModal({
 
       const savedReminder: ReminderItem = {
         id: reminder?.id || "",
+        systemType: reminder?.systemType,
         title: title.trim(),
         message: message.trim(),
         description: message.trim(),
@@ -225,7 +230,7 @@ export default function ReminderFormModal({
         customDays:
           frequency === ReminderFrequency.CUSTOM ? customDays : undefined,
         notificationTone: !silentNotification,
-        status: reminder?.status || "ativo",
+        status,
       };
 
       await onSave?.(savedReminder);
@@ -251,12 +256,12 @@ export default function ReminderFormModal({
         <div className="flex items-center gap-2">
           <div>
             <h3 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-              {isEditing ? "Editar Lembrete" : "Novo Lembrete"}
+              {isSystem ? "Configurar Aviso de Ergonomia" : reminder ? "Editar Lembrete" : "Novo Lembrete"}
             </h3>
             <p className="text-sm text-slate-500 font-normal">
-              {isEditing
-                ? "Edite seu lembrete personalizado"
-                : "Crie um lembrete personalizado"}
+              {isSystem
+                ? "O conteúdo é definido pelo sistema. Ajuste o status, os horários e o som."
+                : "Defina a mensagem, os horários e quando deseja receber o lembrete."}
             </p>
           </div>
         </div>
@@ -283,6 +288,7 @@ export default function ReminderFormModal({
           type="text"
           placeholder="Ex: Alongamento da Coluna"
           value={title}
+          readOnly={isSystem}
           onChange={(e) => setTitle(e.target.value)}
           required
         />
@@ -292,6 +298,7 @@ export default function ReminderFormModal({
           type="text"
           placeholder="Ex: Mantenha a postura ereta e relaxe os ombros"
           value={message}
+          readOnly={isSystem}
           onChange={(e) => setMessage(e.target.value)}
           required
         />
@@ -301,6 +308,7 @@ export default function ReminderFormModal({
             label="Categoria"
             leftIcon={<Tag size={16} />}
             value={category}
+            disabled={isSystem}
             onChange={(e) =>
               setCategory(e.target.value as ReminderItem["category"])
             }
@@ -310,6 +318,16 @@ export default function ReminderFormModal({
               { label: "Pausa Visual", value: "Pausa Visual" },
               { label: "Exercício", value: "Exercício" },
             ]}
+          />
+          <Select
+            label="Status"
+            value={status}
+            onChange={(e) => setStatus(e.target.value as "ativo" | "inativo")}
+            options={[
+              { label: "Ativo", value: "ativo" },
+              { label: "Inativo", value: "inativo" },
+            ]}
+            helperText="Somente lembretes ativos enviam notificações."
           />
         </div>
 
