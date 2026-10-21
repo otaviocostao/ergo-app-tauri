@@ -30,6 +30,7 @@ export interface WebcamFeedProps {
   }) => void;
   onPresenceChange?: (presence: UserPresenceState) => void;
   onHardwareBusyChange?: (isBusy: boolean) => void;
+  onStreamChange?: (stream: MediaStream | null) => void;
   className?: string;
 }
 
@@ -56,6 +57,7 @@ export default function WebcamFeed({
   onPostureUpdate,
   onPresenceChange,
   onHardwareBusyChange,
+  onStreamChange,
   className = "",
 }: WebcamFeedProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -87,6 +89,7 @@ export default function WebcamFeed({
   const onPostureUpdateRef = useRef(onPostureUpdate);
   const onPresenceChangeRef = useRef(onPresenceChange);
   const onHardwareBusyChangeRef = useRef(onHardwareBusyChange);
+  const onStreamChangeRef = useRef(onStreamChange);
 
   // Métricas suavizadas em memória
   const smoothedMetricsRef = useRef({
@@ -115,6 +118,10 @@ export default function WebcamFeed({
   useEffect(() => {
     onHardwareBusyChangeRef.current = onHardwareBusyChange;
   }, [onHardwareBusyChange]);
+
+  useEffect(() => {
+    onStreamChangeRef.current = onStreamChange;
+  }, [onStreamChange]);
 
   /**
    * Inicializa o detector MediaPipe WebAssembly / GPU em segundo plano.
@@ -201,6 +208,8 @@ export default function WebcamFeed({
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+
+    onStreamChangeRef.current?.(null);
   }, []);
 
   const handleHardwareLock = useCallback(
@@ -245,6 +254,7 @@ export default function WebcamFeed({
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
+      onStreamChangeRef.current?.(stream);
 
       const videoTrack = stream.getVideoTracks()[0];
       if (videoTrack) {

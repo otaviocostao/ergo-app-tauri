@@ -20,6 +20,7 @@ import type { UserPresenceState } from "../types/vision";
 export default function Monitoring() {
   const [isMonitoring, setIsMonitoring] = useState(true);
   const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [soundAlerts, setSoundAlerts] = useState(true);
   const [neckAngle, setNeckAngle] = useState(12);
   const [shoulderBalance, setShoulderBalance] = useState(96);
@@ -164,6 +165,7 @@ export default function Monitoring() {
             onPostureUpdate={handlePostureUpdate}
             onPresenceChange={handlePresenceChange}
             onHardwareBusyChange={handleHardwareBusyChange}
+            onStreamChange={setCameraStream}
           />
 
           <KeyboardMonitorCard
@@ -327,6 +329,7 @@ export default function Monitoring() {
         isOpen={isCalibrationOpen}
         onClose={() => setIsCalibrationOpen(false)}
         onCalibrateSubmit={handleCalibrateSubmit}
+        activeStream={cameraStream}
         neckAngle={neckAngle}
         shoulderBalance={shoulderBalance}
       />
