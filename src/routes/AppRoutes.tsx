@@ -3,6 +3,7 @@ import MainLayout from "../components/MainLayout";
 import Dashboard from "../pages/Dashboard";
 import Reports from "../pages/Reports";
 import Reminders from "../pages/Reminders";
+import ErgonomicNotices from "../pages/ErgonomicNotices";
 import Monitoring from "../pages/Monitoring";
 import Settings from "../pages/Settings";
 import Login from "../pages/Login";
@@ -38,6 +39,7 @@ export default function AppRoutes() {
           <Route path="/dashboard/alertas-preventivos" element={<Navigate to="/reports?view=alerts&period=day" replace />} />
           <Route path="/monitoring" element={<Monitoring />} />
           <Route path="/reminders" element={<Reminders />} />
+          <Route path="/ergonomic-notices" element={<ErgonomicNotices />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
