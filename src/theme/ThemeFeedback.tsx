@@ -2,18 +2,18 @@ import { AlertCircle, RotateCw } from "lucide-react";
 import { useTheme } from "./ThemeContext";
 
 export default function ThemeFeedback() {
-  const { error, isReady, reloadTheme } = useTheme();
+  const { error, isReady, isLoading, reloadTheme } = useTheme();
 
-  if (!error) return null;
+  if (!error && !isLoading) return null;
 
   return (
     <div
-      role="alert"
+      role={error ? "alert" : "status"}
       className="mb-5 flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
     >
       <AlertCircle size={18} className="shrink-0" aria-hidden="true" />
-      <p className="min-w-0 flex-1">{error}</p>
-      {!isReady && (
+      <p className="min-w-0 flex-1">{isLoading ? "Carregando sua preferência de tema…" : error}</p>
+      {!isReady && !isLoading && (
         <button
           type="button"
           onClick={reloadTheme}

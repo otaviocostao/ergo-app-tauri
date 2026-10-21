@@ -23,6 +23,7 @@ interface ThemeContextValue {
   theme: ThemePreference;
   resolvedTheme: ResolvedTheme;
   isLoading: boolean;
+  isInitializing: boolean;
   isSaving: boolean;
   isReady: boolean;
   error: string;
@@ -34,6 +35,7 @@ interface AccountTheme {
   userId: number;
   theme: ThemePreference;
   status: "loading" | "ready" | "error";
+  initialized: boolean;
   isSaving: boolean;
   error: string;
 }
@@ -59,6 +61,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const current = !authLoading && account?.userId === userId ? account : null;
   const theme = current?.theme ?? "system";
   const isLoading = !authLoading && userId !== null && (!current || current.status === "loading");
+  const isInitializing = isLoading && !current?.initialized;
   const isReady = userId !== null && current?.status === "ready";
   const isSaving = current?.isSaving ?? false;
   const error = current?.error ?? "";
@@ -103,6 +106,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       userId,
       theme: previous?.userId === userId ? previous.theme : "system",
       status: "loading",
+      initialized: previous?.userId === userId && previous.initialized,
       isSaving: false,
       error: "",
     }));
@@ -118,6 +122,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           userId,
           theme: preference,
           status: "ready",
+          initialized: true,
           isSaving: false,
           error: "",
         });
@@ -128,6 +133,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           userId,
           theme: previous?.userId === userId ? previous.theme : "system",
           status: "error",
+          initialized: true,
           isSaving: false,
           error: "Não foi possível carregar sua preferência de tema. Tente novamente.",
         }));
@@ -166,6 +172,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         userId: scope.userId,
         theme: preference,
         status: "ready",
+        initialized: true,
         isSaving: true,
         error: "",
       });
@@ -180,6 +187,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           userId: scope.userId,
           theme: saved,
           status: "ready",
+          initialized: true,
           isSaving: false,
           error: "",
         });
@@ -189,6 +197,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           userId: scope.userId,
           theme: scope.savedTheme,
           status: "ready",
+          initialized: true,
           isSaving: false,
           error:
             "Não foi possível salvar sua preferência de tema. A escolha anterior foi mantida. Tente novamente.",
@@ -209,6 +218,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       theme,
       resolvedTheme,
       isLoading,
+      isInitializing,
       isSaving,
       isReady,
       error,
@@ -219,6 +229,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       theme,
       resolvedTheme,
       isLoading,
+      isInitializing,
       isSaving,
       isReady,
       error,

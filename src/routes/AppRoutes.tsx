@@ -26,8 +26,8 @@ function AnonymousOnly() {
 
 export default function AppRoutes() {
   const { loading } = useAuth();
-  const { isLoading: themeLoading } = useTheme();
-  if (loading || themeLoading) {
+  const { isInitializing: themeInitializing } = useTheme();
+  if (loading || themeInitializing) {
     return <PageLoading fullScreen />;
   }
   return (
