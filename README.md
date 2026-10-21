@@ -31,7 +31,7 @@ O [índice da base de conhecimento](docs/base-conhecimento/README.md) reúne o e
 
 - Ao abrir o app, a tela inicial é o login (`/login`).
 - **Cadastrar** abre um modal para escolher entre o cadastro on-line de empresas e o cadastro off-line. Como ainda não há backend remoto, a opção **Cadastrar online** exibe o aviso de indisponibilidade; **Cadastrar offline** abre o cadastro no próprio app (`/cadastro`).
-- O cadastro local pede nome, e-mail, senha de 8 a 128 caracteres e confirmação da senha. Após o sucesso, uma animação de verificação é exibida antes do retorno ao login.
+- O cadastro local pede nome, sobrenome, e-mail, senha de 8 a 70 caracteres e confirmação da senha. Telefone e data de nascimento são opcionais. Se preenchido, o telefone deve conter DDD e 9 dígitos; o nascimento deve ser uma data real, não futura, correspondente a uma idade de 14 a 100 anos completos. Datas digitadas usam DD/MM/AAAA e são enviadas ao backend como YYYY-MM-DD. Após o sucesso, uma animação de verificação é exibida antes do retorno ao login.
 - A conta permanece no SQLite após encerrar o app. A sessão fica somente na memória do processo Rust: recarregar a tela ou ocultar a janela pelo X mantém a sessão; usar **Sair do Ergo** e abrir novamente exige novo login.
 - Senhas são armazenadas como hash **Argon2id**, com salt aleatório por cadastro. O hash nunca é retornado ao frontend. Após cinco tentativas de login em 30 segundos, novas tentativas aguardam o fim dessa janela.
 - Não há envio de dados, confirmação de e-mail, recuperação de senha ou sincronização online nesta versão. O SQLite não é criptografado; o login não substitui as permissões de acesso aos arquivos do sistema operacional.
