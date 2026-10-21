@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Cloud, Laptop, Monitor, ShieldCheck } from "lucide-react";
 import Header from "../components/Header";
 import Button from "../components/Button";
@@ -10,8 +11,9 @@ import { companyService, type CompanyItem } from "../services/companyService";
 import { userService } from "../services/userService";
 import { workspaceService, type WorkspaceItem } from "../services/workspaceService";
 import { FormatterHelper } from "../helpers/FormatterHelper";
+import ReminderList from "../components/Reminder/ReminderList";
 
-type SettingsTab = "user" | "company" | "theme" | "workspace";
+type SettingsTab = "user" | "company" | "theme" | "workspace" | "notices";
 type ThemeOption = "Claro" | "Escuro" | "Automático";
 
 const yesNoOptions = [
@@ -34,7 +36,17 @@ function ThemePreview({ theme }: { theme: ThemeOption }) {
 export default function Settings() {
   const { session, refreshSession } = useAuth();
   const user = session.kind === "authenticated" ? session.user : null;
-  const [activeTab, setActiveTab] = useState<SettingsTab>("user");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const activeTab: SettingsTab = requestedTab === "company" || requestedTab === "theme" || requestedTab === "workspace" || requestedTab === "notices" ? requestedTab : "user";
+  const setActiveTab = useCallback((tab: SettingsTab) => {
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      if (tab === "user") next.delete("tab");
+      else next.set("tab", tab);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
   const [theme, setTheme] = useState<ThemeOption>("Claro");
   const [company, setCompany] = useState<CompanyItem | null>(null);
   const [isLoadingCompany, setIsLoadingCompany] = useState<boolean>(true);
@@ -155,7 +167,7 @@ export default function Settings() {
     if (!isLoadingCompany && !company && activeTab === "company") {
       setActiveTab("user");
     }
-  }, [isLoadingCompany, company, activeTab]);
+  }, [isLoadingCompany, company, activeTab, setActiveTab]);
 
   useEffect(() => {
     let isMounted = true;
@@ -206,6 +218,7 @@ export default function Settings() {
     ...(company ? [{ id: "company" as const, label: "Empresa" }] : []),
     { id: "theme", label: "Tema" },
     { id: "workspace", label: "Ambiente de Trabalho" },
+    { id: "notices", label: "Avisos de ergonomia" },
   ];
 
   const handlePhotoChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -391,7 +404,7 @@ export default function Settings() {
     <div className="w-full min-h-full pb-8">
       <Header
         title="Configurações"
-        subtitle="Gerencie seu perfil, empresa, tema e ambiente de trabalho."
+        subtitle="Gerencie seu perfil, aparência, ambiente de trabalho e avisos de ergonomia."
       />
 
       <div className="mb-6 flex gap-6 overflow-x-auto border-b border-gray-200 dark:border-slate-800">
@@ -400,6 +413,7 @@ export default function Settings() {
             key={tab.id}
             type="button"
             onClick={() => setActiveTab(tab.id)}
+            aria-current={activeTab === tab.id ? "page" : undefined}
             className={`whitespace-nowrap border-b-2 px-0.5 py-3 text-sm transition-colors ${activeTab === tab.id
               ? "border-primary-500 font-semibold text-primary-500"
               : "border-transparent text-gray-500 hover:text-slate-800 dark:hover:text-slate-200"
@@ -409,6 +423,8 @@ export default function Settings() {
           </button>
         ))}
       </div>
+
+      {activeTab === "notices" && <ReminderList kind="system" />}
 
       {activeTab === "user" && (
         <section className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
