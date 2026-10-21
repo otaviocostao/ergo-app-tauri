@@ -1,4 +1,5 @@
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ValueRef};
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef};
+use rusqlite::ToSql;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,6 +32,12 @@ impl FromSql for ThemePreference {
                 "Invalid stored theme preference",
             )))),
         }
+    }
+}
+
+impl ToSql for ThemePreference {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(self.as_str()))
     }
 }
 

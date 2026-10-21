@@ -45,6 +45,6 @@ pub fn update(
         "UPDATE users SET theme_preference = ?1,
             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          WHERE id = ?2",
-        params![theme.as_str(), user_id],
+        params![theme, user_id],
     )
 }
