@@ -22,6 +22,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   let landmarks: LandmarkPoint[] | null;
   let previewWidth: number;
   let previewHeight: number;
+  let drawnFrames: { segments: number; points: number }[];
   let streams: ReturnType<typeof makeStream>[];
   const update = vi.fn();
   const presence = vi.fn();
@@ -59,6 +60,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     landmarks = upright();
     previewWidth = 800;
     previewHeight = 450;
+    drawnFrames = [];
     streams = [];
     update.mockReset(); presence.mockReset(); hardware.mockReset(); getUserMedia.mockReset();
     getUserMedia.mockImplementation(async () => {
@@ -79,6 +81,9 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(720);
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => new DOMRect(0, 0, previewWidth, previewHeight));
     const context = Object.fromEntries(["clearRect", "beginPath", "moveTo", "lineTo", "stroke", "arc", "fill", "setLineDash", "strokeRect"].map(name => [name, vi.fn()]));
+    context.clearRect.mockImplementation(() => drawnFrames.push({ segments: 0, points: 0 }));
+    context.lineTo.mockImplementation(() => { drawnFrames[drawnFrames.length - 1].segments += 1; });
+    context.arc.mockImplementation(() => { drawnFrames[drawnFrames.length - 1].points += 1; });
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(context as unknown as CanvasRenderingContext2D);
     vi.spyOn(poseDetector, "isReady").mockReturnValue(true);
     vi.spyOn(poseDetector, "initialize").mockResolvedValue();
@@ -120,6 +125,42 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   it("limits inference to approximately eleven frames per second", async () => {
     await render(); await advance(1000);
     expect(poseDetector.detectFrame).toHaveBeenCalledTimes(11);
+  });
+
+  it("keeps overlay lines visible between inference frames without rerunning the detector", async () => {
+    await render(); await advance(100);
+    expect(drawnFrames[drawnFrames.length - 1]?.points).toBe(4);
+    const firstFrame = drawnFrames.length;
+    const detections = vi.mocked(poseDetector.detectFrame).mock.calls.length;
+    const metrics = update.mock.calls.length;
+    await advance(64);
+    expect(poseDetector.detectFrame).toHaveBeenCalledTimes(detections);
+    expect(update).toHaveBeenCalledTimes(metrics);
+    const intermediateFrames = drawnFrames.slice(firstFrame);
+    expect(intermediateFrames.length).toBeGreaterThan(1);
+    for (const frame of intermediateFrames) expect(frame).toEqual({ segments: 4, points: 4 });
+  });
+
+  it("tolerates a brief missed detection and clears stale overlay points before tracking resumes", async () => {
+    await render(); await advance(200); landmarks = null;
+    await advance(100);
+    expect(drawnFrames[drawnFrames.length - 1]?.points).toBe(4);
+    await advance(250);
+    expect(drawnFrames[drawnFrames.length - 1]?.points).toBe(0);
+    landmarks = upright(); await advance(150);
+    expect(drawnFrames[drawnFrames.length - 1]?.points).toBe(4);
+  });
+
+  it("does not continually reset the drawing buffer for fractional layout dimensions", async () => {
+    previewWidth = 800.4; previewHeight = 450.7;
+    const setWidth = vi.spyOn(HTMLCanvasElement.prototype, "width", "set");
+    const setHeight = vi.spyOn(HTMLCanvasElement.prototype, "height", "set");
+    await render(); await advance(500);
+    expect(setWidth).toHaveBeenCalledOnce();
+    expect(setHeight).toHaveBeenCalledOnce();
+    const canvas = container.querySelector("canvas")!;
+    expect(canvas.width).toBe(800);
+    expect(canvas.height).toBe(451);
   });
 
   it("converges to exactly neutral displayed values instead of accumulating integer rounding error", async () => {
