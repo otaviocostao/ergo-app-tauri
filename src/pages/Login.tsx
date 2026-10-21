@@ -6,7 +6,7 @@ import Input from "../components/Input";
 import AuthDialog from "../components/auth/AuthDialog";
 import AuthCard from "../components/auth/AuthCard";
 import VerifiedAnimation from "../components/auth/VerifiedAnimation";
-import { authBackButtonClass, authFieldStyles, authPrimaryButtonClass, authSecondaryButtonClass } from "../components/auth/authStyles";
+import { authSecondaryActionClass, authFieldStyles, authPrimaryButtonClass, authSecondaryButtonClass } from "../components/auth/authStyles";
 import { useAuth } from "../auth/AuthContext";
 import { authErrorMessage } from "../auth/authService";
 
@@ -81,7 +81,7 @@ export default function Login() {
         onClose={() => setRegistrationDialog(null)}
         title="Como deseja se cadastrar?"
         actions={
-          <Button variant="secondary" size="lg" className={authBackButtonClass} onClick={() => setRegistrationDialog(null)}>
+          <Button variant="secondary" size="lg" className={authSecondaryActionClass} onClick={() => setRegistrationDialog(null)}>
             Voltar
           </Button>
         }
@@ -101,7 +101,7 @@ export default function Login() {
               <UserRound size={20} className="mt-0.5 shrink-0 text-primary-700 dark:text-primary-400" aria-hidden="true" />
               <div><h3 className="font-semibold text-slate-800 dark:text-slate-100">Para você</h3><p className="mt-1 text-sm leading-5 text-slate-600 dark:text-slate-400">Crie sua conta local e comece a usar o Ergo neste dispositivo.</p></div>
             </div>
-            <Button variant="secondary" size="lg" className={authBackButtonClass} onClick={() => { setRegistrationDialog(null); navigate("/cadastro", { viewTransition: true }); }}>
+            <Button variant="secondary" size="lg" className={authSecondaryActionClass} onClick={() => { setRegistrationDialog(null); navigate("/cadastro", { viewTransition: true }); }}>
               Cadastrar offline
             </Button>
           </section>
@@ -112,7 +112,7 @@ export default function Login() {
         onClose={() => setRegistrationDialog(null)}
         title="Cadastro on-line"
         actions={
-          <Button variant="secondary" size="lg" className={authBackButtonClass} onClick={() => setRegistrationDialog("options")}>
+          <Button variant="secondary" size="lg" className={authSecondaryActionClass} onClick={() => setRegistrationDialog("options")}>
             Voltar
           </Button>
         }

@@ -23,4 +23,4 @@ export const authSecondaryButtonClass = [
   "dark:border-primary-800 dark:bg-primary-950/50! dark:text-primary-200! dark:hover:bg-primary-950!",
 ].join(" ");
 
-export const authBackButtonClass = "h-11 w-full rounded-xl! text-sm! shadow-none";
+export const authSecondaryActionClass = "h-11 w-full rounded-xl! text-sm! shadow-none";
