@@ -46,11 +46,11 @@ No PowerShell, se `npm.ps1` estiver bloqueado, use `npm.cmd ci` e `npm.cmd run t
 
 ### Carregamento das telas
 
-O login faz parte do carregamento inicial. O cadastro, a estrutura das páginas internas e cada página interna usam importações dinâmicas (`React.lazy`): seus módulos são carregados quando a rota é acessada. O redirecionamento de uma sessão anônima para o login acontece antes de carregar as páginas protegidas.
+As páginas de login, cadastro e as páginas internas usam importações estáticas e fazem parte do bundle inicial. As rotas internas exigem autenticação; sessões anônimas são redirecionadas para o login.
 
-Durante o primeiro carregamento de uma página, a interface mostra “Carregando página…”. Nas navegações internas, a barra lateral e o cabeçalho permanecem visíveis enquanto o conteúdo é carregado. As consultas de sessão e tema continuam ocorrendo antes da exibição das telas; os estilos globais continuam no carregamento inicial.
+Durante a consulta inicial da sessão e a primeira leitura do tema de cada conta, a interface mostra um indicador de carregamento em tela cheia. Nas navegações internas, a barra lateral e o cabeçalho permanecem montados. Novas tentativas de leitura do tema mostram o progresso em um aviso dentro da página, preservando formulários e alterações ainda não salvas. Os estilos globais fazem parte do carregamento inicial.
 
-O Tailwind procura classes em `src/` e `index.html`, incluindo as páginas carregadas sob demanda. Classes usadas por novos componentes devem estar nesses arquivos. O observador de desenvolvimento do Vite ignora `src-tauri/`, `logs/` e `dist/`, evitando acompanhar o backend, os perfis de navegador dos testes e os arquivos compilados. Mudanças no frontend continuam atualizando a prévia automaticamente.
+O Tailwind procura classes em `src/` e `index.html`. Classes usadas por novos componentes devem estar nesses arquivos. O observador de desenvolvimento do Vite ignora `src-tauri/`, `logs/` e `dist/`, evitando acompanhar o backend, os perfis de navegador dos testes e os arquivos compilados. Mudanças no frontend continuam atualizando a prévia automaticamente.
 
 ### Execução na bandeja do sistema
 
@@ -85,7 +85,7 @@ Ao rodar a aplicação em modo dev ou produção, o arquivo do banco de dados `e
 - **Linux:** `~/.config/com.ergo.ergo-app-tauri/ergo.db`
 
 ### 🔄 Migrações Automáticas
-O backend abre o banco e aplica a migração SQLx de `src-tauri/migrations/` na inicialização. Nesta fase do projeto, `0001_initial_migration.sql` contém todo o schema: usuários, lembretes, empresas e ambientes de trabalho. A tabela `_sqlx_migrations` registra a versão aplicada.
+O backend abre o banco e aplica a migração SQLx de `src-tauri/migrations/` na inicialização. Nesta fase do projeto, os dados locais são considerados descartáveis e `0001_initial_migration.sql` contém todo o schema: usuários, lembretes, empresas e ambientes de trabalho. A tabela `_sqlx_migrations` registra a versão aplicada.
 
 Para adicionar novas tabelas ou alterar tabelas existentes:
 1. Atualize `src-tauri/migrations/0001_initial_migration.sql`, mantendo o schema completo na migração inicial.
@@ -103,19 +103,21 @@ As contas e os lembretes por usuário são persistidos no SQLite local. As rotas
 
 ### Preferência de tema por usuário
 
-O campo `users.theme_preference` guarda `light`, `dark` ou `system`, com `light` como padrão de novas contas. `system` representa a preferência de acompanhar o sistema, sem fixar o resultado atual em claro ou escuro.
+O campo `users.theme_preference` guarda `light`, `dark` ou `system`. Novas contas recebem `system` (Automático), tanto no cadastro pelo aplicativo quanto no padrão SQL da coluna. Essa preferência acompanha o tema do computador, inclusive quando ele muda com o aplicativo aberto.
 
 Os comandos `get_user_theme_preference` e `update_user_theme_preference` consultam e alteram somente a conta da sessão autenticada. A atualização recebe `{ payload: { theme: "dark" } }`, sem identificador de usuário, e preserva os demais dados cadastrais. O serviço frontend `src/services/userThemeService.ts` disponibiliza essas operações.
 
-Ao entrar na conta, o aplicativo carrega sua preferência antes de mostrar as telas internas. Em Configurações, a escolha é aplicada imediatamente e gravada no banco; enquanto a operação está em andamento, o seletor fica desabilitado. Se a gravação falhar, a aparência anterior é restaurada e uma mensagem é exibida. Se a leitura falhar, o aplicativo usa claro temporariamente, informa a falha e permite tentar novamente antes de alterar a preferência.
+Ao entrar na conta, o aplicativo carrega sua preferência antes de mostrar as telas internas. Em Configurações, a escolha é aplicada imediatamente e gravada no banco; enquanto a operação está em andamento, o seletor fica desabilitado. Se a gravação falhar, a aparência anterior é restaurada e uma mensagem é exibida. Se a primeira leitura falhar, o aplicativo acompanha o tema do sistema temporariamente, informa a falha e permite tentar novamente antes de alterar a preferência.
 
-Na abertura e após sair da conta, o comando `get_startup_theme_preference` consulta o banco antes de mostrar login e cadastro. A tabela `app_theme_state` referencia somente a última conta que fez login com sucesso; o tema é lido diretamente de `users.theme_preference`. Sem essa referência (banco vazio, nenhuma entrada bem-sucedida ou última conta excluída), o padrão é claro. Apenas cadastrar uma conta ou errar a senha não altera essa referência. O comando público retorna somente `light`, `dark` ou `system`, sem dados da conta.
+O botão **Tentar novamente** recarrega a preferência mantendo a página e seus formulários montados. Durante essa leitura, o aviso mostra o progresso e o seletor de tema permanece desabilitado. Se a nova tentativa falhar, a aparência atual é mantida e o botão volta a ficar disponível.
 
-O antigo registro `ergo.theme` do navegador não é mais consultado nem gravado. Assim, recriar o banco faz login, cadastro e a primeira entrada de uma conta nova usarem claro, mesmo que o navegador ainda tenha uma preferência antiga. Contas existentes recuperam seu próprio tema ao entrar. Login, cadastro, calendário de nascimento, mensagens e janelas acompanham o tema ativo. A opção Automático continua acompanhando o sistema nessas telas. A prévia web, sem banco Tauri, inicia em claro.
+Na abertura e após sair da conta, login e cadastro usam o tema do computador. Um script no HTML aplica essa aparência antes do bundle React, e as telas acompanham mudanças do sistema enquanto permanecem abertas. A preferência de uma conta é consultada somente após sua autenticação. Contas com `light` ou `dark` usam a escolha explícita ao entrar; contas com `system` acompanham o computador.
+
+O antigo registro `ergo.theme` do navegador não é consultado nem gravado. Login, cadastro, calendário de nascimento, mensagens e janelas acompanham o tema ativo. A prévia web, sem banco Tauri, também acompanha o sistema.
 
 Logout e troca de conta invalidam respostas pendentes, para que uma operação anterior não altere a aparência ou as mensagens da conta atual. Atualizar os dados do mesmo perfil não recarrega o tema. A preferência permanece local a este dispositivo, sem sincronização com a plataforma online.
 
-Como a coluna de tema e a tabela `app_theme_state` foram adicionadas à migration inicial, bancos criados antes dessas alterações precisam ser recriados conforme o procedimento de desenvolvimento acima; esta alteração não migra nem apaga dados automaticamente.
+Como o schema de tema foi alterado na migração inicial, bancos criados com uma versão anterior dessa migração precisam ser recriados conforme o procedimento de desenvolvimento acima. Isso inclui bancos com o padrão antigo `light` ou com a antiga tabela de tema da última conta. A recriação descarta contas e dados locais; o aplicativo não migra nem apaga esses arquivos automaticamente. Quando os dados precisarem ser preservados, será necessário adotar migrações incrementais.
 
 ### Disparo dos lembretes
 
@@ -149,10 +151,12 @@ O **histórico demonstrativo** é gerado em `src/data/reports.ts` para os últim
 npm run build
 npm run test:auth
 npm run test:reports
+npm run test:theme
 ```
 
-- `test:auth`: testes Rust com SQLite temporário, cobrindo cadastro, validações, duplicidade, hash, login, sessões, limite de tentativas e persistência.
+- `test:auth`: testes Rust com SQLite temporário, cobrindo cadastro, validações, duplicidade, hash, login, sessões, limite de tentativas, persistência e preferências de tema por conta, incluindo o padrão SQL automático.
 - `test:reports`: testes de agregação, comparação entre períodos, dias sem leituras, limites de calendário e consistência dos dados demonstrativos (Node.js 22.6+).
+- `test:theme`: testes do tema inicial e dos contratos de comunicação, além de testes de integração com React e jsdom. Exercita os providers de autenticação e tema, as rotas, o layout e Configurações em Strict Mode, com comunicação Tauri simulada. Cobre carregamento inicial, preservação de formulários em novas tentativas, restauração após falha ao salvar, mudanças do sistema e respostas atrasadas após logout ou troca de conta. As páginas sem relação com esses cenários são substituídas por componentes simples; os testes não acessam câmera, contas ou bancos reais.
 
 ### 🔍 Como Inspecionar / Visualizar os Dados
 Para abrir e visualizar as tabelas do banco de dados na sua máquina local durante o desenvolvimento, utilize uma destas opções:
