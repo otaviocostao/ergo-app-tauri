@@ -47,7 +47,6 @@ export default function ReminderList({ kind }: ReminderListProps) {
     const [deletingReminder, setDeletingReminder] = useState<ReminderItem | null>(null);
     const [isOpenFormReminderModal, setIsOpenFormReminderModal] = useState(false);
     const [pendingStatusId, setPendingStatusId] = useState<string | null>(null);
-    const [statusFeedback, setStatusFeedback] = useState<string | null>(null);
 
     const loadReminders = useCallback(async () => {
         try {
@@ -100,7 +99,6 @@ export default function ReminderList({ kind }: ReminderListProps) {
     };
 
     const handleOpenEditReminderModal = (item: ReminderItem) => {
-        setStatusFeedback(null);
         setEditingReminder(item);
         setIsOpenFormReminderModal(true);
     };
@@ -114,11 +112,9 @@ export default function ReminderList({ kind }: ReminderListProps) {
         if (pendingStatusId) return;
         setPendingStatusId(item.id);
         setErrorMessage(null);
-        setStatusFeedback(null);
         try {
             const updated = await reminderService.update({ id: item.id, status: active ? "ativo" : "inativo" });
             setReminders((previous) => previous.map((reminder) => reminder.id === updated.id ? updated : reminder));
-            setStatusFeedback(`${updated.title}: ${updated.status === "ativo" ? "aviso ativado" : "aviso desativado"}.`);
         } catch (error) {
             console.error("Failed to update ergonomic notice status:", error);
             setErrorMessage("Não foi possível alterar o aviso. Tente novamente.");
@@ -308,8 +304,6 @@ export default function ReminderList({ kind }: ReminderListProps) {
                     </Button>
                 }
             />}
-
-            {statusFeedback && <p role="status" className="text-sm text-primary-700 dark:text-primary-400">{statusFeedback}</p>}
 
             {errorMessage && (
                 <div role="alert" className="flex items-center justify-between gap-3 p-3 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-sm">
