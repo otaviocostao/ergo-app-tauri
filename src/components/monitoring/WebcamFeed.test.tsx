@@ -5,6 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WebcamFeed from "./WebcamFeed";
 import { poseDetector, POSE_LANDMARK_INDEX as INDEX, type LandmarkPoint, type VisionDetectionResult } from "../../services/vision";
 import * as biomechanics from "../../services/vision/biomechanics";
+import WorkspaceCalibrationModal from "./WorkspaceCalibrationModal";
+import Monitoring from "../../pages/Monitoring";
+import { workspaceService } from "../../services/workspaceService";
 
 function faceMatrix(pitch: number) {
   const radians = pitch * Math.PI / 180;
@@ -30,6 +33,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   let previewWidth: number;
   let previewHeight: number;
   let drawnFrames: { segments: number; points: number }[];
+  let pointPositions: { x: number; y: number }[][];
   let streams: ReturnType<typeof makeStream>[];
   const update = vi.fn();
   const presence = vi.fn();
@@ -54,6 +58,21 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(milliseconds); });
   }
 
+  async function clickButton(label: string) {
+    const button = [...document.querySelectorAll("button")].find(button => button.textContent?.trim() === label);
+    expect(button, `Button ${label}`).toBeDefined();
+    await act(async () => button!.click());
+  }
+
+  async function reachCalibrationCamera() {
+    for (let step = 0; step < 6; step++) await clickButton("Próximo");
+  }
+
+  async function renderCalibration(open = true) {
+    await act(async () => root.render(<WorkspaceCalibrationModal isOpen={open} onClose={vi.fn()} onCalibrateSubmit={vi.fn()} />));
+    mounted = true;
+  }
+
   async function unmount() {
     if (mounted) {
       await act(async () => root.unmount());
@@ -69,6 +88,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     previewWidth = 800;
     previewHeight = 450;
     drawnFrames = [];
+    pointPositions = [];
     streams = [];
     update.mockReset(); presence.mockReset(); hardware.mockReset(); getUserMedia.mockReset();
     getUserMedia.mockImplementation(async () => {
@@ -89,9 +109,12 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(720);
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => new DOMRect(0, 0, previewWidth, previewHeight));
     const context = Object.fromEntries(["clearRect", "beginPath", "moveTo", "lineTo", "stroke", "arc", "fill", "setLineDash", "strokeRect"].map(name => [name, vi.fn()]));
-    context.clearRect.mockImplementation(() => drawnFrames.push({ segments: 0, points: 0 }));
+    context.clearRect.mockImplementation(() => { drawnFrames.push({ segments: 0, points: 0 }); pointPositions.push([]); });
     context.lineTo.mockImplementation(() => { drawnFrames[drawnFrames.length - 1].segments += 1; });
-    context.arc.mockImplementation(() => { drawnFrames[drawnFrames.length - 1].points += 1; });
+    context.arc.mockImplementation((x: number, y: number) => {
+      drawnFrames[drawnFrames.length - 1].points += 1;
+      pointPositions[pointPositions.length - 1].push({ x, y });
+    });
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(context as unknown as CanvasRenderingContext2D);
     vi.spyOn(poseDetector, "isReady").mockReturnValue(true);
     vi.spyOn(poseDetector, "initialize").mockResolvedValue();
@@ -101,6 +124,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     }));
     vi.spyOn(biomechanics, "calculateNeckAngle");
     vi.spyOn(biomechanics, "calculateShoulderBalance");
+    vi.spyOn(workspaceService, "getAll").mockResolvedValue([]);
     container = document.createElement("div"); document.body.append(container);
     root = createRoot(container); mounted = false;
   });
@@ -128,6 +152,82 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     previewWidth = 200; previewHeight = 700;
     await advance(500);
     expect(update.mock.lastCall?.[0]).toMatchObject({ neckAngle: 30, shoulderBalance: 50 });
+  });
+
+  it.each([[800, 600, 400, 150, 613.3333333333, 360], [800, 300, 400, 37.5, 560, 195]])(
+    "aligns overlay points with the mirrored cropped video in a %sx%s preview", async (width, height, headX, headY, shoulderX, shoulderY) => {
+      previewWidth = width; previewHeight = height;
+      await render(); await advance(200);
+      const points = pointPositions[pointPositions.length - 1];
+      expect(points[0].x).toBeCloseTo(headX, 6); expect(points[0].y).toBeCloseTo(headY, 6);
+      expect(points[2].x).toBeCloseTo(shoulderX, 6); expect(points[2].y).toBeCloseTo(shoulderY, 6);
+    });
+
+  it("tracks actual body movement in the calibration step and releases its camera when closed", async () => {
+    await renderCalibration();
+    expect(getUserMedia).not.toHaveBeenCalled();
+    await reachCalibrationCamera(); await advance(200);
+    expect(poseDetector.detectFrame).toHaveBeenCalled();
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).not.toContain("Calibrar Postura Base");
+    expect(dialog?.textContent).not.toContain("Pausar Monitoramento");
+    const firstHead = pointPositions[pointPositions.length - 1][0];
+    for (const point of landmarks!) point.x += 0.1;
+    await advance(200);
+    expect(pointPositions[pointPositions.length - 1][0].x).toBeCloseTo(firstHead.x - 80, 6);
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Pescoço: 0° | Ombros: 100%");
+    await renderCalibration(false);
+    expect(streams.every(item => item.track.stop.mock.calls.length === 1)).toBe(true);
+  });
+
+  it("shows no demo joints or captured angles in calibration without a valid detection", async () => {
+    landmarks = null;
+    await renderCalibration(); await reachCalibrationCamera(); await advance(200);
+    expect(drawnFrames[drawnFrames.length - 1]?.points).toBe(0);
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Aguardando detecção confiável");
+    landmarks = upright(); await advance(200);
+    expect(drawnFrames[drawnFrames.length - 1]?.points).toBe(4);
+    faceTransformationMatrix = null; await advance(350);
+    expect(drawnFrames[drawnFrames.length - 1]?.points).toBe(0);
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Aguardando detecção confiável");
+  });
+
+  it("reopens calibration at the setup form without briefly restarting its previous camera step", async () => {
+    await renderCalibration(); await reachCalibrationCamera(); await advance(200);
+    await renderCalibration(false);
+    const requests = getUserMedia.mock.calls.length;
+    await renderCalibration(); await advance(200);
+    expect(getUserMedia).toHaveBeenCalledTimes(requests);
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Qual seu dispositivo?");
+    expect(streams.every(item => item.track.stop.mock.calls.length === 1)).toBe(true);
+  });
+
+  it("keeps calibration unavailable on camera denial until simulation is explicitly selected", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    getUserMedia.mockRejectedValue(new DOMException("denied", "NotAllowedError"));
+    await renderCalibration(); await reachCalibrationCamera(); await advance(200);
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain("Permissão de câmera negada");
+    expect(dialog?.textContent).toContain("Aguardando detecção confiável");
+    expect(dialog?.textContent).not.toContain("Detecção e Extração em Modo Simulado");
+    await clickButton("Ativar Modo Simulado"); await advance(200);
+    expect(dialog?.textContent).toContain("Detecção e Extração em Modo Simulado");
+    expect(dialog?.textContent).toContain("Pescoço:");
+  });
+
+  it.each([true, false])("hands the camera to calibration and restores the previous monitoring state (%s)", async running => {
+    await act(async () => root.render(<Monitoring />)); mounted = true;
+    await advance(200);
+    if (!running) await clickButton("Pausar Monitoramento");
+    await clickButton("Calibrar Postura Base");
+    expect(streams.filter(item => item.track.stop.mock.calls.length === 0)).toHaveLength(0);
+    await reachCalibrationCamera(); await advance(200);
+    expect(streams.filter(item => item.track.stop.mock.calls.length === 0)).toHaveLength(1);
+    const calibrationTracks = streams.filter(item => item.track.stop.mock.calls.length === 0);
+    await act(async () => (document.querySelector('[aria-label="Fechar modal"]') as HTMLButtonElement).click());
+    await advance(200);
+    expect(calibrationTracks.every(item => item.track.stop.mock.calls.length === 1)).toBe(true);
+    expect(streams.filter(item => item.track.stop.mock.calls.length === 0)).toHaveLength(running ? 1 : 0);
   });
 
   it.each([-80, -45, 45, 80])("detects vertical head rotation of %s degrees even with a centered 2D neck vector", async (pitch) => {
