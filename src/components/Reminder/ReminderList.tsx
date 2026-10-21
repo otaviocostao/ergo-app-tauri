@@ -46,7 +46,7 @@ export default function ReminderList({ kind }: ReminderListProps) {
     const [editingReminder, setEditingReminder] = useState<ReminderItem | null>(null);
     const [deletingReminder, setDeletingReminder] = useState<ReminderItem | null>(null);
     const [isOpenFormReminderModal, setIsOpenFormReminderModal] = useState(false);
-    const [pendingStatusId, setPendingStatusId] = useState<string | null>(null);
+    const [pendingStatusIds, setPendingStatusIds] = useState<ReadonlySet<string>>(() => new Set());
 
     const loadReminders = useCallback(async () => {
         try {
@@ -109,17 +109,24 @@ export default function ReminderList({ kind }: ReminderListProps) {
     };
 
     const handleStatusChange = async (item: ReminderItem, active: boolean) => {
-        if (pendingStatusId) return;
-        setPendingStatusId(item.id);
+        if (pendingStatusIds.has(item.id)) return;
+        const status = active ? "ativo" : "inativo";
+        setPendingStatusIds((previous) => new Set(previous).add(item.id));
+        setReminders((previous) => previous.map((reminder) => reminder.id === item.id ? { ...reminder, status } : reminder));
         setErrorMessage(null);
         try {
-            const updated = await reminderService.update({ id: item.id, status: active ? "ativo" : "inativo" });
+            const updated = await reminderService.update({ id: item.id, status });
             setReminders((previous) => previous.map((reminder) => reminder.id === updated.id ? updated : reminder));
         } catch (error) {
+            setReminders((previous) => previous.map((reminder) => reminder.id === item.id ? { ...reminder, status: item.status } : reminder));
             console.error("Failed to update ergonomic notice status:", error);
             setErrorMessage("Não foi possível alterar o aviso. Tente novamente.");
         } finally {
-            setPendingStatusId(null);
+            setPendingStatusIds((previous) => {
+                const next = new Set(previous);
+                next.delete(item.id);
+                return next;
+            });
         }
     };
 
@@ -363,7 +370,7 @@ export default function ReminderList({ kind }: ReminderListProps) {
                     <span className="text-sm">{isSystemList ? "Carregando avisos..." : "Carregando lembretes..."}</span>
                 </div>
             ) : isSystemList ? (
-                <ErgonomicNoticeCards reminders={reminders} pendingId={pendingStatusId}
+                <ErgonomicNoticeCards reminders={reminders} pendingIds={pendingStatusIds}
                     onStatusChange={handleStatusChange} onConfigure={handleOpenEditReminderModal} />
             ) : (
                 <Table
