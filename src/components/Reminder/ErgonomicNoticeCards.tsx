@@ -1,16 +1,16 @@
-import { Activity, Clock, Eye, Loader2, PersonStanding, Settings2 } from "lucide-react";
+import { Activity, Clock, Eye, PersonStanding, Settings2 } from "lucide-react";
 import Button from "../Button";
 import type { ReminderItem } from "../../services/reminderService";
 import { ReminderFrequency, REMINDER_FREQUENCY_LABELS, WEEK_DAY_LABELS, type WeekDay } from "../../enums";
 
 interface ErgonomicNoticeCardsProps {
   reminders: ReminderItem[];
-  pendingId: string | null;
+  pendingIds: ReadonlySet<string>;
   onStatusChange: (reminder: ReminderItem, active: boolean) => void;
   onConfigure: (reminder: ReminderItem) => void;
 }
 
-export default function ErgonomicNoticeCards({ reminders, pendingId, onStatusChange, onConfigure }: ErgonomicNoticeCardsProps) {
+export default function ErgonomicNoticeCards({ reminders, pendingIds, onStatusChange, onConfigure }: ErgonomicNoticeCardsProps) {
   if (reminders.length === 0) {
     return <p className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">Nenhum aviso de ergonomia encontrado.</p>;
   }
@@ -19,7 +19,7 @@ export default function ErgonomicNoticeCards({ reminders, pendingId, onStatusCha
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
       {reminders.map((reminder) => {
         const active = reminder.status === "ativo";
-        const pending = pendingId === reminder.id;
+        const pending = pendingIds.has(reminder.id);
         const Icon = reminder.systemType === "POSTURE_CHECK" ? Activity : reminder.systemType === "VISUAL_BREAK" ? Eye : PersonStanding;
         const frequency = reminder.frequency === ReminderFrequency.CUSTOM
           ? reminder.customDays?.map((day) => WEEK_DAY_LABELS[day as WeekDay] ?? day).join(", ")
@@ -54,16 +54,16 @@ export default function ErgonomicNoticeCards({ reminders, pendingId, onStatusCha
             </dl>
 
             <div className="mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4 dark:border-slate-700">
-              <label className={`inline-flex items-center gap-2.5 ${pendingId ? "cursor-wait" : "cursor-pointer"}`}>
+              <label className={`inline-flex items-center gap-2.5 ${pending ? "cursor-wait" : "cursor-pointer"}`}>
                 <input type="checkbox" role="switch" className="peer sr-only"
-                  aria-label={`Aviso: ${reminder.title}`} checked={active} disabled={pendingId !== null}
+                  aria-label={`Aviso: ${reminder.title}`} checked={active} disabled={pending}
                   onChange={(event) => onStatusChange(reminder, event.currentTarget.checked)} />
-                <span aria-hidden="true" className="relative h-6 w-11 shrink-0 rounded-full bg-slate-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:size-5 after:rounded-full after:bg-white after:shadow-sm after:transition-transform peer-checked:bg-primary-600 peer-checked:after:translate-x-5 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary-600 peer-disabled:opacity-50 dark:bg-slate-600" />
-                <span className={`text-xs font-medium ${active ? "text-primary-700 dark:text-primary-400" : "text-slate-500 dark:text-slate-400"}`}>
-                  {pending ? <span className="flex items-center gap-1"><Loader2 size={12} className="animate-spin" aria-hidden="true" /> Salvando…</span> : active ? "Ativo" : "Inativo"}
+                <span aria-hidden="true" className="relative h-6 w-11 shrink-0 rounded-full bg-slate-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:size-5 after:rounded-full after:bg-white after:shadow-sm after:transition-transform peer-checked:bg-primary-600 peer-checked:after:translate-x-5 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary-600 dark:bg-slate-600" />
+                <span className={`min-w-10 text-xs font-medium ${active ? "text-primary-700 dark:text-primary-400" : "text-slate-500 dark:text-slate-400"}`}>
+                  {active ? "Ativo" : "Inativo"}
                 </span>
               </label>
-              <Button type="button" variant="secondary" size="sm" disabled={pendingId !== null}
+              <Button type="button" variant="secondary" size="sm" disabled={pending} className="disabled:opacity-100!"
                 aria-label={`Configurar aviso: ${reminder.title}`} onClick={() => onConfigure(reminder)}>
                 <Settings2 size={14} aria-hidden="true" /> Configurar
               </Button>
