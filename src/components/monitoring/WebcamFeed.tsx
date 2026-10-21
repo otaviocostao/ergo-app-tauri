@@ -42,6 +42,16 @@ export interface WebcamFeedProps {
  */
 const INFERENCE_INTERVAL_MS = 90;
 
+// Bridge short detection gaps without retaining stale body positions indefinitely.
+const OVERLAY_MAX_AGE_MS = 300;
+
+interface PoseOverlay {
+  head: Point2D;
+  leftShoulder: Point2D;
+  rightShoulder: Point2D;
+  detectedAt: number;
+}
+
 /**
  * Tempo de tolerância para ausência do usuário: 5 segundos.
  */
@@ -67,6 +77,7 @@ export default function WebcamFeed({
   const streamRef = useRef<MediaStream | null>(null);
   const cameraRequestRef = useRef(0);
   const hasMeasuredFrameRef = useRef(false);
+  const lastOverlayRef = useRef<PoseOverlay | null>(null);
 
   // Estados de dispositivos e permissão
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -197,6 +208,7 @@ export default function WebcamFeed({
   const stopCurrentStream = useCallback(() => {
     cameraRequestRef.current += 1;
     hasMeasuredFrameRef.current = false;
+    lastOverlayRef.current = null;
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => {
         track.onended = null;
@@ -381,10 +393,10 @@ export default function WebcamFeed({
       // Ajusta resolução do canvas para coincidir exatamente com as dimensões do container
       if (canvas.parentElement) {
         const rect = canvas.parentElement.getBoundingClientRect();
-        if (canvas.width !== rect.width || canvas.height !== rect.height) {
-          canvas.width = rect.width;
-          canvas.height = rect.height;
-        }
+        const width = Math.max(1, Math.round(rect.width));
+        const height = Math.max(1, Math.round(rect.height));
+        if (canvas.width !== width) canvas.width = width;
+        if (canvas.height !== height) canvas.height = height;
       }
 
       const w = canvas.width;
@@ -514,6 +526,12 @@ export default function WebcamFeed({
         // 3. EXTRAÇÃO DE ÂNGULOS BIOMECÂNICOS & ATUALIZAÇÃO DE MÉTRICAS
         // -------------------------------------------------------------
         if (currentPoseDetected && poseAngles && leftShoulderPt && rightShoulderPt) {
+          lastOverlayRef.current = {
+            head: { ...poseAngles.headCenter },
+            leftShoulder: { x: leftShoulderPt.x, y: leftShoulderPt.y },
+            rightShoulder: { x: rightShoulderPt.x, y: rightShoulderPt.y },
+            detectedAt: currentTime,
+          };
           const rawNeckAngle = poseAngles.neckAngle;
           const rawShoulderBalance = poseAngles.shoulderBalance;
 
@@ -571,9 +589,14 @@ export default function WebcamFeed({
       // -------------------------------------------------------------
       // 4. DESENHO DO ESQUELETO ERGONÔMICO NO CANVAS
       // -------------------------------------------------------------
+      const overlay = lastOverlayRef.current;
+      if (overlay && currentTime - overlay.detectedAt > OVERLAY_MAX_AGE_MS) {
+        lastOverlayRef.current = null;
+      }
       if (showOverlay && presenceRef.current !== "ABSENT") {
-        // Se a postura atual estiver disponível, desenha esqueleto conectado
-        if (headPt && leftShoulderPt && rightShoulderPt) {
+        // Redraw the latest valid pose on every animation frame, between inferences.
+        if (lastOverlayRef.current) {
+          const { head: headPt, leftShoulder: leftShoulderPt, rightShoulder: rightShoulderPt } = lastOverlayRef.current;
           const headCanvasX = (1 - headPt.x) * w;
           const headCanvasY = headPt.y * h;
           const leftShoulderCanvasX = (1 - leftShoulderPt.x) * w;
