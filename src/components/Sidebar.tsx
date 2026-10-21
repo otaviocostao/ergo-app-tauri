@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { Home, Settings, Bell, Video, LogOut, ChartNoAxesCombined } from "lucide-react";
+import { Home, Settings, Bell, BellRing, Video, LogOut, ChartNoAxesCombined } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { authErrorMessage } from "../auth/authService";
@@ -21,6 +21,7 @@ export default function Sidebar() {
     { label: "Monitoramento", path: "/monitoring", icon: Video },
     { label: "Relatórios", path: "/reports", icon: ChartNoAxesCombined },
     { label: "Lembretes", path: "/reminders", icon: Bell },
+    { label: "Avisos de Ergonomia", path: "/ergonomic-notices", icon: BellRing },
     { label: "Configurações", path: "/settings", icon: Settings },
   ];
 
