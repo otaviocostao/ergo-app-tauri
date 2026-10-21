@@ -805,7 +805,7 @@ export default function WebcamFeed({
             variant="primary"
             size="md"
             onClick={onToggleMonitoring}
-            className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white border border-slate-700 backdrop-blur-md transition-all shadow-lg"
+            className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white  backdrop-blur-md transition-all shadow-lg"
           >
             {isMonitoring ? (
               <>
@@ -821,7 +821,7 @@ export default function WebcamFeed({
           <Button
             size="md"
             onClick={onCalibrate}
-            className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white border border-slate-700 backdrop-blur-md transition-all shadow-lg"
+            className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white backdrop-blur-md transition-all shadow-lg"
           >
             <Crosshair size={14} />
             Calibrar Postura Base
