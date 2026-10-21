@@ -1,23 +1,21 @@
-import { lazy, Suspense } from "react";
 import { Routes, Route, Navigate, Outlet } from "react-router-dom";
 import PageLoading from "../components/PageLoading";
+import MainLayout from "../components/MainLayout";
+import Dashboard from "../pages/Dashboard";
+import Reports from "../pages/Reports";
+import Reminders from "../pages/Reminders";
+import Monitoring from "../pages/Monitoring";
+import Settings from "../pages/Settings";
+import Register from "../pages/Register";
 import Login from "../pages/Login";
 import AuthLayout from "../components/auth/AuthLayout";
 import { useAuth } from "../auth/AuthContext";
 import { useTheme } from "../theme/ThemeContext";
 
-const MainLayout = lazy(() => import("../components/MainLayout"));
-const Dashboard = lazy(() => import("../pages/Dashboard"));
-const Reports = lazy(() => import("../pages/Reports"));
-const Reminders = lazy(() => import("../pages/Reminders"));
-const Monitoring = lazy(() => import("../pages/Monitoring"));
-const Settings = lazy(() => import("../pages/Settings"));
-const Register = lazy(() => import("../pages/Register"));
-
 function RequireSession() {
   const { session } = useAuth();
   return session.kind === "authenticated"
-    ? <Suspense fallback={<PageLoading fullScreen />}><Outlet /></Suspense>
+    ? <Outlet />
     : <Navigate to="/login" replace />;
 }
 
