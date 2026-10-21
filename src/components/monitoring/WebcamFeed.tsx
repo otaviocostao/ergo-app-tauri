@@ -664,7 +664,6 @@ export default function WebcamFeed({
       ref={containerRef}
       className={`relative flex flex-col bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-xl ${className}`}
     >
-      {/* Barra de Cabeçalho Superior com Controles e Indicadores */}
       <div className="flex items-center justify-between p-3.5 bg-slate-900/95 backdrop-blur-md z-20 border-b border-slate-800/80">
         <div className="flex items-center gap-2.5">
           <div>
@@ -728,7 +727,6 @@ export default function WebcamFeed({
           </div>
         </div>
 
-        {/* Seleção de Dispositivo / Câmera */}
         <div className="flex items-center gap-2">
           {devices.length > 0 && !isHardwareBusy && (
             <div className="hidden sm:block w-48">
@@ -742,14 +740,13 @@ export default function WebcamFeed({
                 }))}
                 variant="filled"
                 className="bg-slate-800 text-white text-xs border-slate-700 focus:bg-slate-800 focus:ring-primary-500/20"
-                optionClassName="bg-slate-800 text-white"
+                optionClassName="bg-slate-800"
               />
             </div>
           )}
         </div>
       </div>
 
-      {/* Área Central de Vídeo e Canvas de Detecção */}
       <div className="relative w-full aspect-video min-h-[320px] max-h-[460px] flex items-center justify-center overflow-hidden bg-slate-950">
         <video
           ref={videoRef}
@@ -761,14 +758,12 @@ export default function WebcamFeed({
             }`}
         />
 
-        {/* Canvas de sobreposição do esqueleto de IA */}
         <canvas
           ref={canvasRef}
           className={`absolute inset-0 w-full h-full pointer-events-none z-10 transition-opacity duration-300 ${isHardwareBusy || !isMonitoring ? "opacity-0" : "opacity-100"
             }`}
         />
 
-        {/* Overlay: Alerta de Ausência do Usuário (ABSENT > 5s) */}
         {isMonitoring && !isHardwareBusy && hasCameraPermission && presenceState === "ABSENT" && (
           <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/90 border border-slate-700 text-slate-300 text-xs shadow-lg backdrop-blur-md animate-fadeIn">
             <UserX size={15} className="text-amber-400 animate-pulse" />
@@ -776,7 +771,6 @@ export default function WebcamFeed({
           </div>
         )}
 
-        {/* Overlay: Alerta de Enquadramento Incompleto (PARTIALLY_OCCLUDED) */}
         {isMonitoring && !isHardwareBusy && hasCameraPermission && presenceState === "PARTIALLY_OCCLUDED" && (
           <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs shadow-lg backdrop-blur-md animate-fadeIn">
             <AlertTriangle size={15} />
@@ -784,7 +778,6 @@ export default function WebcamFeed({
           </div>
         )}
 
-        {/* Overlay de Bloqueio Exclusivo de Driver no Windows (Google Meet, Teams, Zoom) */}
         {isMonitoring && isHardwareBusy && (
           <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-slate-950/90 backdrop-blur-sm z-20 text-slate-200 animate-fadeIn">
             <div className="p-4 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 mb-3 animate-pulse">
@@ -822,7 +815,6 @@ export default function WebcamFeed({
           </div>
         )}
 
-        {/* Overlay: Permissão Negada ou Câmera Indisponível */}
         {isMonitoring && !isHardwareBusy && hasCameraPermission === false && !isSimulatedMode && (
           <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-slate-950/95 z-20 text-slate-300">
             <div className="p-4 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-400 mb-3">
@@ -854,7 +846,6 @@ export default function WebcamFeed({
           </div>
         )}
 
-        {/* Overlay: Modo Simulado Interativo */}
         {isMonitoring && isSimulatedMode && !isHardwareBusy && (
           <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-radial from-slate-900 to-slate-950 pointer-events-none">
             <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#3b82f6_1px,transparent_1px)] [background-size:16px_16px]" />
@@ -872,7 +863,6 @@ export default function WebcamFeed({
           </div>
         )}
 
-        {/* Overlay: Câmera Desativada (Monitoramento Pausado pelo Usuário) */}
         {!isMonitoring && !isHardwareBusy && (
           <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-slate-950 text-slate-400 z-10">
             <div className="p-4 rounded-full bg-slate-800 text-slate-500 mb-3">
@@ -885,7 +875,6 @@ export default function WebcamFeed({
           </div>
         )}
 
-        {/* Barra de Ações Inferior: Iniciar/Pausar e Calibrar Postura */}
         <div className="absolute bottom-4 flex items-center justify-center gap-2 z-20">
           <Button
             variant="primary"
