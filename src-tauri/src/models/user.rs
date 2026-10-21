@@ -21,9 +21,11 @@ pub struct CreateUserPayload {
     pub external_id: Option<String>,
     pub first_name: String,
     pub last_name: String,
+    #[serde(default)]
     pub birth_date: String,
     pub password: String,
     pub email: String,
+    #[serde(default)]
     pub phone: String,
     pub photo: Option<String>,
 }
@@ -57,4 +59,3 @@ pub struct NewUser {
     pub phone: String,
     pub photo: Option<String>,
 }
-
