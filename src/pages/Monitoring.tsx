@@ -132,7 +132,7 @@ export default function Monitoring() {
     )
   );
 
-  const isPaused = !isMonitoring || userPresence !== "ACTIVE";
+  const isPaused = !isMonitoring || isCalibrationOpen || userPresence !== "ACTIVE";
 
   return (
     <div className="w-full h-full flex flex-col gap-6 pb-8">
@@ -158,7 +158,7 @@ export default function Monitoring() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <div className="lg:col-span-7 flex flex-col gap-6">
           <WebcamFeed
-            isMonitoring={isMonitoring}
+            isMonitoring={isMonitoring && !isCalibrationOpen}
             onToggleMonitoring={() => setIsMonitoring(!isMonitoring)}
             onCalibrate={() => setIsCalibrationOpen(true)}
             onPostureUpdate={handlePostureUpdate}
@@ -333,8 +333,8 @@ export default function Monitoring() {
         isOpen={isCalibrationOpen}
         onClose={() => setIsCalibrationOpen(false)}
         onCalibrateSubmit={handleCalibrateSubmit}
-        neckAngle={neckAngle}
-        shoulderBalance={shoulderBalance}
+        onPostureUpdate={handlePostureUpdate}
+        onPresenceChange={handlePresenceChange}
       />
     </div>
   );
