@@ -14,7 +14,7 @@ import Button from "../Button";
 import Select from "../Select";
 import { poseDetector, type LandmarkPoint, POSE_LANDMARK_INDEX } from "../../services/vision";
 import { calculatePoseAngles, type PoseAngles } from "../../services/vision/poseAngles";
-import type { Point2D } from "../../services/vision/biomechanics";
+import { calculateHeadPitch, type Point2D } from "../../services/vision/biomechanics";
 import type { UserPresenceState } from "../../types/vision";
 
 export type { UserPresenceState };
@@ -423,6 +423,7 @@ export default function WebcamFeed({
       let rightShoulderPt: LandmarkPoint | null = null;
       let headPt: Point2D | null = null;
       let poseAngles: PoseAngles | null = null;
+      let headPitch: number | null = null;
 
       if (shouldRunInference) {
         lastInferenceTimeRef.current = currentTime - (elapsedSinceLastInference % INFERENCE_INTERVAL_MS);
@@ -431,6 +432,7 @@ export default function WebcamFeed({
           // Inferência real através do MediaPipe WebGL / WebAssembly
           try {
             const detection = poseDetector.detectFrame(video);
+            headPitch = detection.hasFace ? calculateHeadPitch(detection.faceTransformationMatrix) : null;
             if (detection.hasPose && detection.poseLandmarks && detection.poseLandmarks.length >= 13) {
               const nose = detection.poseLandmarks[POSE_LANDMARK_INDEX.NOSE];
               const leftShoulder = detection.poseLandmarks[POSE_LANDMARK_INDEX.LEFT_SHOULDER];
@@ -480,6 +482,7 @@ export default function WebcamFeed({
           simulatedPose[POSE_LANDMARK_INDEX.LEFT_SHOULDER] = leftShoulderPt;
           simulatedPose[POSE_LANDMARK_INDEX.RIGHT_SHOULDER] = rightShoulderPt;
           poseAngles = calculatePoseAngles(simulatedPose, 1280, 720);
+          headPitch = 0; // Explicit forward-facing orientation in demo mode only.
           if (poseAngles) headPt = poseAngles.headCenter;
         }
 
@@ -489,7 +492,8 @@ export default function WebcamFeed({
         if (currentPoseDetected) {
           lastLandmarksDetectedTimeRef.current = now;
 
-          const nextPresence = poseAngles ? "ACTIVE" : "PARTIALLY_OCCLUDED";
+          const nextPresence = poseAngles && headPitch !== null ? "ACTIVE" : "PARTIALLY_OCCLUDED";
+          if (nextPresence !== "ACTIVE") hasMeasuredFrameRef.current = false;
           if (presenceRef.current !== nextPresence) {
             presenceRef.current = nextPresence;
             setPresenceState(nextPresence);
@@ -525,14 +529,16 @@ export default function WebcamFeed({
         // -------------------------------------------------------------
         // 3. EXTRAÇÃO DE ÂNGULOS BIOMECÂNICOS & ATUALIZAÇÃO DE MÉTRICAS
         // -------------------------------------------------------------
-        if (currentPoseDetected && poseAngles && leftShoulderPt && rightShoulderPt) {
+        if (currentPoseDetected && poseAngles && headPitch !== null && leftShoulderPt && rightShoulderPt) {
           lastOverlayRef.current = {
             head: { ...poseAngles.headCenter },
             leftShoulder: { x: leftShoulderPt.x, y: leftShoulderPt.y },
             rightShoulder: { x: rightShoulderPt.x, y: rightShoulderPt.y },
             detectedAt: currentTime,
           };
-          const rawNeckAngle = poseAngles.neckAngle;
+          // Keep both upward and downward deviations; opposite signs must not
+          // cancel in the EMA, nor hide behind a centered image-plane vector.
+          const rawNeckAngle = Math.max(poseAngles.neckAngle, Math.abs(headPitch));
           const rawShoulderBalance = poseAngles.shoulderBalance;
 
           // Estimativa de distância proporcional à largura dos ombros normalizada
@@ -622,7 +628,7 @@ export default function WebcamFeed({
           // Vetor Cervical (Pescoço -> Cabeça)
           ctx.beginPath();
           ctx.strokeStyle =
-            smoothedMetricsRef.current.neckAngle <= 15
+            smoothedMetricsRef.current.neckAngle <= 14
               ? "rgba(16, 185, 129, 0.85)"
               : smoothedMetricsRef.current.neckAngle <= 20
                 ? "rgba(245, 158, 11, 0.85)"
