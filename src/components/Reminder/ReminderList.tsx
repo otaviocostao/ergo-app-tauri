@@ -7,6 +7,7 @@ import Table, { ColumnDef } from "../Table";
 import ReminderDetailModal from "./ReminderDetailModal";
 import ReminderFormModal from "./ReminderFormModal";
 import ReminderDeleteModal from "./ReminderDeleteModal";
+import ErgonomicNoticeCards from "./ErgonomicNoticeCards";
 import {
     reminderService,
     ReminderItem,
@@ -45,6 +46,8 @@ export default function ReminderList({ kind }: ReminderListProps) {
     const [editingReminder, setEditingReminder] = useState<ReminderItem | null>(null);
     const [deletingReminder, setDeletingReminder] = useState<ReminderItem | null>(null);
     const [isOpenFormReminderModal, setIsOpenFormReminderModal] = useState(false);
+    const [pendingStatusId, setPendingStatusId] = useState<string | null>(null);
+    const [statusFeedback, setStatusFeedback] = useState<string | null>(null);
 
     const loadReminders = useCallback(async () => {
         try {
@@ -58,7 +61,7 @@ export default function ReminderList({ kind }: ReminderListProps) {
             );
         } catch (err) {
             console.error("Failed to load reminders from backend:", err);
-            setErrorMessage("Não foi possível carregar os lembretes. Tente novamente.");
+            setErrorMessage(isSystemList ? "Não foi possível carregar os avisos. Tente novamente." : "Não foi possível carregar os lembretes. Tente novamente.");
         } finally {
             setIsLoading(false);
         }
@@ -97,6 +100,7 @@ export default function ReminderList({ kind }: ReminderListProps) {
     };
 
     const handleOpenEditReminderModal = (item: ReminderItem) => {
+        setStatusFeedback(null);
         setEditingReminder(item);
         setIsOpenFormReminderModal(true);
     };
@@ -104,6 +108,23 @@ export default function ReminderList({ kind }: ReminderListProps) {
     const handleOpenNewReminderModal = () => {
         setEditingReminder(null);
         setIsOpenFormReminderModal(true);
+    };
+
+    const handleStatusChange = async (item: ReminderItem, active: boolean) => {
+        if (pendingStatusId) return;
+        setPendingStatusId(item.id);
+        setErrorMessage(null);
+        setStatusFeedback(null);
+        try {
+            const updated = await reminderService.update({ id: item.id, status: active ? "ativo" : "inativo" });
+            setReminders((previous) => previous.map((reminder) => reminder.id === updated.id ? updated : reminder));
+            setStatusFeedback(`${updated.title}: ${updated.status === "ativo" ? "aviso ativado" : "aviso desativado"}.`);
+        } catch (error) {
+            console.error("Failed to update ergonomic notice status:", error);
+            setErrorMessage("Não foi possível alterar o aviso. Tente novamente.");
+        } finally {
+            setPendingStatusId(null);
+        }
     };
 
     const handleSaveReminder = async (item: ReminderItem) => {
@@ -170,9 +191,6 @@ export default function ReminderList({ kind }: ReminderListProps) {
                 <div className="flex items-center gap-3">
                     <span className="text-sm text-slate-600 dark:text-slate-300 font-medium">
                         {item.title}
-                    </span>
-                    <span className="text-[10px] rounded bg-slate-100 px-2 py-1 text-slate-500 dark:bg-slate-800 dark:text-slate-300">
-                        {item.systemType ? "Sistema" : "Personalizado"}
                     </span>
                 </div>
             ),
@@ -247,7 +265,7 @@ export default function ReminderList({ kind }: ReminderListProps) {
             cell: (item) => (
                 <div className="flex items-center justify-end gap-1">
                     <button
-                        title={item.systemType ? "Configurar aviso" : "Editar lembrete"}
+                        title="Editar lembrete"
                         onClick={(e) => {
                             e.stopPropagation();
                             handleOpenEditReminderModal(item);
@@ -256,7 +274,7 @@ export default function ReminderList({ kind }: ReminderListProps) {
                     >
                         <Edit2 size={16} />
                     </button>
-                    {!item.systemType && <button
+                    <button
                         title="Excluir lembrete"
                         onClick={(e) => {
                             e.stopPropagation();
@@ -265,32 +283,36 @@ export default function ReminderList({ kind }: ReminderListProps) {
                         className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 transition-colors cursor-pointer"
                     >
                         <Trash2 size={16} />
-                    </button>}
+                    </button>
                 </div>
             ),
         },
     ];
 
     return (
-        <div className="w-full h-full flex flex-col gap-6">
-            <Header
-                title={isSystemList ? "Avisos de Ergonomia" : "Lembretes"}
-                subtitle={isSystemList
-                    ? "Configure os avisos padrão de ergonomia para sua rotina"
-                    : "Crie e gerencie seus lembretes personalizados"}
+        <div className={`w-full flex flex-col gap-6 ${isSystemList ? "rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900" : "h-full"}`}>
+            {isSystemList ? (
+                <header>
+                    <h2 className="text-base font-bold text-slate-800 dark:text-white">Avisos de ergonomia</h2>
+                    <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
+                        Escolha quais avisos deseja receber durante sua rotina. Ative ou desative cada aviso abaixo; as alterações são salvas automaticamente.
+                    </p>
+                </header>
+            ) : <Header
+                title="Lembretes"
+                subtitle="Crie e gerencie seus lembretes personalizados"
                 action={
-                    !isSystemList && <Button onClick={handleOpenNewReminderModal} disabled={isLoading}>
+                    <Button onClick={handleOpenNewReminderModal} disabled={isLoading}>
                         <Plus size={18} />
                         Novo lembrete
                     </Button>
                 }
-            />
-            {isSystemList && <p className="text-sm text-slate-500 dark:text-slate-400">
-                Os avisos de postura, pausa visual e movimentação começam desativados. Clique no lápis para configurar os horários e alterar o status.
-            </p>}
+            />}
+
+            {statusFeedback && <p role="status" className="text-sm text-primary-700 dark:text-primary-400">{statusFeedback}</p>}
 
             {errorMessage && (
-                <div className="flex items-center justify-between p-3 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-sm">
+                <div role="alert" className="flex items-center justify-between gap-3 p-3 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-sm">
                     <div className="flex items-center gap-2">
                         <AlertCircle size={18} className="shrink-0" />
                         <span>{errorMessage}</span>
@@ -305,7 +327,7 @@ export default function ReminderList({ kind }: ReminderListProps) {
                 </div>
             )}
 
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+            {!isSystemList && <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
                 <div className="relative w-full sm:w-80">
                     <Search
                         size={18}
@@ -339,20 +361,23 @@ export default function ReminderList({ kind }: ReminderListProps) {
                         )}
                     </div>
                 </div>
-            </div>
+            </div>}
 
             {isLoading ? (
                 <div className="flex flex-col items-center justify-center py-20 text-slate-500">
                     <Loader2 size={32} className="animate-spin text-emerald-500 mb-3" />
-                    <span className="text-sm">Carregando lembretes...</span>
+                    <span className="text-sm">{isSystemList ? "Carregando avisos..." : "Carregando lembretes..."}</span>
                 </div>
+            ) : isSystemList ? (
+                <ErgonomicNoticeCards reminders={reminders} pendingId={pendingStatusId}
+                    onStatusChange={handleStatusChange} onConfigure={handleOpenEditReminderModal} />
             ) : (
                 <Table
                     data={filteredReminders}
                     columns={columns}
                     keyExtractor={(item) => item.id}
                     onRowClick={(item) => setSelectedReminder(item)}
-                    emptyMessage={isSystemList ? "Nenhum aviso de ergonomia encontrado." : "Nenhum lembrete encontrado."}
+                    emptyMessage="Nenhum lembrete encontrado."
                 />
             )}
 
