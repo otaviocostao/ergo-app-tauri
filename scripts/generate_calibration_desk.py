@@ -1,3 +1,4 @@
+from math import sqrt
 from pathlib import Path
 
 from PIL import Image
@@ -46,15 +47,15 @@ def draw_chair(canvas, lift=0):
     raised.line([(558, 210), (582, 253), (607, 253)], "#7a9099", 10, True)
     raised.box((540, 139, 570, 244), "#456876", 13)
     raised.box((540, 141, 550, 241), "#597f89", 7)
-    raised.box((562, 247, 688, 262), "#456876", 7)
-    raised.box((567, 247, 687, 254), "#5a7f8b", 4)
+    raised.box((562, 247, 666, 262), "#456876", 7)
+    raised.box((567, 247, 665, 254), "#5a7f8b", 4)
 
 
 def draw_footrest(canvas, lift):
     if lift <= 0:
         return
-    canvas.box((687, 352 - lift, 775, 352), "#72998d", 3)
-    canvas.box((684, 350 - lift, 778, min(355 - lift, 352)), "#a8d4c4", 2)
+    canvas.box((665, 352 - lift, 753, 352), "#72998d", 3)
+    canvas.box((662, 350 - lift, 756, min(355 - lift, 352)), "#a8d4c4", 2)
 
 
 def draw_desk(canvas, top):
@@ -63,29 +64,30 @@ def draw_desk(canvas, top):
         canvas.box((x, 270, x + 9, 347), "#8aa9a0", 3)
         canvas.box((x - 2, top + 10, x + 11, 291), "#b0c9c0", 3)
         canvas.box((x - 13, 346, x + 23, 352), "#6f9386", 3)
-    canvas.box((678, top, 911, top + 12), "#adcac2", 5)
-    canvas.box((682, top, 907, top + 5), "#d0e4dc", 2)
-    canvas.box((692, top - 6, 764, top - 1), "#456876", 2)
-    for x in range(698, 760, 10):
+    canvas.box((648, top, 911, top + 12), "#adcac2", 5)
+    canvas.box((652, top, 907, top + 5), "#d0e4dc", 2)
+    canvas.box((654, top - 6, 726, top - 1), "#456876", 2)
+    for x in range(660, 722, 10):
         canvas.line([(x, top - 5), (x + 5, top - 5)], "#dcece6", 1)
 
 
 def draw_person(canvas, desk_top):
-    canvas.line([(611, 231), (703, 237), (701, 330)], "#526b7d", 23, True)
-    canvas.box((692, 323, 711, 338), "#bc8564", 5)
-    canvas.box((688, 335, 747, 351), "#d9e3e6", 6)
-    canvas.line([(607, 237), (717, 237), (717, 328)], PANTS, 28, True)
-    canvas.line([(724, 256), (724, 314)], "#405c72", 3, True)
-    canvas.box((706, 319, 727, 338), SKIN, 5)
+    # Keep the thighs and shins similar in length, with the knees past the seat.
+    canvas.line([(611, 231), (681, 237), (679, 330)], "#526b7d", 23, True)
+    canvas.box((670, 323, 689, 338), "#bc8564", 5)
+    canvas.box((666, 335, 725, 351), "#d9e3e6", 6)
+    canvas.line([(607, 237), (695, 237), (695, 328)], PANTS, 28, True)
+    canvas.line([(702, 256), (702, 314)], "#405c72", 3, True)
+    canvas.box((684, 319, 705, 338), SKIN, 5)
     canvas.path([
-        ("M", 705, 331), ("C", 714, 335, 721, 336, 729, 332),
-        ("C", 736, 338, 745, 338, 754, 341),
-        ("C", 762, 343, 764, 347, 761, 351),
-        ("L", 703, 351), ("C", 699, 345, 700, 337, 705, 331),
+        ("M", 683, 331), ("C", 692, 335, 699, 336, 707, 332),
+        ("C", 714, 338, 723, 338, 732, 341),
+        ("C", 740, 343, 742, 347, 739, 351),
+        ("L", 681, 351), ("C", 677, 345, 678, 337, 683, 331),
     ], "#ffffff")
-    canvas.line([(704, 350), (760, 350)], "#b6c9cd", 3, True)
-    canvas.line([(730, 338), (725, 342)], "#9bb2bc", 2, True)
-    canvas.line([(737, 340), (733, 344)], "#9bb2bc", 2, True)
+    canvas.line([(682, 350), (738, 350)], "#b6c9cd", 3, True)
+    canvas.line([(708, 338), (703, 342)], "#9bb2bc", 2, True)
+    canvas.line([(715, 340), (711, 344)], "#9bb2bc", 2, True)
 
     canvas.box((589, 106, 610, 141), SKIN, 5)
     canvas.path([
@@ -102,11 +104,14 @@ def draw_person(canvas, desk_top):
         ("L", 570, 170),
     ], "#359a89")
 
-    # The forearm follows the keyboard; the upper arm remains beside the torso.
+    # Rotate a fixed-length forearm toward the keyboard as the desk moves.
+    # Its length is close to the shoulder-to-elbow distance, plus a separate hand.
+    wrist_y = desk_top - 9
+    wrist_x = 598 + sqrt(64**2 - (wrist_y - 201)**2)
     # Keep the rounded upper end inside the cuff instead of above the sleeve.
     canvas.line([(598, 181), (598, 201)], SKIN, 17, True)
-    canvas.line([(598, 201), (700, desk_top - 9)], SKIN, 14, True)
-    canvas.ellipse((690, desk_top - 16, 718, desk_top - 2), SKIN)
+    canvas.line([(598, 201), (wrist_x, wrist_y)], SKIN, 14, True)
+    canvas.ellipse((wrist_x - 10, wrist_y - 7, wrist_x + 18, wrist_y + 7), SKIN)
     # Center the shoulder on the torso and align the sleeve with the upper arm.
     canvas.path([
         ("M", 585, 179), ("L", 585, 155),
