@@ -261,14 +261,14 @@ export default function Monitoring() {
               title="Inclinação do Pescoço"
               value={neckAngle}
               unit="°"
-              status={neckAngle < 16 ? "good" : neckAngle < 23 ? "warning" : "danger"}
+              status={neckAngle <= 14 ? "good" : neckAngle <= 20 ? "warning" : "danger"}
               icon={Compass}
               progress={Math.min(100, (neckAngle / 30) * 100)}
-              idealRange="< 15°"
-              trend={neckAngle < 16 ? "improving" : "worsening"}
-              description="Ângulo 2D da cabeça em relação à vertical da imagem."
+              idealRange="≤ 14°"
+              trend={neckAngle <= 14 ? "improving" : "worsening"}
+              description="Maior desvio entre inclinação lateral e orientação vertical da cabeça em relação à câmera."
               details={[
-                { label: "Inclinação 2D:", value: neckAngle < 16 ? "Neutra" : "Inclinada" },
+                { label: "Orientação:", value: neckAngle <= 14 ? "Neutra" : "Inclinada" },
                 { label: "Limite Alerta:", value: "20°" },
               ]}
               isPaused={isPaused}
