@@ -52,7 +52,6 @@ pub fn insert(conn: &Connection, user: &NewUser) -> Result<i64, rusqlite::Error>
             user.email,
             user.phone,
             user.photo,
-            // Explicit for compatibility with databases whose SQL default is light.
             ThemePreference::default(),
         ],
     )?;

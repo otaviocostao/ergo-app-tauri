@@ -93,6 +93,21 @@ mod tests {
     }
 
     #[test]
+    fn database_defaults_to_system_when_a_preference_is_omitted() {
+        let conn = setup_database();
+        conn.execute(
+            "INSERT INTO users (first_name, last_name, birth_date, password_hash, email, phone)
+             VALUES ('Test', 'User', '1995-05-20', 'hash', 'default@example.com', '75999999999')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            user_theme_repository::find_by_user_id(&conn, conn.last_insert_rowid()).unwrap(),
+            Some(ThemePreference::System)
+        );
+    }
+
+    #[test]
     fn creating_an_automatic_account_preserves_existing_explicit_preferences() {
         let conn = setup_database();
         conn.execute_batch(
