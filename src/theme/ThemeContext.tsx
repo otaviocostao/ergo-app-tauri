@@ -13,8 +13,6 @@ import { useAuth } from "../auth/AuthContext";
 import { userThemeService } from "../services/userThemeService";
 import {
   applyTheme,
-  getInitialThemePreference,
-  rememberThemePreference,
   resolveTheme,
   SYSTEM_THEME_QUERY,
   type ResolvedTheme,
@@ -33,7 +31,7 @@ interface ThemeContextValue {
 }
 
 interface AccountTheme {
-  userId: number | null;
+  userId: number;
   theme: ThemePreference;
   status: "loading" | "ready" | "error";
   isSaving: boolean;
@@ -41,7 +39,7 @@ interface AccountTheme {
 }
 
 interface ThemeRequestScope {
-  userId: number | null;
+  userId: number;
   active: boolean;
   ready: boolean;
   saving: boolean;
@@ -56,12 +54,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const scopeRef = useRef<ThemeRequestScope | null>(null);
   const [account, setAccount] = useState<AccountTheme | null>(null);
   const [reloadIndex, setReloadIndex] = useState(0);
-  const [initialTheme, setInitialTheme] = useState(getInitialThemePreference);
   const [systemDark, setSystemDark] = useState(() => window.matchMedia(SYSTEM_THEME_QUERY).matches);
 
-  const current = account?.userId === userId ? account : null;
-  const theme = current?.status === "ready" ? current.theme : initialTheme;
-  const isLoading = !authLoading && (!current || current.status === "loading");
+  const current = !authLoading && account?.userId === userId ? account : null;
+  const theme = current?.theme ?? "system";
+  const isLoading = !authLoading && userId !== null && (!current || current.status === "loading");
   const isReady = userId !== null && current?.status === "ready";
   const isSaving = current?.isSaving ?? false;
   const error = current?.error ?? "";
@@ -69,14 +66,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useLayoutEffect(() => {
     applyTheme(resolvedTheme);
-    if (current?.status === "ready" && !current.isSaving) {
-      rememberThemePreference(theme);
-      setInitialTheme(theme);
-    }
-  }, [resolvedTheme, theme, current?.status, current?.isSaving]);
+  }, [resolvedTheme]);
 
   useLayoutEffect(() => {
-    if (authLoading) {
+    if (authLoading || userId === null) {
       scopeRef.current = null;
       return;
     }
@@ -86,7 +79,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       active: true,
       ready: false,
       saving: false,
-      savedTheme: "light",
+      savedTheme: "system",
     };
     scopeRef.current = scope;
 
@@ -101,27 +94,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const scope = scopeRef.current;
-    if (!scope) {
+    if (!scope || userId === null) {
       setAccount(null);
       return;
     }
 
-    setAccount({
+    setAccount((previous) => ({
       userId,
-      theme: "light",
+      theme: previous?.userId === userId ? previous.theme : "system",
       status: "loading",
       isSaving: false,
       error: "",
-    });
+    }));
 
     const isCurrent = () => scope.active && scopeRef.current === scope;
 
-    const request =
-      userId === null
-        ? userThemeService.getStartupPreference()
-        : userThemeService.getPreference();
-
-    request
+    userThemeService.getPreference()
       .then((preference) => {
         if (!isCurrent()) return;
         scope.savedTheme = preference;
@@ -136,13 +124,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       })
       .catch(() => {
         if (!isCurrent()) return;
-        setAccount({
+        setAccount((previous) => ({
           userId,
-          theme: "light",
+          theme: previous?.userId === userId ? previous.theme : "system",
           status: "error",
           isSaving: false,
           error: "Não foi possível carregar sua preferência de tema. Tente novamente.",
-        });
+        }));
       });
   }, [authLoading, userId, reloadIndex]);
 

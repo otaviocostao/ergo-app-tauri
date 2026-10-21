@@ -49,7 +49,6 @@ pub fn run() {
             commands::user::is_local_user,
             commands::user::update_user,
             // User theme preferences
-            commands::user_theme::get_startup_theme_preference,
             commands::user_theme::get_user_theme_preference,
             commands::user_theme::update_user_theme_preference,
             // Reminders

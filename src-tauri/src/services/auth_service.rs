@@ -10,7 +10,7 @@ use std::{
 };
 
 use crate::models::auth::{AuthError, Session};
-use crate::repositories::{user_repository, user_theme_repository};
+use crate::repositories::user_repository;
 
 #[derive(Default)]
 struct LoginAttempts {
@@ -123,8 +123,6 @@ pub fn login(
 
     match stored_user {
         Some(stored) if verified => {
-            user_theme_repository::remember_last_user(conn, stored.user.id)
-                .map_err(|_| AuthError::internal())?;
             let session = Session::Authenticated {
                 user: Box::new(stored.user),
             };

@@ -7,15 +7,7 @@
   <script>
     // Paint before the application bundle or SQLite is ready.
     (() => {
-      let preference = "system";
-      try {
-        const cached = localStorage.getItem("ergo.initial-theme");
-        if (cached === "light" || cached === "dark" || cached === "system") {
-          preference = cached;
-        }
-      } catch {}
-      const dark = preference === "dark" ||
-        (preference === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+      const dark = matchMedia("(prefers-color-scheme: dark)").matches;
       document.documentElement.classList.toggle("dark", dark);
       document.documentElement.style.colorScheme = dark ? "dark" : "light";
     })();

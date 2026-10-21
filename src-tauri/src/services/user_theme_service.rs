@@ -4,12 +4,6 @@ use crate::models::user_theme::{ThemePreference, UpdateUserThemePayload};
 use crate::repositories::user_theme_repository;
 use crate::services::auth_service::AuthState;
 
-pub fn get_startup_theme_preference(conn: &Connection) -> Result<ThemePreference, String> {
-    user_theme_repository::find_startup_preference(conn)
-        .map(|theme| theme.unwrap_or_default())
-        .map_err(|error| error.to_string())
-}
-
 pub fn get_user_theme_preference(
     conn: &Connection,
     auth_state: &AuthState,
@@ -44,7 +38,7 @@ pub fn update_user_theme_preference(
 mod tests {
     use super::*;
     use crate::models::auth::Session;
-    use crate::models::user::UpdateUserPayload;
+    use crate::models::user::{CreateUserPayload, NewUser, UpdateUserPayload};
     use crate::repositories::user_repository;
     use crate::services::{auth_service, user_service};
 
@@ -61,13 +55,20 @@ mod tests {
     }
 
     fn create_user(conn: &Connection, email: &str) -> i64 {
-        conn.execute(
-            "INSERT INTO users (first_name, last_name, birth_date, password_hash, email, phone)
-             VALUES ('Test', 'User', '1995-05-20', 'test-hash', ?1, '75999999999')",
-            [email],
+        user_repository::insert(
+            conn,
+            &NewUser {
+                external_id: None,
+                first_name: "Test".into(),
+                last_name: "User".into(),
+                birth_date: "1995-05-20".into(),
+                password_hash: "test-hash".into(),
+                email: email.into(),
+                phone: "75999999999".into(),
+                photo: None,
+            },
         )
-        .unwrap();
-        conn.last_insert_rowid()
+        .unwrap()
     }
 
     fn authenticate(conn: &Connection, state: &AuthState, user_id: i64) {
@@ -92,123 +93,57 @@ mod tests {
     }
 
     #[test]
-    fn startup_theme_is_light_without_a_successful_login() {
+    fn creating_an_automatic_account_preserves_existing_explicit_preferences() {
         let conn = setup_database();
+        conn.execute_batch(
+            "INSERT INTO users (first_name, last_name, birth_date, password_hash, email, phone, theme_preference)
+             VALUES ('Legacy', 'Light', '1995-05-20', 'hash', 'light@example.com', '75999999999', 'light'),
+                    ('Legacy', 'Dark', '1995-05-20', 'hash', 'dark@example.com', '75999999999', 'dark');",
+        ).unwrap();
+        let automatic_id = create_user(&conn, "automatic@example.com");
         assert_eq!(
-            get_startup_theme_preference(&conn).unwrap(),
-            ThemePreference::Light
-        );
-        let id = create_user(&conn, "first@example.com");
-        user_theme_repository::update(&conn, id, ThemePreference::Dark).unwrap();
-        assert_eq!(
-            get_startup_theme_preference(&conn).unwrap(),
-            ThemePreference::Light
-        );
-    }
-
-    #[test]
-    fn startup_theme_follows_the_last_successful_login_and_its_saved_preference() {
-        let conn = setup_database();
-        let state = AuthState::new().unwrap();
-        let first_id = create_user(&conn, "first@example.com");
-        let second_id = create_user(&conn, "second@example.com");
-        let password = "Senha-segura-123!";
-        conn.execute(
-            "UPDATE users SET password_hash = ?1",
-            [auth_service::hash_password(password).unwrap()],
-        )
-        .unwrap();
-        auth_service::login(&conn, &state, "first@example.com".into(), password.into()).unwrap();
-        update_theme(&conn, &state, ThemePreference::Dark);
-        auth_service::logout(&state).unwrap();
-        assert_eq!(
-            get_startup_theme_preference(&conn).unwrap(),
-            ThemePreference::Dark
-        );
-
-        assert!(auth_service::login(
-            &conn,
-            &state,
-            "second@example.com".into(),
-            "wrong-password".into()
-        )
-        .is_err());
-        create_user(&conn, "new@example.com");
-        assert_eq!(
-            get_startup_theme_preference(&conn).unwrap(),
-            ThemePreference::Dark
-        );
-
-        auth_service::login(&conn, &state, "second@example.com".into(), password.into()).unwrap();
-        assert_eq!(
-            get_user_theme_preference(&conn, &state).unwrap(),
-            ThemePreference::Light
-        );
-        assert_eq!(
-            get_startup_theme_preference(&conn).unwrap(),
-            ThemePreference::Light
-        );
-        update_theme(&conn, &state, ThemePreference::System);
-        auth_service::logout(&state).unwrap();
-        assert_eq!(
-            get_startup_theme_preference(&conn).unwrap(),
-            ThemePreference::System
-        );
-
-        auth_service::login(&conn, &state, "first@example.com".into(), password.into()).unwrap();
-        assert_eq!(
-            get_user_theme_preference(&conn, &state).unwrap(),
-            ThemePreference::Dark
-        );
-        assert_eq!(
-            get_startup_theme_preference(&conn).unwrap(),
-            ThemePreference::Dark
-        );
-        assert_eq!(
-            user_theme_repository::find_by_user_id(&conn, second_id).unwrap(),
+            user_theme_repository::find_by_user_id(&conn, automatic_id).unwrap(),
             Some(ThemePreference::System)
         );
-
-        conn.execute("DELETE FROM users WHERE id = ?1", [first_id])
-            .unwrap();
-        assert_eq!(
-            get_startup_theme_preference(&conn).unwrap(),
-            ThemePreference::Light
-        );
-        conn.execute("DELETE FROM users", []).unwrap();
-        assert_eq!(
-            get_startup_theme_preference(&conn).unwrap(),
-            ThemePreference::Light
-        );
+        for (email, expected) in [
+            ("light@example.com", ThemePreference::Light),
+            ("dark@example.com", ThemePreference::Dark),
+        ] {
+            let id = user_repository::find_by_email(&conn, email)
+                .unwrap()
+                .unwrap()
+                .user
+                .id;
+            assert_eq!(
+                user_theme_repository::find_by_user_id(&conn, id).unwrap(),
+                Some(expected)
+            );
+        }
     }
 
     #[test]
-    fn a_recreated_database_starts_light_instead_of_reusing_the_old_theme() {
-        let conn = setup_database();
-        let id = create_user(&conn, "first@example.com");
-        user_theme_repository::remember_last_user(&conn, id).unwrap();
-        user_theme_repository::update(&conn, id, ThemePreference::Dark).unwrap();
-        assert_eq!(
-            get_startup_theme_preference(&conn).unwrap(),
-            ThemePreference::Dark
-        );
-        drop(conn);
-        let recreated = setup_database();
-        assert_eq!(
-            get_startup_theme_preference(&recreated).unwrap(),
-            ThemePreference::Light
-        );
-    }
-
-    #[test]
-    fn new_accounts_default_to_light_and_accept_all_theme_preferences() {
+    fn new_accounts_default_to_system_and_accept_all_theme_preferences() {
         let conn = setup_database();
         let state = AuthState::new().unwrap();
-        let user_id = create_user(&conn, "first@example.com");
+        let user_id = user_service::create_user(
+            &conn,
+            CreateUserPayload {
+                external_id: None,
+                first_name: "Test".into(),
+                last_name: "User".into(),
+                birth_date: "1995-05-20".into(),
+                password: "Password-123!".into(),
+                email: "first@example.com".into(),
+                phone: "75999999999".into(),
+                photo: None,
+            },
+        )
+        .unwrap()
+        .id;
         authenticate(&conn, &state, user_id);
         assert_eq!(
             get_user_theme_preference(&conn, &state).unwrap(),
-            ThemePreference::Light
+            ThemePreference::System
         );
         for theme in [
             ThemePreference::Dark,
@@ -233,7 +168,7 @@ mod tests {
         authenticate(&conn, &state, second_id);
         assert_eq!(
             get_user_theme_preference(&conn, &state).unwrap(),
-            ThemePreference::Light
+            ThemePreference::System
         );
         update_theme(&conn, &state, ThemePreference::System);
         authenticate(&conn, &state, first_id);
@@ -298,15 +233,10 @@ mod tests {
         update_theme(&conn, &state, ThemePreference::Dark);
         authenticate(&conn, &state, second_id);
         update_theme(&conn, &state, ThemePreference::System);
-        user_theme_repository::remember_last_user(&conn, second_id).unwrap();
         drop(conn);
         drop(state);
         let conn = Connection::open(&path).unwrap();
         let state = AuthState::new().unwrap();
-        assert_eq!(
-            get_startup_theme_preference(&conn).unwrap(),
-            ThemePreference::System
-        );
         for (id, expected) in [
             (first_id, ThemePreference::Dark),
             (second_id, ThemePreference::System),
@@ -336,7 +266,7 @@ mod tests {
         authenticate(&conn, &state, user_id);
         assert_eq!(
             get_user_theme_preference(&conn, &state).unwrap(),
-            ThemePreference::Light
+            ThemePreference::System
         );
     }
 
@@ -372,7 +302,7 @@ mod tests {
         );
         assert_eq!(
             user_theme_repository::find_by_user_id(&conn, user_id).unwrap(),
-            Some(ThemePreference::Light)
+            Some(ThemePreference::System)
         );
     }
 

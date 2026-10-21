@@ -1,6 +1,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::models::user::{NewUser, StoredUser, User};
+use crate::models::user_theme::ThemePreference;
 
 pub const SELECT_USER_FIELDS: &str = "id, external_id, first_name, last_name, birth_date, password_hash, email, phone, photo, created_at, updated_at";
 
@@ -40,8 +41,8 @@ pub fn insert(conn: &Connection, user: &NewUser) -> Result<i64, rusqlite::Error>
     conn.execute(
         "INSERT INTO users (
             external_id, first_name, last_name, birth_date, password_hash,
-            email, phone, photo
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            email, phone, photo, theme_preference
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             user.external_id,
             user.first_name,
@@ -51,6 +52,8 @@ pub fn insert(conn: &Connection, user: &NewUser) -> Result<i64, rusqlite::Error>
             user.email,
             user.phone,
             user.photo,
+            // Explicit for compatibility with databases whose SQL default is light.
+            ThemePreference::default(),
         ],
     )?;
     Ok(conn.last_insert_rowid())

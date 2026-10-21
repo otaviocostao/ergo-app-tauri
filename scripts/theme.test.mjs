@@ -45,8 +45,8 @@ const bootstrap = readFileSync(new URL("../index.html", import.meta.url), "utf8"
 for (const scenario of [
   { name: "uncached dark system", systemDark: true, expected: "dark" },
   { name: "uncached light system", expected: "light" },
-  { name: "saved dark preference on a light system", cached: "dark", expected: "dark" },
-  { name: "saved light preference on a dark system", cached: "light", systemDark: true, expected: "light" },
+  { name: "ignores the previous account dark cache on a light system", cached: "dark", expected: "light" },
+  { name: "ignores the previous account light cache on a dark system", cached: "light", systemDark: true, expected: "dark" },
   { name: "automatic preference after the system turns dark", cached: "system", systemDark: true, expected: "dark" },
   { name: "automatic preference after the system turns light", cached: "system", expected: "light" },
   { name: "invalid cache", cached: "invalid", systemDark: true, expected: "dark" },
@@ -64,32 +64,20 @@ for (const scenario of [
   });
 }
 
-test("a saved preference supplies the next startup paint", () => {
+test("startup resets a previous account appearance to the computer theme", () => {
   const env = environment();
   const theme = loadModule("../src/theme/theme.ts", env.globals);
-  theme.rememberThemePreference("dark");
-  theme.initializeTheme();
+  theme.applyTheme("dark");
   assert.equal(env.globals.document.documentElement.style.colorScheme, "dark");
-  theme.rememberThemePreference("light");
   theme.initializeTheme();
   assert.equal(env.globals.document.documentElement.style.colorScheme, "light");
 });
 
-test("unavailable storage does not break theme persistence feedback", () => {
-  const env = environment({ storageBlocked: true });
-  const theme = loadModule("../src/theme/theme.ts", env.globals);
-  assert.doesNotThrow(() => theme.rememberThemePreference("dark"));
-});
-
 test("theme services resolve in a browser without accessing the Tauri bridge", async () => {
-  const env = environment({ cached: "dark" });
-  const theme = loadModule("../src/theme/theme.ts", env.globals);
   const { userThemeService } = loadModule("../src/services/userThemeService.ts", {}, {
     "@tauri-apps/api/core": { isTauri: () => false, invoke: () => assert.fail("Browser invoked Tauri") },
-    "../theme/theme": theme,
   });
-  assert.equal(await userThemeService.getStartupPreference(), "dark");
-  assert.equal(await userThemeService.getPreference(), "dark");
+  assert.equal(await userThemeService.getPreference(), "system");
   assert.equal(await userThemeService.updatePreference("system"), "system");
 });
 
@@ -100,13 +88,11 @@ test("desktop theme services preserve the command names and update payload", asy
       isTauri: () => true,
       invoke: async (command, payload) => { calls.push([command, payload]); return "dark"; },
     },
-    "../theme/theme": { getInitialThemePreference: () => assert.fail("Desktop skipped SQLite") },
   });
-  assert.equal(await userThemeService.getStartupPreference(), "dark");
   assert.equal(await userThemeService.getPreference(), "dark");
   assert.equal(await userThemeService.updatePreference("dark"), "dark");
   assert.deepEqual(calls.map(([command]) => command), [
-    "get_startup_theme_preference", "get_user_theme_preference", "update_user_theme_preference",
+    "get_user_theme_preference", "update_user_theme_preference",
   ]);
-  assert.equal(JSON.stringify(calls[2][1]), JSON.stringify({ payload: { theme: "dark" } }));
+  assert.equal(JSON.stringify(calls[1][1]), JSON.stringify({ payload: { theme: "dark" } }));
 });
