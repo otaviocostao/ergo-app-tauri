@@ -26,7 +26,7 @@ export default function Monitoring() {
   const [distanceCm, setDistanceCm] = useState(62);
   const [postureStatus, setPostureStatus] = useState<"good" | "warning" | "danger">("good");
   const [statusText, setStatusText] = useState("Postura Excelente");
-  const [userPresence, setUserPresence] = useState<UserPresenceState>("ACTIVE");
+  const [userPresence, setUserPresence] = useState<UserPresenceState>("PARTIALLY_OCCLUDED");
 
   // Session logs list
   const [logs, setLogs] = useState<LogEvent[]>([
@@ -132,7 +132,7 @@ export default function Monitoring() {
     )
   );
 
-  const isPaused = !isMonitoring || userPresence === "ABSENT";
+  const isPaused = !isMonitoring || userPresence !== "ACTIVE";
 
   return (
     <div className="w-full h-full flex flex-col gap-6 pb-8">
@@ -200,11 +200,13 @@ export default function Monitoring() {
                     ? "Pausado"
                     : userPresence === "ABSENT"
                       ? "Ausente (Pausado)"
-                      : healthScore >= 85
-                        ? "Excelente"
-                        : healthScore >= 70
-                          ? "Atenção"
-                          : "Crítico"}
+                      : userPresence === "PARTIALLY_OCCLUDED"
+                        ? "Ajuste o enquadramento"
+                        : healthScore >= 85
+                          ? "Excelente"
+                          : healthScore >= 70
+                            ? "Atenção"
+                            : "Crítico"}
                 </span>
               </div>
             </div>
@@ -214,9 +216,11 @@ export default function Monitoring() {
                   ? "O monitoramento está pausado. Inicie o monitoramento para visualizar a análise postural e métricas em tempo real."
                   : userPresence === "ABSENT"
                     ? "Nenhum usuário detectado há mais de 5 segundos. O cálculo de métricas e gráficos está pausado até o seu retorno."
-                    : healthScore >= 85
-                      ? "Sua coluna e pescoço estão alinhados dentro das diretrizes ideais."
-                      : "Ajuste sua inclinação do pescoço ou altura da tela para melhorar sua postura."}
+                    : userPresence === "PARTIALLY_OCCLUDED"
+                      ? "Aguardando pontos confiáveis da cabeça e dos ombros. Ajuste o enquadramento para retomar as métricas."
+                      : healthScore >= 85
+                        ? "Sua coluna e pescoço estão alinhados dentro das diretrizes ideais."
+                        : "Ajuste sua inclinação do pescoço ou altura da tela para melhorar sua postura."}
               </p>
 
               <div className="flex items-center gap-6 text-xs text-slate-300 shrink-0 border-t sm:border-t-0 sm:border-l border-slate-700/60 pt-3 sm:pt-0 sm:pl-6 w-full sm:w-auto justify-between sm:justify-start">
@@ -237,7 +241,9 @@ export default function Monitoring() {
                       ? "Pausado"
                       : userPresence === "ABSENT"
                         ? "Usuário Ausente"
-                        : statusText}
+                        : userPresence === "PARTIALLY_OCCLUDED"
+                          ? "Detecção parcial"
+                          : statusText}
                   </span>
                 </div>
                 <div className="flex flex-col">
@@ -260,9 +266,9 @@ export default function Monitoring() {
               progress={Math.min(100, (neckAngle / 30) * 100)}
               idealRange="< 15°"
               trend={neckAngle < 16 ? "improving" : "worsening"}
-              description="Ângulo de projeção da cabeça para a frente."
+              description="Ângulo 2D da cabeça em relação à vertical da imagem."
               details={[
-                { label: "Projeção:", value: neckAngle < 16 ? "Neutra" : "Inclinada" },
+                { label: "Inclinação 2D:", value: neckAngle < 16 ? "Neutra" : "Inclinada" },
                 { label: "Limite Alerta:", value: "20°" },
               ]}
               isPaused={isPaused}
@@ -279,7 +285,7 @@ export default function Monitoring() {
               trend={shoulderBalance > 90 ? "stable" : "worsening"}
               description="Nivelamento horizontal entre ombro esquerdo e direito."
               details={[
-                { label: "Desvio Y:", value: `${(100 - shoulderBalance) * 0.15}°` },
+                { label: "Inclinação:", value: `${shoulderBalance === 0 ? "≥10" : ((100 - shoulderBalance) / 10).toFixed(1)}°` },
                 { label: "Balanço:", value: shoulderBalance > 90 ? "Simétrico" : "Inclinado" },
               ]}
               isPaused={isPaused}
