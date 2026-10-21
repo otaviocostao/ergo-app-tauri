@@ -11,7 +11,8 @@
     "setup:wasm": "node scripts/copy-wasm.mjs",
     "tauri": "tauri",
     "test:auth": "cargo test --manifest-path src-tauri/Cargo.toml --lib",
-    "test:reports": "node --experimental-strip-types --test scripts/reports.test.mjs"
+    "test:reports": "node --experimental-strip-types --test scripts/reports.test.mjs",
+    "test:theme": "node --test scripts/theme.test.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.1.0",

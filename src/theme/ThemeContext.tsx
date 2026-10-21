@@ -13,6 +13,8 @@ import { useAuth } from "../auth/AuthContext";
 import { userThemeService } from "../services/userThemeService";
 import {
   applyTheme,
+  getInitialThemePreference,
+  rememberThemePreference,
   resolveTheme,
   SYSTEM_THEME_QUERY,
   type ResolvedTheme,
@@ -55,10 +57,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const scopeRef = useRef<ThemeRequestScope | null>(null);
   const [account, setAccount] = useState<AccountTheme | null>(null);
   const [reloadIndex, setReloadIndex] = useState(0);
+  const [initialTheme, setInitialTheme] = useState(getInitialThemePreference);
   const [systemDark, setSystemDark] = useState(() => window.matchMedia(SYSTEM_THEME_QUERY).matches);
 
   const current = account?.userId === userId ? account : null;
-  const theme = current?.theme ?? "light";
+  const theme = current?.status === "ready" ? current.theme : initialTheme;
   const isLoading = !authLoading && (!current || current.status === "loading");
   const isReady = userId !== null && current?.status === "ready";
   const isSaving = current?.isSaving ?? false;
@@ -71,7 +74,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useLayoutEffect(() => {
     applyTheme(resolvedTheme);
-  }, [resolvedTheme]);
+    if (current?.status === "ready" && !current.isSaving) {
+      rememberThemePreference(theme);
+      setInitialTheme(theme);
+    }
+  }, [resolvedTheme, theme, current?.status, current?.isSaving]);
 
   useEffect(() => {
     if (authLoading) {

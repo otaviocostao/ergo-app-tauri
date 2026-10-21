@@ -29,8 +29,9 @@ function AnonymousOnly() {
 export default function AppRoutes() {
   const { loading } = useAuth();
   const { isLoading: themeLoading } = useTheme();
-  if (loading) return <div className="min-h-screen flex items-center justify-center" role="status">Abrindo Ergo…</div>;
-  if (themeLoading) return <div className="min-h-screen flex items-center justify-center" role="status">Carregando sua aparência…</div>;
+  if (loading || themeLoading) {
+    return <PageLoading fullScreen />;
+  }
   return (
     <Routes>
       <Route element={<AnonymousOnly />}>
