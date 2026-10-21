@@ -53,7 +53,6 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const { session, loading: authLoading } = useAuth();
   const userId = session.kind === "authenticated" ? session.user.id : null;
-  const userIdRef = useRef(userId);
   const scopeRef = useRef<ThemeRequestScope | null>(null);
   const [account, setAccount] = useState<AccountTheme | null>(null);
   const [reloadIndex, setReloadIndex] = useState(0);
@@ -69,10 +68,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const resolvedTheme = resolveTheme(theme, systemDark);
 
   useLayoutEffect(() => {
-    userIdRef.current = userId;
-  }, [userId]);
-
-  useLayoutEffect(() => {
     applyTheme(resolvedTheme);
     if (current?.status === "ready" && !current.isSaving) {
       rememberThemePreference(theme);
@@ -80,10 +75,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   }, [resolvedTheme, theme, current?.status, current?.isSaving]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (authLoading) {
       scopeRef.current = null;
-      setAccount(null);
       return;
     }
 
@@ -95,6 +89,23 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       savedTheme: "light",
     };
     scopeRef.current = scope;
+
+    return () => {
+      // Invalidate at commit time, before an old promise can update the next account.
+      scope.active = false;
+      if (scopeRef.current === scope) {
+        scopeRef.current = null;
+      }
+    };
+  }, [authLoading, userId, reloadIndex]);
+
+  useEffect(() => {
+    const scope = scopeRef.current;
+    if (!scope) {
+      setAccount(null);
+      return;
+    }
+
     setAccount({
       userId,
       theme: "light",
@@ -103,8 +114,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       error: "",
     });
 
-    const isCurrent = () =>
-      scope.active && scopeRef.current === scope && userIdRef.current === userId;
+    const isCurrent = () => scope.active && scopeRef.current === scope;
 
     const request =
       userId === null
@@ -134,10 +144,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           error: "Não foi possível carregar sua preferência de tema. Tente novamente.",
         });
       });
-
-    return () => {
-      scope.active = false;
-    };
   }, [authLoading, userId, reloadIndex]);
 
   useEffect(() => {
@@ -162,7 +168,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         !scope.ready ||
         scope.saving ||
         scope.userId !== userId ||
-        userIdRef.current !== userId ||
         scope.savedTheme === preference
       ) {
         return;
@@ -177,8 +182,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         error: "",
       });
 
-      const isCurrent = () =>
-        scope.active && scopeRef.current === scope && userIdRef.current === scope.userId;
+      const isCurrent = () => scope.active && scopeRef.current === scope;
 
       try {
         const saved = await userThemeService.updatePreference(preference);
