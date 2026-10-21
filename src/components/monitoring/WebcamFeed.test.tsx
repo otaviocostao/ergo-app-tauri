@@ -6,6 +6,12 @@ import WebcamFeed from "./WebcamFeed";
 import { poseDetector, POSE_LANDMARK_INDEX as INDEX, type LandmarkPoint, type VisionDetectionResult } from "../../services/vision";
 import * as biomechanics from "../../services/vision/biomechanics";
 
+function faceMatrix(pitch: number) {
+  const radians = pitch * Math.PI / 180;
+  const c = Math.cos(radians), s = Math.sin(radians);
+  return { rows: 4, columns: 4, data: [1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, -50, 1] };
+}
+
 function upright(): LandmarkPoint[] {
   const points = Array.from({ length: 33 }, () => ({ x: 0, y: 0, z: 0, visibility: 0 }));
   for (const [index, x, y] of [
@@ -20,6 +26,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   let mounted: boolean;
   let container: HTMLDivElement;
   let landmarks: LandmarkPoint[] | null;
+  let faceTransformationMatrix: ReturnType<typeof faceMatrix> | null;
   let previewWidth: number;
   let previewHeight: number;
   let drawnFrames: { segments: number; points: number }[];
@@ -58,6 +65,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     vi.useFakeTimers();
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     landmarks = upright();
+    faceTransformationMatrix = faceMatrix(0);
     previewWidth = 800;
     previewHeight = 450;
     drawnFrames = [];
@@ -88,8 +96,8 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     vi.spyOn(poseDetector, "isReady").mockReturnValue(true);
     vi.spyOn(poseDetector, "initialize").mockResolvedValue();
     vi.spyOn(poseDetector, "detectFrame").mockImplementation((): VisionDetectionResult => ({
-      hasPose: landmarks !== null, poseLandmarks: landmarks, hasFace: false,
-      faceLandmarks: null, worldLandmarks: null, timestamp: performance.now(),
+      hasPose: landmarks !== null, poseLandmarks: landmarks, hasFace: faceTransformationMatrix !== null,
+      faceLandmarks: null, faceTransformationMatrix, worldLandmarks: null, timestamp: performance.now(),
     }));
     vi.spyOn(biomechanics, "calculateNeckAngle");
     vi.spyOn(biomechanics, "calculateShoulderBalance");
@@ -120,6 +128,32 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     previewWidth = 200; previewHeight = 700;
     await advance(500);
     expect(update.mock.lastCall?.[0]).toMatchObject({ neckAngle: 30, shoulderBalance: 50 });
+  });
+
+  it.each([-80, -45, 45, 80])("detects vertical head rotation of %s degrees even with a centered 2D neck vector", async (pitch) => {
+    faceTransformationMatrix = faceMatrix(pitch);
+    expect(biomechanics.calculateNeckAngle({ x: 0.5, y: 0.2 }, { x: 0.5, y: 0.3 }, { x: 0.5, y: 0.6 })).toBe(0);
+    await render(); await advance(200);
+    expect(update.mock.lastCall?.[0]).toMatchObject({ neckAngle: Math.abs(pitch), status: "danger", presence: "ACTIVE" });
+  });
+
+  it("does not cancel opposite vertical deviations during smoothing and recovers when facing forward", async () => {
+    faceTransformationMatrix = faceMatrix(50);
+    await render(); await advance(200);
+    faceTransformationMatrix = faceMatrix(-50); await advance(500);
+    expect(update.mock.lastCall?.[0]).toMatchObject({ neckAngle: 50, status: "danger" });
+    faceTransformationMatrix = faceMatrix(0); await advance(3000);
+    expect(update.mock.lastCall?.[0]).toMatchObject({ neckAngle: 0, status: "good" });
+  });
+
+  it.each(["missing face", "invalid matrix"])("pauses instead of reporting good posture with %s, then reacquires a tilted head", async (scenario) => {
+    await render(); await advance(200); update.mockClear();
+    faceTransformationMatrix = scenario === "missing face" ? null : { rows: 4, columns: 4, data: Array(16).fill(0) };
+    await advance(5500);
+    expect(update).not.toHaveBeenCalled();
+    expect(presence.mock.lastCall?.[0]).toBe("PARTIALLY_OCCLUDED");
+    faceTransformationMatrix = faceMatrix(60); await advance(100);
+    expect(update.mock.lastCall?.[0]).toMatchObject({ neckAngle: 60, status: "danger", presence: "ACTIVE" });
   });
 
   it("limits inference to approximately eleven frames per second", async () => {
