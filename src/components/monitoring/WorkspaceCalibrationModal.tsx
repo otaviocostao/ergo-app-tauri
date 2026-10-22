@@ -2,6 +2,18 @@ import { useState, useEffect, useRef } from "react";
 import Modal from "../Modal";
 import Button from "../Button";
 import Select from "../Select";
+import chairHeightGif from "../../assets/calibration/chair-height.gif";
+import chairHeightStill from "../../assets/calibration/chair-height-still.png";
+import notebookSetupGif from "../../assets/calibration/notebook-setup.gif";
+import notebookSetupStill from "../../assets/calibration/notebook-setup-still.png";
+import deskHeightGif from "../../assets/calibration/desk-height.gif";
+import deskHeightStill from "../../assets/calibration/desk-height-still.png";
+import monitorHeightGif from "../../assets/calibration/monitor-height.gif";
+import monitorHeightStill from "../../assets/calibration/monitor-height-still.png";
+import monitorDistanceGif from "../../assets/calibration/monitor-distance.gif";
+import monitorDistanceStill from "../../assets/calibration/monitor-distance-still.png";
+import webcamPositionGif from "../../assets/calibration/webcam-position.gif";
+import webcamPositionStill from "../../assets/calibration/webcam-position-still.png";
 import { workspaceService, type CreateWorkspacePayload } from "../../services/workspaceService";
 import {
   CheckCircle2,
@@ -25,6 +37,7 @@ export interface SetupStep {
   title: string;
   description: string;
   imageSrc?: string;
+  imageStillSrc?: string;
   imageAlt?: string;
 }
 
@@ -62,24 +75,40 @@ export default function WorkspaceCalibrationModal({
     {
       id: 1,
       title: "1. Ajuste da Cadeira",
+      imageSrc: chairHeightGif,
+      imageStillSrc: chairHeightStill,
+      imageAlt:
+        "Ajuste da altura da cadeira: pessoa vista de lado, com os pés apoiados no chão e os joelhos formando um ângulo de 90 graus.",
       description:
         "O primeiro passo para começar a ajustar seu ambiente de trabalho é certificar-se de que sua cadeira está na altura ideal. O esperado é que a altura dela permita que seus pés toquem o chão ou a base de apoio, formando um ângulo de 90 graus nos seus joelhos. Isso fará com que você fique bem apoiado.",
     },
     {
       id: 2,
       title: "2. Altura da Mesa e Cotovelos",
+      imageSrc: deskHeightGif,
+      imageStillSrc: deskHeightStill,
+      imageAlt:
+        "Ajuste da mesa ou da cadeira para manter os cotovelos a 90 graus, com apoio para os pés quando a cadeira é elevada.",
       description:
         "O segundo passo é avaliar a altura da mesa. O ideal é que seus cotovelos formem um ângulo de 90 graus. Se possível, ajuste a altura da mesa; caso não consiga, ajuste a altura da cadeira para cima ou para baixo. Se a cadeira ficar alta para atingir a angulação ideal, utilize um apoio para os pés.",
     },
     {
       id: 3,
       title: "3. Altura do Monitor",
+      imageSrc: monitorHeightGif,
+      imageStillSrc: monitorHeightStill,
+      imageAlt:
+        "Monitor ou notebook sobre suporte sendo elevado até o topo da tela se alinhar à altura dos olhos.",
       description:
         "O terceiro passo é ajustar a altura do seu monitor. O ideal é que a parte superior da tela fique na altura dos seus olhos; para isso, ajuste a base para cima ou para baixo. Caso você utilize notebook no seu ambiente de trabalho, recomendamos utilizar uma base para não deixá-lo muito baixo.",
     },
     {
       id: 4,
       title: "4. Distância do Monitor",
+      imageSrc: monitorDistanceGif,
+      imageStillSrc: monitorDistanceStill,
+      imageAlt:
+        "Monitor afastado sobre a mesa ou aproximado por um suporte articulado até ficar a cerca de um braço de distância, entre 50 e 70 centímetros.",
       description:
         "O quarto passo é ajustar a distância do seu monitor. O ideal é que ele fique a um braço de distância de você (cerca de 50 a 70 centímetros). Ajuste-o para a frente ou para trás na sua mesa ou mova o suporte articulado para a distância recomendada.",
     },
@@ -88,6 +117,10 @@ export default function WorkspaceCalibrationModal({
   const notebookStep: SetupStep = {
     id: 5,
     title: "Recomendação para Notebook",
+    imageSrc: notebookSetupGif,
+    imageStillSrc: notebookSetupStill,
+    imageAlt:
+      "Notebook elevado sobre um suporte, com teclado e mouse externos apoiados na mesa.",
     description:
       "Como você utiliza um notebook/laptop para trabalhar, recomendamos utilizar teclado e mouse externos. Também é recomendado utilizar um suporte para apoiar e regular a altura ou conectar a um monitor externo.",
   };
@@ -95,6 +128,10 @@ export default function WorkspaceCalibrationModal({
   const poorlyPositionedWebcamStep: SetupStep = {
     id: 6,
     title: "Posicionamento da Webcam",
+    imageSrc: webcamPositionGif,
+    imageStillSrc: webcamPositionStill,
+    imageAlt:
+      "Webcam movida da lateral para o centro do monitor, alinhada ao rosto da pessoa, com cabeça e ombros enquadrados na prévia.",
     description:
       "Você informou que sua webcam não está em frente a você. Isso pode dificultar a análise postural. Se possível, ajuste a posição da sua câmera para que ela fique alinhada diretamente em frente a você.",
   };
@@ -488,13 +525,21 @@ export default function WorkspaceCalibrationModal({
                 {currentStep.description}
               </p>
 
-              <div className="w-full flex-1 min-h-[300px] max-h-[350px] bg-slate-200 dark:bg-slate-800 rounded-xl border border-slate-300/70 dark:border-slate-700 flex flex-col items-center justify-center relative overflow-hidden group shadow-inner">
+              <div className={`w-full flex-1 min-h-[300px] max-h-[350px] ${currentStep.imageSrc ? "bg-[#f5faf9]" : "bg-slate-200 dark:bg-slate-800"} rounded-xl border border-slate-300/70 dark:border-slate-700 flex flex-col items-center justify-center relative overflow-hidden group shadow-inner`}>
                 {currentStep.imageSrc ? (
-                  <img
-                    src={currentStep.imageSrc}
-                    alt={currentStep.imageAlt || currentStep.title}
-                    className="w-full h-full object-cover rounded-xl"
-                  />
+                  <picture className="absolute inset-0 block">
+                    {currentStep.imageStillSrc && (
+                      <source
+                        media="(prefers-reduced-motion: reduce)"
+                        srcSet={currentStep.imageStillSrc}
+                      />
+                    )}
+                    <img
+                      src={currentStep.imageSrc}
+                      alt={currentStep.imageAlt || currentStep.title}
+                      className="w-full h-full object-contain rounded-xl"
+                    />
+                  </picture>
                 ) : (
                   <div className="flex flex-col items-center gap-2.5 text-slate-400 dark:text-slate-500 p-6 text-center select-none">
                     <div className="p-3.5 rounded-full bg-slate-300/50 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400">
