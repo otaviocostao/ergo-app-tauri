@@ -12,6 +12,8 @@ import monitorHeightGif from "../../assets/calibration/monitor-height.gif";
 import monitorHeightStill from "../../assets/calibration/monitor-height-still.png";
 import monitorDistanceGif from "../../assets/calibration/monitor-distance.gif";
 import monitorDistanceStill from "../../assets/calibration/monitor-distance-still.png";
+import webcamPositionGif from "../../assets/calibration/webcam-position.gif";
+import webcamPositionStill from "../../assets/calibration/webcam-position-still.png";
 import { workspaceService, type CreateWorkspacePayload } from "../../services/workspaceService";
 import {
   CheckCircle2,
@@ -126,6 +128,10 @@ export default function WorkspaceCalibrationModal({
   const poorlyPositionedWebcamStep: SetupStep = {
     id: 6,
     title: "Posicionamento da Webcam",
+    imageSrc: webcamPositionGif,
+    imageStillSrc: webcamPositionStill,
+    imageAlt:
+      "Webcam movida da lateral para o centro do monitor, alinhada ao rosto da pessoa, com cabeça e ombros enquadrados na prévia.",
     description:
       "Você informou que sua webcam não está em frente a você. Isso pode dificultar a análise postural. Se possível, ajuste a posição da sua câmera para que ela fique alinhada diretamente em frente a você.",
   };
