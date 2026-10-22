@@ -1,6 +1,6 @@
 from PIL import Image
 
-from generate_calibration_chair import Canvas, GREEN, HEIGHT, INK, MUTED, SKIN, WIDTH
+from generate_calibration_chair import Canvas, GREEN, HEIGHT, INK, MUTED, SKIN, WIDTH, check
 
 
 FACE_CENTER_X = 714
@@ -67,7 +67,10 @@ def draw_webcam(canvas, center):
     canvas.ellipse((center + 23, 94, center + 27, 98), GREEN)
 
 
-def render():
+def render(progress=0):
+    progress = max(0, min(1, progress))
+    camera_center = INITIAL_CAMERA_X + (FACE_CENTER_X - INITIAL_CAMERA_X) * progress
+    settled = progress >= 1
     canvas = Canvas()
     canvas.box((44, 42, 323, 71), "#e4f2ee", 14)
     canvas.text((58, 47), "POSICIONAMENTO DA WEBCAM", 11, GREEN, True)
@@ -75,13 +78,22 @@ def render():
     canvas.text((44, 143), "webcam.", 37, INK, True)
     canvas.text((46, 210), "Posicione a câmera diretamente", 17, MUTED)
     canvas.text((46, 236), "à sua frente, alinhada ao rosto.", 17, MUTED)
-    canvas.box((44, 295, 330, 337), "#e7efef", 21)
-    canvas.text((65, 304), "Ajuste a posição da câmera", 16, INK, True)
+    if settled:
+        canvas.box((44, 295, 330, 337), "#def3ea", 21)
+        check(canvas, 63, 309)
+        canvas.text((90, 304), "Webcam à sua frente", 16, GREEN, True)
+    else:
+        canvas.box((44, 295, 330, 337), "#e7efef", 21)
+        canvas.text((65, 304), "Mova a câmera para o centro", 16, INK, True)
 
     canvas.ellipse((474, 31, 930, 373), "#e7f3ef")
     canvas.ellipse((548, 344, 895, 369), "#dce9e5")
     canvas.box((492, 353, 934, 366), "#adcac2", 6)
     canvas.box((498, 353, 928, 358), "#d0e4dc", 3)
     draw_monitor(canvas)
-    draw_webcam(canvas, INITIAL_CAMERA_X)
+    draw_webcam(canvas, camera_center)
+    if camera_center - FACE_CENTER_X > 20:
+        canvas.line([(camera_center, 61), (FACE_CENTER_X, 61)], GREEN, 3, True)
+        canvas.line([(FACE_CENTER_X + 8, 53), (FACE_CENTER_X, 61),
+                     (FACE_CENTER_X + 8, 69)], GREEN, 3, True)
     return canvas.image.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
