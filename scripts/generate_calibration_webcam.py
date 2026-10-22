@@ -1,8 +1,16 @@
+"""Generate the webcam calibration GIF with a continuous shoulder silhouette.
+
+Run: python scripts/generate_calibration_webcam.py
+Requires Pillow and generate_calibration_chair.py in the same directory.
+"""
+
 from pathlib import Path
 
 from PIL import Image
 
-from generate_calibration_chair import BG, Canvas, GREEN, HEIGHT, INK, MUTED, SKIN, WIDTH, check, ease
+from generate_calibration_chair import (
+    BG, Canvas, GREEN, HEIGHT, INK, MUTED, SKIN, WIDTH, check, ease,
+)
 
 
 FACE_CENTER_X = 714
@@ -11,23 +19,95 @@ OUTPUT = Path(__file__).resolve().parents[1] / "src" / "assets" / "calibration"
 
 
 def draw_portrait(canvas):
-    # A frontal preview makes the relationship between face and camera clear.
-    canvas.box((703, 207, 725, 239), SKIN, 6)
+    """Draw a centered adult with connected shoulders and relaxed forearms.
+
+    Both sides share mirrored geometry. Arms sit behind the shirt, whose
+    single outline contains the shoulders and sleeves without capsule caps.
+    Coordinates use the existing Canvas API and the original portrait scale.
+    """
+    shirt = "#47ac98"
+    shirt_shadow = "#359a89"
+    shirt_light = "#5bb9a5"
+    skin_shadow = "#c58b68"
+
+    def mirrored(commands):
+        return [
+            (command[0], *(
+                2 * FACE_CENTER_X - value if index % 2 == 0 else value
+                for index, value in enumerate(command[1:])
+            ))
+            for command in commands
+        ]
+
+    # Upper arms emerge from the cuffs; elbows and wrists share a baseline.
+    # A filled outline gives a smooth elbow without a circular end cap.
+    arm = [
+        ("M", 655, 256), ("L", 673, 257), ("L", 673, 276),
+        ("C", 673, 279, 675, 280, 678, 280),
+        ("L", 694, 280), ("L", 694, 292), ("L", 666, 292),
+        ("C", 658, 292, 655, 287, 655, 280),
+        ("L", 655, 256),
+    ]
+    for commands in (arm, mirrored(arm)):
+        canvas.path(commands, SKIN)
+
+    # Neck is shorter and visibly supported by the neckline and trapezius.
     canvas.path([
-        ("M", 658, 310), ("L", 659, 268),
-        ("C", 659, 242, 677, 230, 702, 226),
-        ("C", 707, 236, 721, 236, 726, 226),
-        ("C", 751, 230, 771, 242, 771, 268),
-        ("L", 772, 310),
-    ], "#47ac98")
+        ("M", 704, 198), ("L", 724, 198), ("L", 725, 217),
+        ("C", 724, 225, 704, 225, 703, 217),
+        ("L", 704, 198),
+    ], SKIN)
     canvas.path([
-        ("M", 659, 268), ("C", 663, 285, 667, 301, 681, 310),
-        ("L", 658, 310),
-    ], "#359a89")
-    canvas.box((661, 268, 679, 310), SKIN, 8)
-    canvas.box((751, 268, 769, 310), SKIN, 8)
-    canvas.box((657, 246, 683, 280), "#5bb9a5", 10)
-    canvas.box((747, 246, 773, 280), "#5bb9a5", 10)
+        ("M", 704, 201), ("C", 710, 207, 718, 209, 724, 202),
+        ("L", 724, 208), ("C", 718, 213, 709, 212, 704, 208),
+    ], skin_shadow)
+
+    # ONE silhouette: neckline -> sloping shoulders -> sleeves -> torso.
+    # The shoulder starts at the neck instead of a separate rounded sleeve.
+    canvas.path([
+        ("M", 703, 216),
+        ("C", 696, 219, 686, 221, 676, 226),
+        ("C", 662, 231, 655, 239, 653, 249),
+        ("L", 651, 262), ("L", 674, 265),
+        ("L", 678, 253), ("L", 678, 296),
+        ("C", 700, 298, 728, 298, 750, 296),
+        ("L", 750, 253), ("L", 754, 265),
+        ("L", 777, 262), ("L", 775, 249),
+        ("C", 773, 239, 766, 231, 752, 226),
+        ("C", 742, 221, 732, 219, 725, 216),
+        ("C", 723, 227, 705, 227, 703, 216),
+    ], shirt)
+
+    # Subtle sleeve shading follows the shoulder slope, without a hard cap.
+    sleeve = [
+        ("M", 676, 226),
+        ("C", 662, 231, 655, 239, 653, 249),
+        ("L", 651, 262), ("L", 674, 265),
+        ("L", 678, 253),
+        ("C", 680, 244, 680, 234, 676, 226),
+    ]
+    for commands in (sleeve, mirrored(sleeve)):
+        canvas.path(commands, shirt_light)
+
+    # Soft folds remain inside the torso and do not split the shoulders.
+    fold = [
+        ("M", 678, 253), ("C", 679, 267, 681, 284, 686, 296),
+        ("L", 678, 296), ("L", 678, 253),
+    ]
+
+    for commands in (fold, mirrored(fold)):
+        canvas.path(commands, shirt_shadow)
+
+    # Forearms and hands rest in front of the shirt, connected to both elbows.
+    forearm = [
+        ("M", 666, 280), ("L", 694, 280),
+        ("C", 698, 278, 704, 278, 708, 280),
+        ("C", 711, 282, 711, 290, 708, 292),
+        ("C", 704, 294, 698, 294, 694, 292),
+        ("L", 666, 292),
+    ]
+    for commands in (forearm, mirrored(forearm)):
+        canvas.path(commands, SKIN)
 
     canvas.ellipse((685, 178, 695, 195), "#d0926e")
     canvas.ellipse((733, 178, 743, 195), "#d0926e")
