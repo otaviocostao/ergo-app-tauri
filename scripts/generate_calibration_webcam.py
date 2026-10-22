@@ -1,10 +1,13 @@
+from pathlib import Path
+
 from PIL import Image
 
-from generate_calibration_chair import Canvas, GREEN, HEIGHT, INK, MUTED, SKIN, WIDTH, check
+from generate_calibration_chair import BG, Canvas, GREEN, HEIGHT, INK, MUTED, SKIN, WIDTH, check, ease
 
 
 FACE_CENTER_X = 714
 INITIAL_CAMERA_X = 854
+OUTPUT = Path(__file__).resolve().parents[1] / "src" / "assets" / "calibration"
 
 
 def draw_portrait(canvas):
@@ -120,3 +123,43 @@ def render(progress=0):
         canvas.line([(FACE_CENTER_X + 8, 53), (FACE_CENTER_X, 61),
                      (FACE_CENTER_X + 8, 69)], GREEN, 3, True)
     return canvas.image.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
+
+
+def main():
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    start = render()
+    still = render(1)
+    still.save(OUTPUT / "webcam-position-still.png", optimize=True)
+
+    # A shared palette keeps the portrait stable while the webcam moves.
+    palette_source = Image.new("RGB", (WIDTH, HEIGHT * 3), BG)
+    for index, scene in enumerate((start, render(0.5), still)):
+        palette_source.paste(scene, (0, HEIGHT * index))
+    palette = palette_source.quantize(colors=192, method=Image.Quantize.MEDIANCUT)
+
+    blank = Image.new("RGB", start.size, BG)
+    frames = []
+    for index in range(100):
+        time = index * 0.08
+        if time < 6.88:
+            frame = render(ease((time - 0.8) / 2.4))
+        elif time < 7.44:
+            frame = Image.blend(still, blank, ease((time - 6.88) / 0.56))
+        else:
+            frame = Image.blend(blank, start, ease((time - 7.44) / 0.56))
+        frames.append(frame.quantize(palette=palette, dither=Image.Dither.NONE))
+
+    path = OUTPUT / "webcam-position.gif"
+    frames[0].save(path, save_all=True, append_images=frames[1:],
+                   duration=80, loop=0, disposal=1, optimize=True)
+    with Image.open(path) as gif:
+        duration = 0
+        for index in range(gif.n_frames):
+            gif.seek(index)
+            duration += gif.info["duration"]
+        print(f"{path.name}: {gif.n_frames} frames, {duration / 1000:.2f}s, "
+              f"{path.stat().st_size / 1024:.0f} KiB")
+
+
+if __name__ == "__main__":
+    main()
