@@ -67,6 +67,28 @@ def draw_webcam(canvas, center):
     canvas.ellipse((center + 23, 94, center + 27, 98), GREEN)
 
 
+def draw_alignment_guides(canvas, settled):
+    color = GREEN if settled else "#95b9ae"
+    # Mark the central axis without covering the eyes, nose or mouth.
+    for start, end in ((124, 139), (220, 235), (283, 301)):
+        for y in range(start, end, 7):
+            canvas.line([(FACE_CENTER_X, y), (FACE_CENTER_X, min(y + 3, end))], color, 2)
+
+    # Corner brackets frame the head and shoulders inside the camera preview.
+    for points in (
+        [(641, 151), (641, 133), (659, 133)],
+        [(769, 133), (787, 133), (787, 151)],
+        [(641, 287), (641, 305), (659, 305)],
+        [(769, 305), (787, 305), (787, 287)],
+    ):
+        canvas.line(points, color, 2.5, True)
+
+    if settled:
+        canvas.ellipse((FACE_CENTER_X - 3, 127, FACE_CENTER_X + 3, 133), GREEN)
+        canvas.box((805, 133, 888, 157), "#def3ea", 11)
+        canvas.text((817, 138), "ALINHADA", 10, GREEN, True)
+
+
 def render(progress=0):
     progress = max(0, min(1, progress))
     camera_center = INITIAL_CAMERA_X + (FACE_CENTER_X - INITIAL_CAMERA_X) * progress
@@ -91,6 +113,7 @@ def render(progress=0):
     canvas.box((492, 353, 934, 366), "#adcac2", 6)
     canvas.box((498, 353, 928, 358), "#d0e4dc", 3)
     draw_monitor(canvas)
+    draw_alignment_guides(canvas, settled)
     draw_webcam(canvas, camera_center)
     if camera_center - FACE_CENTER_X > 20:
         canvas.line([(camera_center, 61), (FACE_CENTER_X, 61)], GREEN, 3, True)
