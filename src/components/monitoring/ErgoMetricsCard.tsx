@@ -1,6 +1,6 @@
 import { LucideIcon, TrendingUp, TrendingDown, Minus, Info } from "lucide-react";
 
-export type MetricStatus = "good" | "warning" | "danger" | "info";
+export type MetricStatus = "good" | "warning" | "danger" | "info" | "paused";
 
 export interface ErgoMetricsCardProps {
   title: string;
@@ -14,6 +14,7 @@ export interface ErgoMetricsCardProps {
   description?: string;
   details?: { label: string; value: string }[];
   className?: string;
+  isPaused?: boolean;
 }
 
 export default function ErgoMetricsCard({
@@ -28,11 +29,11 @@ export default function ErgoMetricsCard({
   description,
   details,
   className = "",
+  isPaused = false,
 }: ErgoMetricsCardProps) {
   const statusStyles: Record<MetricStatus, { bg: string; text: string; badgeBg: string; badgeText: string; progressBg: string }> = {
     good: {
       bg: "bg-emerald-50/50 dark:bg-emerald-950/20",
-
       text: "text-emerald-600 dark:text-emerald-400",
       badgeBg: "bg-emerald-100 dark:bg-emerald-900/50",
       badgeText: "text-emerald-700 dark:text-emerald-300",
@@ -40,7 +41,6 @@ export default function ErgoMetricsCard({
     },
     warning: {
       bg: "bg-amber-50/50 dark:bg-amber-950/20",
-
       text: "text-amber-600 dark:text-amber-400",
       badgeBg: "bg-amber-100 dark:bg-amber-900/50",
       badgeText: "text-amber-700 dark:text-amber-300",
@@ -60,9 +60,16 @@ export default function ErgoMetricsCard({
       badgeText: "text-sky-700 dark:text-sky-300",
       progressBg: "bg-sky-500",
     },
+    paused: {
+      bg: "bg-slate-50/50 dark:bg-slate-900/30",
+      text: "text-slate-400 dark:text-slate-500",
+      badgeBg: "bg-slate-100 dark:bg-slate-800",
+      badgeText: "text-slate-500 dark:text-slate-400",
+      progressBg: "bg-slate-300 dark:bg-slate-700",
+    },
   };
 
-  const style = statusStyles[status];
+  const style = isPaused ? statusStyles.paused : statusStyles[status];
 
   return (
     <div
@@ -98,7 +105,7 @@ export default function ErgoMetricsCard({
           </div>
         </div>
 
-        {trend && (
+        {!isPaused && trend && (
           <div className="ml-auto flex items-center gap-1 text-xs font-medium text-slate-500 dark:text-slate-400">
             {trend === "improving" && (
               <span className="flex items-center text-emerald-600 dark:text-emerald-400">
@@ -120,10 +127,16 @@ export default function ErgoMetricsCard({
       </div>
 
       <div className="flex items-baseline gap-1.5 my-2">
-        <span className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
-          {value}
+        <span
+          className={`text-xl font-bold tracking-tight ${
+            isPaused ? "text-slate-400 dark:text-slate-600" : "text-slate-900 dark:text-white"
+          }`}
+        >
+          {isPaused ? "--" : value}
         </span>
-        {unit && <span className="text-sm font-medium text-slate-500 dark:text-slate-400">{unit}</span>}
+        {!isPaused && unit && (
+          <span className="text-sm font-medium text-slate-500 dark:text-slate-400">{unit}</span>
+        )}
       </div>
 
       {typeof progress === "number" && (
@@ -131,7 +144,7 @@ export default function ErgoMetricsCard({
           <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
             <div
               className={`h-full transition-all duration-500 ease-out ${style.progressBg}`}
-              style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+              style={{ width: isPaused ? "0%" : `${Math.min(100, Math.max(0, progress))}%` }}
             />
           </div>
         </div>
@@ -142,7 +155,13 @@ export default function ErgoMetricsCard({
           {details.map((d, i) => (
             <div key={i} className="flex flex-col">
               <span className="text-slate-400 dark:text-slate-500">{d.label}</span>
-              <span className="font-medium text-slate-700 dark:text-slate-300">{d.value}</span>
+              <span
+                className={`font-medium ${
+                  isPaused ? "text-slate-400 dark:text-slate-600" : "text-slate-700 dark:text-slate-300"
+                }`}
+              >
+                {isPaused ? "--" : d.value}
+              </span>
             </div>
           ))}
         </div>

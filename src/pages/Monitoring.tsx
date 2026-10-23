@@ -15,15 +15,19 @@ import {
   VolumeX,
 } from "lucide-react";
 
+import type { UserPresenceState } from "../types/vision";
+
 export default function Monitoring() {
   const [isMonitoring, setIsMonitoring] = useState(true);
   const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [soundAlerts, setSoundAlerts] = useState(true);
   const [neckAngle, setNeckAngle] = useState(12);
   const [shoulderBalance, setShoulderBalance] = useState(96);
   const [distanceCm, setDistanceCm] = useState(62);
   const [postureStatus, setPostureStatus] = useState<"good" | "warning" | "danger">("good");
   const [statusText, setStatusText] = useState("Postura Excelente");
+  const [userPresence, setUserPresence] = useState<UserPresenceState>("ACTIVE");
 
   // Session logs list
   const [logs, setLogs] = useState<LogEvent[]>([
@@ -56,12 +60,52 @@ export default function Monitoring() {
     distanceCm: number;
     status: "good" | "warning" | "danger";
     statusLabel: string;
+    presence?: UserPresenceState;
   }) => {
+    if (metrics.presence) {
+      setUserPresence(metrics.presence);
+    }
     setNeckAngle(metrics.neckAngle);
     setShoulderBalance(metrics.shoulderBalance);
     setDistanceCm(metrics.distanceCm);
     setPostureStatus(metrics.status);
     setStatusText(metrics.statusLabel);
+  };
+
+  const handlePresenceChange = (presence: UserPresenceState) => {
+    setUserPresence(presence);
+    if (presence === "ABSENT") {
+      const newLog: LogEvent = {
+        id: Date.now().toString(),
+        timestamp: new Date().toLocaleTimeString(),
+        type: "warning",
+        message: "Usuário ausente do posto de trabalho",
+        detail: "Nenhuma landmark corporal detectada há mais de 5s. Métricas pausadas.",
+      };
+      setLogs((prev) => [newLog, ...prev]);
+    } else if (presence === "ACTIVE") {
+      const newLog: LogEvent = {
+        id: Date.now().toString(),
+        timestamp: new Date().toLocaleTimeString(),
+        type: "info",
+        message: "Usuário presente",
+        detail: "Rastreamento corporal e análise postural ativos.",
+      };
+      setLogs((prev) => [newLog, ...prev]);
+    }
+  };
+
+  const handleHardwareBusyChange = (isBusy: boolean) => {
+    if (isBusy) {
+      const newLog: LogEvent = {
+        id: Date.now().toString(),
+        timestamp: new Date().toLocaleTimeString(),
+        type: "warning",
+        message: "Câmera solicitada por outro aplicativo",
+        detail: "Concorrência de hardware detectada (Meet, Teams, Zoom). Captura pausada.",
+      };
+      setLogs((prev) => [newLog, ...prev]);
+    }
   };
 
   const handleCalibrateSubmit = () => {
@@ -88,6 +132,8 @@ export default function Monitoring() {
       )
     )
   );
+
+  const isPaused = !isMonitoring || userPresence === "ABSENT";
 
   return (
     <div className="w-full h-full flex flex-col gap-6 pb-8">
@@ -117,6 +163,9 @@ export default function Monitoring() {
             onToggleMonitoring={() => setIsMonitoring(!isMonitoring)}
             onCalibrate={() => setIsCalibrationOpen(true)}
             onPostureUpdate={handlePostureUpdate}
+            onPresenceChange={handlePresenceChange}
+            onHardwareBusyChange={handleHardwareBusyChange}
+            onStreamChange={setCameraStream}
           />
 
           <KeyboardMonitorCard
@@ -139,32 +188,65 @@ export default function Monitoring() {
               <div className="flex gap-2">
                 <h2 className="text-base font-bold text-white">Resumo da sua ergonomia</h2>
                 <span
-                  className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${healthScore >= 85
-                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                    : healthScore >= 70
-                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                      : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
-                    }`}
+                  className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                    isPaused
+                      ? "bg-slate-800 text-slate-400 border border-slate-700"
+                      : healthScore >= 85
+                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                        : healthScore >= 70
+                          ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                          : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                  }`}
                 >
-                  {healthScore >= 85 ? "Excelente" : healthScore >= 70 ? "Atenção" : "Crítico"}
+                  {!isMonitoring
+                    ? "Pausado"
+                    : userPresence === "ABSENT"
+                      ? "Ausente (Pausado)"
+                      : healthScore >= 85
+                        ? "Excelente"
+                        : healthScore >= 70
+                          ? "Atenção"
+                          : "Crítico"}
                 </span>
               </div>
             </div>
             <div className="flex">
               <p className="text-xs text-slate-300 mt-1 sm:pr-6">
-                {healthScore >= 85
-                  ? "Sua coluna e pescoço estão alinhados dentro das diretrizes ideais."
-                  : "Ajuste sua inclinação do pescoço ou altura da tela para melhorar sua postura."}
+                {!isMonitoring
+                  ? "O monitoramento está pausado. Inicie o monitoramento para visualizar a análise postural e métricas em tempo real."
+                  : userPresence === "ABSENT"
+                    ? "Nenhum usuário detectado há mais de 5 segundos. O cálculo de métricas e gráficos está pausado até o seu retorno."
+                    : healthScore >= 85
+                      ? "Sua coluna e pescoço estão alinhados dentro das diretrizes ideais."
+                      : "Ajuste sua inclinação do pescoço ou altura da tela para melhorar sua postura."}
               </p>
 
               <div className="flex items-center gap-6 text-xs text-slate-300 shrink-0 border-t sm:border-t-0 sm:border-l border-slate-700/60 pt-3 sm:pt-0 sm:pl-6 w-full sm:w-auto justify-between sm:justify-start">
                 <div className="flex flex-col">
                   <span className="text-slate-400">Status Geral:</span>
-                  <span className="font-semibold text-emerald-400">{statusText}</span>
+                  <span
+                    className={`font-semibold ${
+                      isPaused
+                        ? "text-slate-400"
+                        : postureStatus === "good"
+                          ? "text-emerald-400"
+                          : postureStatus === "warning"
+                            ? "text-amber-400"
+                            : "text-rose-400"
+                    }`}
+                  >
+                    {!isMonitoring
+                      ? "Pausado"
+                      : userPresence === "ABSENT"
+                        ? "Usuário Ausente"
+                        : statusText}
+                  </span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-slate-400">Sessão:</span>
-                  <span className="font-semibold text-white">42 min monitorados</span>
+                  <span className="font-semibold text-white">
+                    {isPaused ? "Em pausa" : "42 min monitorados"}
+                  </span>
                 </div>
               </div>
             </div>
@@ -185,6 +267,7 @@ export default function Monitoring() {
                 { label: "Projeção:", value: neckAngle < 16 ? "Neutra" : "Inclinada" },
                 { label: "Limite Alerta:", value: "20°" },
               ]}
+              isPaused={isPaused}
             />
 
             <ErgoMetricsCard
@@ -201,6 +284,7 @@ export default function Monitoring() {
                 { label: "Desvio Y:", value: `${(100 - shoulderBalance) * 0.15}°` },
                 { label: "Balanço:", value: shoulderBalance > 90 ? "Simétrico" : "Inclinado" },
               ]}
+              isPaused={isPaused}
             />
 
             <ErgoMetricsCard
@@ -217,6 +301,7 @@ export default function Monitoring() {
                 { label: "Recomendado:", value: "50-70 cm" },
                 { label: "Fadiga Visual:", value: distanceCm < 50 ? "Alta" : "Baixa" },
               ]}
+              isPaused={isPaused}
             />
 
             <ErgoMetricsCard
@@ -232,6 +317,7 @@ export default function Monitoring() {
                 { label: "Curvatura:", value: postureStatus === "good" ? "Normal" : "Acentuada" },
                 { label: "Suporte:", value: "Cadeira Reclinada" },
               ]}
+              isPaused={isPaused}
             />
           </div>
 
@@ -243,6 +329,7 @@ export default function Monitoring() {
         isOpen={isCalibrationOpen}
         onClose={() => setIsCalibrationOpen(false)}
         onCalibrateSubmit={handleCalibrateSubmit}
+        activeStream={cameraStream}
         neckAngle={neckAngle}
         shoulderBalance={shoulderBalance}
       />

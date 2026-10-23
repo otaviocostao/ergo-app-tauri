@@ -15,6 +15,7 @@ export interface WorkspaceCalibrationModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCalibrateSubmit: () => void;
+  activeStream?: MediaStream | null;
   isNotebookUser?: boolean;
   neckAngle?: number;
   shoulderBalance?: number;
@@ -32,6 +33,7 @@ export default function WorkspaceCalibrationModal({
   isOpen,
   onClose,
   onCalibrateSubmit,
+  activeStream,
   neckAngle = 12,
   shoulderBalance = 96,
 }: WorkspaceCalibrationModalProps) {
@@ -147,16 +149,30 @@ export default function WorkspaceCalibrationModal({
   }, [isOpen, loadAttempt]);
 
   useEffect(() => {
-    let stream: MediaStream | null = null;
+    let localStream: MediaStream | null = null;
 
     async function startWebcam() {
+      if (activeStream && activeStream.active) {
+        if (videoRef.current) {
+          videoRef.current.srcObject = activeStream;
+          videoRef.current.play().catch((err) => {
+            console.warn("[WorkspaceCalibrationModal] Erro ao reproduzir stream compartilhada:", err);
+          });
+        }
+        setHasCameraPermission(true);
+        setIsSimulatedMode(false);
+        return;
+      }
+
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
+        localStream = await navigator.mediaDevices.getUserMedia({
           video: { width: { ideal: 1280 }, height: { ideal: 720 } },
         });
         if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play();
+          videoRef.current.srcObject = localStream;
+          videoRef.current.play().catch((err) => {
+            console.warn("[WorkspaceCalibrationModal] Erro ao reproduzir stream local:", err);
+          });
         }
         setHasCameraPermission(true);
         setIsSimulatedMode(false);
@@ -171,18 +187,23 @@ export default function WorkspaceCalibrationModal({
       startWebcam();
     } else {
       if (videoRef.current && videoRef.current.srcObject) {
-        const s = videoRef.current.srcObject as MediaStream;
-        s.getTracks().forEach((track) => track.stop());
+        if (videoRef.current.srcObject !== activeStream) {
+          const s = videoRef.current.srcObject as MediaStream;
+          s.getTracks().forEach((track) => track.stop());
+        }
         videoRef.current.srcObject = null;
       }
     }
 
     return () => {
-      if (stream) {
-        stream.getTracks().forEach((t) => t.stop());
+      if (localStream) {
+        localStream.getTracks().forEach((t) => t.stop());
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
       }
     };
-  }, [isOpen, isFinalWebcamStep]);
+  }, [isOpen, isFinalWebcamStep, activeStream]);
 
   useEffect(() => {
     if (!isOpen || !isFinalWebcamStep) return;
