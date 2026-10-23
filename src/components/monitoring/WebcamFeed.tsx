@@ -437,7 +437,6 @@ export default function WebcamFeed({
       let currentPoseDetected = false;
       let leftShoulderPt: LandmarkPoint | null = null;
       let rightShoulderPt: LandmarkPoint | null = null;
-      let headPt: Point2D | null = null;
       let poseAngles: PoseAngles | null = null;
       let headPitch: number | null = null;
 
@@ -463,7 +462,6 @@ export default function WebcamFeed({
               if (hasConfidence) {
                 currentPoseDetected = true;
                 poseAngles = calculatePoseAngles(detection.poseLandmarks, video.videoWidth, video.videoHeight);
-                headPt = poseAngles?.headCenter ?? nose;
                 leftShoulderPt = leftShoulder;
                 rightShoulderPt = rightShoulder;
               }
@@ -595,8 +593,8 @@ export default function WebcamFeed({
         if (lastOverlayRef.current) {
           const { head: headPt, leftShoulder: leftShoulderPt, rightShoulder: rightShoulderPt } = lastOverlayRef.current;
           // Match the video's centered object-cover crop and horizontal mirror.
-          const frameWidth = !isSimulatedMode && video?.videoWidth ? video.videoWidth : w;
-          const frameHeight = !isSimulatedMode && video?.videoHeight ? video.videoHeight : h;
+          const frameWidth = video?.videoWidth ? video.videoWidth : w;
+          const frameHeight = video?.videoHeight ? video.videoHeight : h;
           const scale = Math.max(w / frameWidth, h / frameHeight);
           const renderedWidth = frameWidth * scale;
           const renderedHeight = frameHeight * scale;
