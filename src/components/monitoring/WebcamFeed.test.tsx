@@ -40,10 +40,23 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   const hardware = vi.fn();
   const getUserMedia = vi.fn<() => Promise<MediaStream>>();
 
-  function makeStream() {
-    const track = { stop: vi.fn(), onended: null, onmute: null };
+  function makeStream(muted = false) {
+    const track = {
+      stop: vi.fn(), muted,
+      onended: null as MediaStreamTrack["onended"],
+      onmute: null as MediaStreamTrack["onmute"],
+      onunmute: null as MediaStreamTrack["onunmute"],
+    };
     const stream = { getTracks: () => [track], getVideoTracks: () => [track] };
     return { stream: stream as unknown as MediaStream, track };
+  }
+
+  async function setTrackMuted(track: ReturnType<typeof makeStream>["track"], muted: boolean) {
+    track.muted = muted;
+    await act(async () => {
+      const handler = muted ? track.onmute : track.onunmute;
+      handler?.call(track as unknown as MediaStreamTrack, new Event(muted ? "mute" : "unmute"));
+    });
   }
 
   async function render(monitoring = true) {
@@ -322,6 +335,106 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     landmarks = upright(); await advance(200);
     expect(presence.mock.lastCall?.[0]).toBe("ACTIVE");
     expect(update.mock.lastCall?.[0]).toMatchObject({ neckAngle: 0, shoulderBalance: 100, presence: "ACTIVE" });
+  });
+
+  it.each([1200, 5200])("restarts smoothing after a %sms detection gap, then smooths new measurements", async (gap) => {
+    faceTransformationMatrix = faceMatrix(40);
+    await render(); await advance(200);
+    landmarks = null; await advance(gap);
+    expect(presence.mock.lastCall?.[0]).toBe(gap >= 5000 ? "ABSENT" : "PARTIALLY_OCCLUDED");
+    landmarks = upright(); faceTransformationMatrix = faceMatrix(0);
+    update.mockClear(); await advance(100);
+    expect(update.mock.calls[0][0]).toMatchObject({ neckAngle: 0, presence: "ACTIVE" });
+    faceTransformationMatrix = faceMatrix(20);
+    update.mockClear(); await advance(100);
+    expect(update.mock.calls[0][0].neckAngle).toBe(6);
+  });
+
+  it.each<[number, number, string]>([
+    [0, 90, "Atenção ao Alinhamento dos Ombros"],
+    [18, 100, "Atenção à Inclinação do Pescoço"],
+    [18, 90, "Atenção à Inclinação do Pescoço"],
+  ])("labels a warning for neck %s degrees and shoulder balance %s", async (pitch, balance, label) => {
+    faceTransformationMatrix = faceMatrix(pitch);
+    const dy = Math.tan((100 - balance) / 10 * Math.PI / 180) * 0.4 * 1280 / 720;
+    landmarks![INDEX.LEFT_SHOULDER].y -= dy / 2;
+    landmarks![INDEX.RIGHT_SHOULDER].y += dy / 2;
+    await render(); await advance(200);
+    expect(update.mock.lastCall?.[0]).toMatchObject({
+      neckAngle: pitch, shoulderBalance: balance, status: "warning", statusLabel: label,
+    });
+  });
+
+  it("suspends inference and clears the overlay during mute, then resumes with fresh measurements", async () => {
+    faceTransformationMatrix = faceMatrix(40);
+    await render(); await advance(200);
+    const track = streams[streams.length - 1].track;
+    await setTrackMuted(track, true);
+    const detections = vi.mocked(poseDetector.detectFrame).mock.calls.length;
+    update.mockClear(); await advance(5500);
+    expect(poseDetector.detectFrame).toHaveBeenCalledTimes(detections);
+    expect(update).not.toHaveBeenCalled();
+    expect(presence.mock.lastCall?.[0]).toBe("PARTIALLY_OCCLUDED");
+    expect(drawnFrames[drawnFrames.length - 1]?.points).toBe(0);
+    expect(track.stop).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Câmera temporariamente indisponível");
+
+    landmarks = null;
+    await setTrackMuted(track, false); await advance(200);
+    expect(update).not.toHaveBeenCalled();
+    expect(presence.mock.lastCall?.[0]).toBe("PARTIALLY_OCCLUDED");
+    landmarks = upright(); faceTransformationMatrix = faceMatrix(0);
+    await advance(100);
+    expect(update.mock.calls[0][0]).toMatchObject({ neckAngle: 0, presence: "ACTIVE" });
+    expect(container.textContent).not.toContain("Câmera temporariamente indisponível");
+  });
+
+  it("waits for unmute when a camera track starts muted", async () => {
+    getUserMedia.mockImplementation(async () => {
+      const item = makeStream(true); streams.push(item); return item.stream;
+    });
+    await render(); await advance(200);
+    expect(poseDetector.detectFrame).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    await setTrackMuted(streams[streams.length - 1].track, false); await advance(100);
+    expect(update.mock.lastCall?.[0]).toMatchObject({ neckAngle: 0, presence: "ACTIVE" });
+  });
+
+  it("pauses the monitoring page until a valid measurement after unmute", async () => {
+    await act(async () => root.render(<Monitoring />)); mounted = true;
+    await advance(200);
+    expect(container.textContent).toContain("42 min monitorados");
+    const track = streams[streams.length - 1].track;
+    await setTrackMuted(track, true);
+    expect(container.textContent).not.toContain("42 min monitorados");
+    expect(container.textContent).toContain("Detecção parcial");
+    await setTrackMuted(track, false);
+    expect(container.textContent).not.toContain("42 min monitorados");
+    await advance(100);
+    expect(container.textContent).toContain("42 min monitorados");
+  });
+
+  it("detaches mute listeners and ignores old callbacks after replacing the camera", async () => {
+    await render(); await advance(200);
+    const oldTrack = streams[streams.length - 1].track;
+    const oldMute = oldTrack.onmute;
+    const oldUnmute = oldTrack.onunmute;
+    await render(false);
+    expect(oldTrack.onended).toBeNull();
+    expect(oldTrack.onmute).toBeNull();
+    expect(oldTrack.onunmute).toBeNull();
+    await render(true); await advance(200);
+    presence.mockClear();
+    await act(async () => oldMute?.call(oldTrack as unknown as MediaStreamTrack, new Event("mute")));
+    expect(presence).not.toHaveBeenCalled();
+    const currentTrack = streams[streams.length - 1].track;
+    await setTrackMuted(currentTrack, true);
+    update.mockClear();
+    await act(async () => oldUnmute?.call(oldTrack as unknown as MediaStreamTrack, new Event("unmute")));
+    await advance(200);
+    expect(update).not.toHaveBeenCalled();
+    await setTrackMuted(currentTrack, false); await advance(100);
+    expect(update.mock.lastCall?.[0].presence).toBe("ACTIVE");
   });
 
   it("releases all camera tracks and stops inference while paused, then resumes", async () => {
