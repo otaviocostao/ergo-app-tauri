@@ -8,6 +8,7 @@ import ReminderDetailModal from "./ReminderDetailModal";
 import ReminderFormModal from "./ReminderFormModal";
 import ReminderDeleteModal from "./ReminderDeleteModal";
 import ErgonomicNoticeCards from "./ErgonomicNoticeCards";
+import { createReminderListSync } from "./reminderListSync";
 import {
     reminderService,
     ReminderItem,
@@ -47,24 +48,26 @@ export default function ReminderList({ kind }: ReminderListProps) {
     const [deletingReminder, setDeletingReminder] = useState<ReminderItem | null>(null);
     const [isOpenFormReminderModal, setIsOpenFormReminderModal] = useState(false);
     const [pendingStatusIds, setPendingStatusIds] = useState<ReadonlySet<string>>(() => new Set());
+    const [listSync] = useState(createReminderListSync);
 
     const loadReminders = useCallback(async () => {
-        try {
-            setIsLoading(true);
-            setErrorMessage(null);
-            const allReminders = await reminderService.getAll();
-            const data = allReminders.filter((item) => Boolean(item.systemType) === isSystemList);
-            setReminders(data);
-            setSelectedReminder((current) =>
-                current ? data.find((item) => item.id === current.id) ?? null : null
-            );
-        } catch (err) {
-            console.error("Failed to load reminders from backend:", err);
-            setErrorMessage(isSystemList ? "Não foi possível carregar os avisos. Tente novamente." : "Não foi possível carregar os lembretes. Tente novamente.");
-        } finally {
-            setIsLoading(false);
-        }
-    }, [isSystemList]);
+        setIsLoading(true);
+        setErrorMessage(null);
+        await listSync.load(() => reminderService.getAll(), {
+            onSuccess: (allReminders) => {
+                const data = allReminders.filter((item) => Boolean(item.systemType) === isSystemList);
+                setReminders(data);
+                setSelectedReminder((current) =>
+                    current ? data.find((item) => item.id === current.id) ?? null : null
+                );
+            },
+            onError: (error) => {
+                console.error("Failed to load reminders from backend:", error);
+                setErrorMessage(isSystemList ? "Não foi possível carregar os avisos. Tente novamente." : "Não foi possível carregar os lembretes. Tente novamente.");
+            },
+            onSettled: () => setIsLoading(false),
+        });
+    }, [isSystemList, listSync]);
 
     useEffect(() => {
         loadReminders();
@@ -87,6 +90,7 @@ export default function ReminderList({ kind }: ReminderListProps) {
         if (!deletingReminder) return;
         try {
             await reminderService.delete(deletingReminder.id);
+            listSync.invalidateLoads();
             setReminders((prev) => prev.filter((item) => item.id !== deletingReminder.id));
             if (selectedReminder?.id === deletingReminder.id) {
                 setSelectedReminder(null);
@@ -109,8 +113,8 @@ export default function ReminderList({ kind }: ReminderListProps) {
     };
 
     const handleStatusChange = async (item: ReminderItem, active: boolean) => {
-        if (pendingStatusIds.has(item.id)) return;
         const status = active ? "ativo" : "inativo";
+        if (!listSync.beginStatusChange(item.id, status)) return;
         setPendingStatusIds((previous) => new Set(previous).add(item.id));
         setReminders((previous) => previous.map((reminder) => reminder.id === item.id ? { ...reminder, status } : reminder));
         setErrorMessage(null);
@@ -122,6 +126,7 @@ export default function ReminderList({ kind }: ReminderListProps) {
             console.error("Failed to update ergonomic notice status:", error);
             setErrorMessage("Não foi possível alterar o aviso. Tente novamente.");
         } finally {
+            listSync.finishStatusChange(item.id);
             setPendingStatusIds((previous) => {
                 const next = new Set(previous);
                 next.delete(item.id);
@@ -149,6 +154,7 @@ export default function ReminderList({ kind }: ReminderListProps) {
                 customDays: item.customDays,
             });
 
+            listSync.invalidateLoads();
             setReminders((prev) =>
                 prev.map((r) => (r.id === updated.id ? updated : r))
             );
@@ -172,6 +178,7 @@ export default function ReminderList({ kind }: ReminderListProps) {
                 reminderDate: item.reminderDate,
                 customDays: item.customDays,
             });
+            listSync.invalidateLoads();
             setReminders((prev) => [created, ...prev]);
             setSearchTerm("");
             setCategoryFilter("todos");
