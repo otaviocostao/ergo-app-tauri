@@ -1,13 +1,14 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type FocusEventHandler, type KeyboardEvent } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
 import Input from "../Input";
 import CalendarSelect from "./CalendarSelect";
 import { authFieldStyles } from "./authStyles";
-import { birthDateBounds, dateValue, displayBirthDate, MAX_USER_AGE, MIN_USER_AGE, parseBirthDate } from "../../auth/birthDatePolicy";
+import { birthDateBounds, dateValue, parseBirthDate } from "../../auth/birthDatePolicy";
 
 interface BirthDateInputProps {
   value: string;
   onChange: (value: string) => void;
+  onBlur?: FocusEventHandler<HTMLInputElement>;
   error?: string;
   disabled?: boolean;
 }
@@ -23,7 +24,7 @@ function dateAt(year: number, month: number, day: number) {
   return date;
 }
 
-export default function BirthDateInput({ value, onChange, error, disabled = false }: BirthDateInputProps) {
+export default function BirthDateInput({ value, onChange, onBlur, error, disabled = false }: BirthDateInputProps) {
   const calendarId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -117,12 +118,13 @@ export default function BirthDateInput({ value, onChange, error, disabled = fals
     }} onKeyDown={(event) => {
       if (open && event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeCalendar(); }
     }}>
-      <Input ref={inputRef} name="birthDate" label="Data de nascimento (opcional)" type="text" lang="pt-BR" autoComplete="bday"
-        placeholder="DD/MM/AAAA" maxLength={10} value={displayBirthDate(value)} onChange={(event) => onChange(event.target.value)}
-        helperText={`Se informar, use uma data correspondente a ${MIN_USER_AGE} a ${MAX_USER_AGE} anos.`}
+      <Input ref={inputRef} name="birthDate" label="Data de nascimento" type="date" lang="pt-BR" autoComplete="bday"
+        value={selected ? dateValue(selected) : ""} min={earliestValue} max={latestValue}
+        onChange={(event) => onChange(event.target.value)} onBlur={onBlur}
+        onInput={(event) => onChange(event.currentTarget.value)}
         error={error} disabled={disabled}
         {...authFieldStyles}
-        inputClassName={`${authFieldStyles.inputClassName} pr-14!`}
+        inputClassName={`${authFieldStyles.inputClassName} pr-14! [&::-webkit-calendar-picker-indicator]:hidden`}
         rightIcon={
           <button ref={triggerRef} type="button" disabled={disabled} onClick={toggleCalendar}
             aria-label="Escolher data de nascimento no calendário" aria-haspopup="dialog" aria-expanded={open}
