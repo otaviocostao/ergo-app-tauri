@@ -40,20 +40,35 @@ export default function Register() {
     setErrors((previous) => ({ ...previous, [field]: undefined, ...(field === "password" ? { confirmation: undefined } : {}) }));
   }
 
+  function validationMessage(field: keyof Fields, value = fields[field], badInput = false): string | undefined {
+    switch (field) {
+      case "firstName": return value.trim().length < 2 ? "Informe seu nome." : undefined;
+      case "lastName": return value.trim().length < 2 ? "Informe seu sobrenome." : undefined;
+      case "birthDate": return badInput
+        ? "Informe uma data de nascimento válida no formato DD/MM/AAAA."
+        : birthDateValidationMessage(value);
+      case "email": return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()) ? undefined : "Informe um e-mail válido.";
+      case "phone": return value.trim() && value.replace(/\D/g, "").length !== 11
+        ? "Informe o telefone com DDD e 9 dígitos." : undefined;
+      case "password": return value ? passwordValidationMessage(value) : "Informe sua senha.";
+      case "confirmation": return !value ? "Confirme sua senha."
+        : value !== fields.password ? "As senhas devem ser iguais." : undefined;
+    }
+  }
+
+  function validateOnBlur(field: keyof Fields, input: HTMLInputElement) {
+    const message = validationMessage(field, input.value, input.validity.badInput);
+    setErrors((previous) => ({ ...previous, [field]: message }));
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
 
-    const validation: Errors = {};
-
-    if (fields.firstName.trim().length < 2) validation.firstName = "Informe seu nome.";
-    if (fields.lastName.trim().length < 2) validation.lastName = "Informe seu sobrenome.";
-    validation.birthDate = birthDateValidationMessage(fields.birthDate);
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email.trim())) validation.email = "Informe um e-mail válido.";
-    const phoneDigits = fields.phone.replace(/\D/g, "");
-    if (fields.phone.trim() && phoneDigits.length !== 11) validation.phone = "Informe o telefone com DDD e 9 dígitos.";
-    validation.password = passwordValidationMessage(fields.password);
-    if (!fields.confirmation || fields.confirmation !== fields.password) validation.confirmation = "As senhas devem ser iguais.";
+    const birthInput = event.currentTarget.elements.namedItem("birthDate");
+    const badBirthInput = birthInput instanceof HTMLInputElement && birthInput.validity.badInput;
+    const validation: Errors = Object.fromEntries((Object.keys(initialFields) as Array<keyof Fields>)
+      .map((field) => [field, validationMessage(field, fields[field], field === "birthDate" && badBirthInput)]));
 
     const validationMessages = Object.values(validation).filter(Boolean) as string[];
 
@@ -92,7 +107,7 @@ export default function Register() {
       { field: "lastName", label: "Sobrenome", type: "text", placeholder: "Digite seu sobrenome", autoComplete: "family-name", maxLength: 60 },
       { field: "birthDate", label: "Data de nascimento", type: "date", autoComplete: "bday" },
       { field: "email", label: "E-mail", type: "email", placeholder: "Ex.: nome@email.com", autoComplete: "username", maxLength: 254 },
-      { field: "phone", label: "Telefone (opcional)", type: "tel", placeholder: "Ex.: (99) 99999-9999", autoComplete: "tel", maxLength: 15 },
+      { field: "phone", label: "Telefone", type: "tel", placeholder: "Ex.: (99) 99999-9999", autoComplete: "tel", maxLength: 15 },
       { field: "password", label: "Senha", type: "password", placeholder: "Crie sua senha", autoComplete: "new-password", maxLength: PASSWORD_MAX_LENGTH },
       { field: "confirmation", label: "Confirmar senha", type: "password", placeholder: "Repita sua senha", autoComplete: "new-password", maxLength: PASSWORD_MAX_LENGTH },
     ];
@@ -101,15 +116,18 @@ export default function Register() {
     return field === "birthDate" ? (
       <div key={field} className="sm:col-span-2">
         <BirthDateInput value={fields.birthDate} onChange={(value) => update("birthDate", value)}
+          onBlur={(event) => validateOnBlur("birthDate", event.currentTarget)}
           error={errors.birthDate} disabled={pending} />
       </div>
     ) : field === "phone" ? (
       <PhoneInput key={field} id="register-phone" name="phone" label={input.label} placeholder={input.placeholder}
         autoComplete={input.autoComplete} value={fields.phone} onChange={(value) => update("phone", value)}
+        onBlur={(event) => validateOnBlur("phone", event.currentTarget)}
         error={errors.phone} disabled={pending} {...authFieldStyles} />
     ) : (
       <div key={field} className={`min-w-0${field === "confirmation" ? " sm:col-start-1 sm:row-start-2" : ""}`}>
         <Input id={`register-${field}`} name={field} {...input} value={fields[field]} onChange={(event) => update(field, event.target.value)}
+          onBlur={(event) => validateOnBlur(field, event.currentTarget)} required
           {...(field === "password" ? { "aria-describedby": `register-password-requirements${errors.password ? " register-password-error" : ""}` } : {})}
           error={errors[field]} disabled={pending} aria-required="true" {...authFieldStyles} />
       </div>
