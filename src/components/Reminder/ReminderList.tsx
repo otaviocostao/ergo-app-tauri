@@ -172,7 +172,7 @@ export default function ReminderList({ kind }: ReminderListProps) {
                 reminderDate: item.reminderDate,
                 customDays: item.customDays,
             });
-            setReminders((prev) => [...prev, created]);
+            setReminders((prev) => [created, ...prev]);
             setSearchTerm("");
             setCategoryFilter("todos");
         }
