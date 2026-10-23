@@ -20,6 +20,7 @@ import type { UserPresenceState } from "../types/vision";
 export default function Monitoring() {
   const [isMonitoring, setIsMonitoring] = useState(true);
   const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [soundAlerts, setSoundAlerts] = useState(true);
   const [neckAngle, setNeckAngle] = useState(12);
   const [shoulderBalance, setShoulderBalance] = useState(96);
@@ -164,6 +165,7 @@ export default function Monitoring() {
             onPostureUpdate={handlePostureUpdate}
             onPresenceChange={handlePresenceChange}
             onHardwareBusyChange={handleHardwareBusyChange}
+            onStreamChange={setCameraStream}
           />
 
           <KeyboardMonitorCard
@@ -186,15 +188,14 @@ export default function Monitoring() {
               <div className="flex gap-2">
                 <h2 className="text-base font-bold text-white">Resumo da sua ergonomia</h2>
                 <span
-                  className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                    isPaused
+                  className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${isPaused
                       ? "bg-slate-800 text-slate-400 border border-slate-700"
                       : healthScore >= 85
                         ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
                         : healthScore >= 70
                           ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
                           : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
-                  }`}
+                    }`}
                 >
                   {!isMonitoring
                     ? "Pausado"
@@ -227,15 +228,14 @@ export default function Monitoring() {
                 <div className="flex flex-col">
                   <span className="text-slate-400">Status Geral:</span>
                   <span
-                    className={`font-semibold ${
-                      isPaused
+                    className={`font-semibold ${isPaused
                         ? "text-slate-400"
                         : postureStatus === "good"
                           ? "text-emerald-400"
                           : postureStatus === "warning"
                             ? "text-amber-400"
                             : "text-rose-400"
-                    }`}
+                      }`}
                   >
                     {!isMonitoring
                       ? "Pausado"
@@ -333,6 +333,7 @@ export default function Monitoring() {
         isOpen={isCalibrationOpen}
         onClose={() => setIsCalibrationOpen(false)}
         onCalibrateSubmit={handleCalibrateSubmit}
+        activeStream={cameraStream}
         onPostureUpdate={handlePostureUpdate}
         onPresenceChange={handlePresenceChange}
       />

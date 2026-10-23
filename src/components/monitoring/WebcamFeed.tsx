@@ -3,7 +3,6 @@ import {
   Video,
   VideoOff,
   Crosshair,
-  Sparkles,
   AlertCircle,
   RefreshCw,
   UserX,
@@ -33,6 +32,7 @@ export interface WebcamFeedProps {
   }) => void;
   onPresenceChange?: (presence: UserPresenceState) => void;
   onHardwareBusyChange?: (isBusy: boolean) => void;
+  onStreamChange?: (stream: MediaStream | null) => void;
   className?: string;
 }
 
@@ -69,6 +69,7 @@ export default function WebcamFeed({
   onPostureUpdate,
   onPresenceChange,
   onHardwareBusyChange,
+  onStreamChange,
   className = "",
 }: WebcamFeedProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -94,7 +95,6 @@ export default function WebcamFeed({
   // Estados de IA e Presença
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
   const [presenceState, setPresenceState] = useState<UserPresenceState>("PARTIALLY_OCCLUDED");
-  const [isSimulatedMode, setIsSimulatedMode] = useState<boolean>(false);
   const [showOverlay] = useState<boolean>(true);
 
   // Refs de controle de ciclo de inferência
@@ -106,6 +106,7 @@ export default function WebcamFeed({
   const onPostureUpdateRef = useRef(onPostureUpdate);
   const onPresenceChangeRef = useRef(onPresenceChange);
   const onHardwareBusyChangeRef = useRef(onHardwareBusyChange);
+  const onStreamChangeRef = useRef(onStreamChange);
 
   // Métricas suavizadas em memória
   const smoothedMetricsRef = useRef({
@@ -134,6 +135,10 @@ export default function WebcamFeed({
   useEffect(() => {
     onHardwareBusyChangeRef.current = onHardwareBusyChange;
   }, [onHardwareBusyChange]);
+
+  useEffect(() => {
+    onStreamChangeRef.current = onStreamChange;
+  }, [onStreamChange]);
 
   /**
    * Inicializa o detector MediaPipe WebAssembly / GPU em segundo plano.
@@ -226,6 +231,8 @@ export default function WebcamFeed({
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+
+    onStreamChangeRef.current?.(null);
   }, []);
 
   const handleHardwareLock = useCallback(
@@ -279,13 +286,14 @@ export default function WebcamFeed({
         return;
       }
       streamRef.current = stream;
+      onStreamChangeRef.current?.(stream);
 
       const videoTrack = stream.getVideoTracks()[0];
       if (videoTrack) {
         videoTrack.onended = () => {
           if (isMonitoringRef.current && !isHardwareBusyRef.current) {
             handleHardwareLock(
-              "A câmera foi solicitada por outro aplicativo (como Google Meet, Microsoft Teams ou Zoom). O monitoramento foi pausado de forma graciosa para evitar conflitos de driver."
+              "A câmera foi solicitada por outro aplicativo. O monitoramento foi pausado para evitar conflitos entre os aplicativos."
             );
           }
         };
@@ -320,7 +328,6 @@ export default function WebcamFeed({
 
       setHasCameraPermission(true);
       setPermissionError(null);
-      setIsSimulatedMode(false);
       lastLandmarksDetectedTimeRef.current = Date.now();
 
       // Atualiza lista de dispositivos caso as labels estivessem anônimas antes do consentimento
@@ -339,7 +346,7 @@ export default function WebcamFeed({
         error.message?.toLowerCase().includes("could not start video source")
       ) {
         handleHardwareLock(
-          "A câmera física está sendo utilizada por outro aplicativo (ex.: Google Meet, Teams ou Zoom). O Windows restringe o acesso exclusivo a um app por vez. O monitoramento foi pausado para liberar o dispositivo."
+          "A câmera já está sendo utilizada por outro aplicativo. O monitoramento foi pausado para liberar o dispositivo."
         );
       } else if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
         setHasCameraPermission(false);
@@ -349,14 +356,14 @@ export default function WebcamFeed({
         setPermissionError("Nenhuma câmera física encontrada conectada ao computador.");
       } else {
         setHasCameraPermission(false);
-        setPermissionError("Não foi possível acessar a câmera. Você pode usar o modo interativo simulado.");
+        setPermissionError("Não foi possível acessar a câmera. Verifique se o dispositivo está conectado e com permissões concedidas.");
       }
     }
   }, [selectedDeviceId, stopCurrentStream, handleHardwareLock, enumerateCameras]);
 
 
   useEffect(() => {
-    if (isMonitoring && !isSimulatedMode) {
+    if (isMonitoring) {
       startCamera();
     } else {
       stopCurrentStream();
@@ -365,7 +372,7 @@ export default function WebcamFeed({
     return () => {
       stopCurrentStream();
     };
-  }, [isMonitoring, selectedDeviceId, isSimulatedMode, startCamera, stopCurrentStream]);
+  }, [isMonitoring, selectedDeviceId, startCamera, stopCurrentStream]);
 
   /**
    * Tenta retomar a captura após o usuário encerrar a videochamada concorrente.
@@ -376,16 +383,6 @@ export default function WebcamFeed({
     onHardwareBusyChangeRef.current?.(false);
     startCamera();
   }, [startCamera]);
-
-  const handleEnableSimulatedMode = useCallback(() => {
-    stopCurrentStream();
-    setIsHardwareBusy(false);
-    setHardwareErrorMessage(null);
-    setIsSimulatedMode(true);
-    setHasCameraPermission(true);
-    setPermissionError(null);
-    lastLandmarksDetectedTimeRef.current = Date.now();
-  }, [stopCurrentStream]);
 
   /**
    * Loop de Vídeo com Limitação de Inferência para 10-12 FPS (intervalo de ~90ms),
@@ -447,7 +444,7 @@ export default function WebcamFeed({
       if (shouldRunInference) {
         lastInferenceTimeRef.current = currentTime - (elapsedSinceLastInference % INFERENCE_INTERVAL_MS);
 
-        if (!isSimulatedMode && poseDetector.isReady() && video && video.readyState >= 2) {
+        if (poseDetector.isReady() && video && video.readyState >= 2) {
           // Inferência real através do MediaPipe WebGL / WebAssembly
           try {
             const detection = poseDetector.detectFrame(video);
@@ -474,35 +471,6 @@ export default function WebcamFeed({
           } catch (detectionErr) {
             console.warn("[WebcamFeed] Erro ao processar frame de detecção:", detectionErr);
           }
-        } else if (isSimulatedMode) {
-          // Modo simulado interativo (sempre presente para testes)
-          currentPoseDetected = true;
-          const t = now / 1000;
-          headPt = {
-            x: 0.5 + Math.sin(t * 0.8) * 0.02,
-            y: 0.32 + Math.cos(t * 0.5) * 0.015,
-          };
-          leftShoulderPt = {
-            x: headPt.x - 0.16 + Math.sin(t * 0.4) * 0.005,
-            y: headPt.y + 0.16,
-            z: 0,
-          };
-          rightShoulderPt = {
-            x: headPt.x + 0.16 - Math.sin(t * 0.4) * 0.005,
-            y: headPt.y + 0.16 + Math.sin(t * 0.6) * 0.012,
-            z: 0,
-          };
-          const simulatedPose: LandmarkPoint[] = Array.from({ length: 33 }, () => ({
-            x: 0, y: 0, z: 0, visibility: 0,
-          }));
-          simulatedPose[POSE_LANDMARK_INDEX.NOSE] = { ...headPt, z: 0 };
-          simulatedPose[POSE_LANDMARK_INDEX.LEFT_EAR] = { x: headPt.x - 0.06, y: headPt.y + 0.025, z: 0 };
-          simulatedPose[POSE_LANDMARK_INDEX.RIGHT_EAR] = { x: headPt.x + 0.06, y: headPt.y + 0.025, z: 0 };
-          simulatedPose[POSE_LANDMARK_INDEX.LEFT_SHOULDER] = leftShoulderPt;
-          simulatedPose[POSE_LANDMARK_INDEX.RIGHT_SHOULDER] = rightShoulderPt;
-          poseAngles = calculatePoseAngles(simulatedPose, 1280, 720);
-          headPitch = 0; // Explicit forward-facing orientation in demo mode only.
-          if (poseAngles) headPt = poseAngles.headCenter;
         }
 
         // -------------------------------------------------------------
@@ -721,14 +689,13 @@ export default function WebcamFeed({
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [isMonitoring, showOverlay, isSimulatedMode]);
+  }, [isMonitoring, showOverlay]);
 
   return (
     <div
       ref={containerRef}
       className={`relative flex flex-col bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-xl ${className}`}
     >
-      {/* Barra de Cabeçalho Superior com Controles e Indicadores */}
       <div className="flex items-center justify-between p-3.5 bg-slate-900/95 backdrop-blur-md z-20 border-b border-slate-800/80">
         <div className="flex items-center gap-2.5">
           <div>
@@ -784,17 +751,10 @@ export default function WebcamFeed({
                           ? "Ajuste o enquadramento"
                           : "Monitoramento ativo"}
               </span>
-
-              {isSimulatedMode && isMonitoring && (
-                <span className="px-1.5 py-0.2 rounded text-[10px] bg-slate-800 text-slate-300 border border-slate-700">
-                  Modo Simulado
-                </span>
-              )}
             </div>
           </div>
         </div>
 
-        {/* Seleção de Dispositivo / Câmera */}
         <div className="flex items-center gap-2">
           {devices.length > 0 && !isHardwareBusy && (
             <div className="hidden sm:block w-48">
@@ -807,34 +767,31 @@ export default function WebcamFeed({
                   value: d.deviceId,
                 }))}
                 variant="filled"
-                className="bg-slate-800 text-white text-xs border-slate-700 focus:bg-slate-800 focus:ring-primary-500/20"
-                optionClassName="bg-slate-800 text-white"
+                className="!bg-slate-800 !text-white text-xs !border-slate-700 focus:!bg-slate-800 focus:ring-primary-500/20"
+                optionClassName="!bg-slate-800 !text-white"
               />
             </div>
           )}
         </div>
       </div>
 
-      {/* Área Central de Vídeo e Canvas de Detecção */}
       <div className="relative w-full aspect-video min-h-[320px] max-h-[460px] flex items-center justify-center overflow-hidden bg-slate-950">
         <video
           ref={videoRef}
           playsInline
           muted
-          className={`absolute inset-0 w-full h-full object-cover transform -scale-x-100 transition-opacity duration-300 ${!isMonitoring || isSimulatedMode || isHardwareBusy || !hasCameraPermission
+          className={`absolute inset-0 w-full h-full object-cover transform -scale-x-100 transition-opacity duration-300 ${!isMonitoring || isHardwareBusy || !hasCameraPermission
             ? "opacity-0 pointer-events-none"
             : "opacity-100"
             }`}
         />
 
-        {/* Canvas de sobreposição do esqueleto de IA */}
         <canvas
           ref={canvasRef}
           className={`absolute inset-0 w-full h-full pointer-events-none z-10 transition-opacity duration-300 ${isHardwareBusy || !isMonitoring ? "opacity-0" : "opacity-100"
             }`}
         />
 
-        {/* Overlay: Alerta de Ausência do Usuário (ABSENT > 5s) */}
         {isMonitoring && !isHardwareBusy && hasCameraPermission && presenceState === "ABSENT" && (
           <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/90 border border-slate-700 text-slate-300 text-xs shadow-lg backdrop-blur-md animate-fadeIn">
             <UserX size={15} className="text-amber-400 animate-pulse" />
@@ -842,7 +799,6 @@ export default function WebcamFeed({
           </div>
         )}
 
-        {/* Overlay: Alerta de Enquadramento Incompleto (PARTIALLY_OCCLUDED) */}
         {isMonitoring && !isHardwareBusy && hasCameraPermission && presenceState === "PARTIALLY_OCCLUDED" && (
           <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs shadow-lg backdrop-blur-md animate-fadeIn">
             <AlertTriangle size={15} />
@@ -852,7 +808,6 @@ export default function WebcamFeed({
           </div>
         )}
 
-        {/* Overlay de Bloqueio Exclusivo de Driver no Windows (Google Meet, Teams, Zoom) */}
         {isMonitoring && isHardwareBusy && (
           <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-slate-950/90 backdrop-blur-sm z-20 text-slate-200 animate-fadeIn">
             <div className="p-4 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 mb-3 animate-pulse">
@@ -862,9 +817,6 @@ export default function WebcamFeed({
             <p className="text-xs text-slate-300 mt-2 max-w-md leading-relaxed">
               {hardwareErrorMessage ||
                 "O Windows aloca acesso exclusivo à câmera para um software por vez. Detectamos conflito com uma videochamada (ex.: Google Meet, Microsoft Teams ou Zoom)."}
-            </p>
-            <p className="text-xs text-slate-400 mt-1 max-w-md">
-              O monitoramento foi pausado de forma graciosa para que sua chamada de vídeo não seja interrompida.
             </p>
 
             <div className="flex items-center gap-3 mt-5">
@@ -877,21 +829,11 @@ export default function WebcamFeed({
                 <RefreshCw size={14} />
                 Retomar Monitoramento
               </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={handleEnableSimulatedMode}
-                className="bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
-              >
-                <Sparkles size={14} />
-                Usar Modo Simulado
-              </Button>
             </div>
           </div>
         )}
 
-        {/* Overlay: Permissão Negada ou Câmera Indisponível */}
-        {isMonitoring && !isHardwareBusy && hasCameraPermission === false && !isSimulatedMode && (
+        {isMonitoring && !isHardwareBusy && hasCameraPermission === false && (
           <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-slate-950/95 z-20 text-slate-300">
             <div className="p-4 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-400 mb-3">
               <Camera size={36} />
@@ -910,37 +852,10 @@ export default function WebcamFeed({
               >
                 <RefreshCw size={14} /> Tentar Novamente
               </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={handleEnableSimulatedMode}
-                className="bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
-              >
-                <Sparkles size={14} /> Ativar Modo Simulado
-              </Button>
             </div>
           </div>
         )}
 
-        {/* Overlay: Modo Simulado Interativo */}
-        {isMonitoring && isSimulatedMode && !isHardwareBusy && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-radial from-slate-900 to-slate-950 pointer-events-none">
-            <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#3b82f6_1px,transparent_1px)] [background-size:16px_16px]" />
-            <div className="z-10 flex flex-col items-center">
-              <div className="p-4 rounded-full bg-slate-800/80 border border-slate-700 text-primary-400 mb-3 animate-pulse">
-                <Sparkles size={32} />
-              </div>
-              <p className="text-sm font-medium text-slate-200">
-                Detecção e Extração em Modo Simulado
-              </p>
-              <p className="text-xs text-slate-400 mt-1 max-w-xs">
-                Processando ciclo de inferência a 11 FPS para avaliação contínua.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Overlay: Câmera Desativada (Monitoramento Pausado pelo Usuário) */}
         {!isMonitoring && !isHardwareBusy && (
           <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-slate-950 text-slate-400 z-10">
             <div className="p-4 rounded-full bg-slate-800 text-slate-500 mb-3">
@@ -953,7 +868,6 @@ export default function WebcamFeed({
           </div>
         )}
 
-        {/* Barra de Ações Inferior: Iniciar/Pausar e Calibrar Postura */}
         {(onToggleMonitoring || onCalibrate) && (
           <div className="absolute bottom-4 flex items-center justify-center gap-2 z-20">
             {onToggleMonitoring && (
@@ -961,7 +875,7 @@ export default function WebcamFeed({
                 variant="primary"
                 size="md"
                 onClick={onToggleMonitoring}
-                className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white border border-slate-700 backdrop-blur-md transition-all shadow-lg"
+                className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white  backdrop-blur-md transition-all shadow-lg"
               >
                 {isMonitoring ? (
                   <>
@@ -979,7 +893,7 @@ export default function WebcamFeed({
               <Button
                 size="md"
                 onClick={onCalibrate}
-                className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white border border-slate-700 backdrop-blur-md transition-all shadow-lg"
+                className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white backdrop-blur-md transition-all shadow-lg"
               >
                 <Crosshair size={14} />
                 Calibrar Postura Base

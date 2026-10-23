@@ -15,6 +15,7 @@ export interface WorkspaceCalibrationModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCalibrateSubmit: () => void;
+  activeStream?: MediaStream | null;
   isNotebookUser?: boolean;
   onPostureUpdate?: WebcamFeedProps["onPostureUpdate"];
   onPresenceChange?: WebcamFeedProps["onPresenceChange"];
