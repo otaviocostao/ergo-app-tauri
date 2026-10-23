@@ -5,6 +5,7 @@ import {
   type PoseLandmarkerResult,
   type FaceLandmarkerResult,
 } from "@mediapipe/tasks-vision";
+import type { FaceTransformationMatrix } from "./biomechanics";
 
 /**
  * Ponto 3D normalizado contendo coordenadas e indicadores de confiança.
@@ -30,6 +31,7 @@ export interface VisionDetectionResult {
   poseLandmarks: LandmarkPoint[] | null;
   worldLandmarks: LandmarkPoint[] | null;
   faceLandmarks: LandmarkPoint[] | null;
+  faceTransformationMatrix: FaceTransformationMatrix | null;
   timestamp: number;
   rawPoseResult?: PoseLandmarkerResult;
   rawFaceResult?: FaceLandmarkerResult;
@@ -237,6 +239,7 @@ export class PoseDetectorService {
         minFacePresenceConfidence: this.config.minFacePresenceConfidence,
         minTrackingConfidence: this.config.minFaceTrackingConfidence,
         outputFaceBlendshapes: this.config.outputFaceBlendshapes,
+        outputFacialTransformationMatrixes: true,
       }),
     ]);
 
@@ -290,6 +293,7 @@ export class PoseDetectorService {
       poseLandmarks: null,
       worldLandmarks: null,
       faceLandmarks: null,
+      faceTransformationMatrix: null,
       timestamp: timestamp ?? performance.now(),
     };
 
@@ -387,6 +391,7 @@ export class PoseDetectorService {
       poseLandmarks,
       worldLandmarks,
       faceLandmarks,
+      faceTransformationMatrix: hasFace ? rawFaceResult?.facialTransformationMatrixes?.[0] ?? null : null,
       timestamp: emptyResult.timestamp,
       rawPoseResult,
       rawFaceResult,

@@ -55,7 +55,7 @@ export default function VerifiedAnimation({ active }: VerifiedAnimationProps) {
           cx="48"
           cy="48"
           r="38"
-          fill="white"
+          className="fill-white dark:fill-slate-900"
           stroke="currentColor"
           strokeWidth="5"
         />
