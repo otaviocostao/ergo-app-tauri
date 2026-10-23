@@ -84,6 +84,8 @@ export default function WebcamFeed({
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const [permissionError, setPermissionError] = useState<string | null>(null);
+  const [isCameraMuted, setIsCameraMuted] = useState(false);
+  const isCameraMutedRef = useRef(false);
 
   // Estados de concorrência de hardware (Exclusive Lock no Windows)
   const [isHardwareBusy, setIsHardwareBusy] = useState<boolean>(false);
@@ -209,10 +211,13 @@ export default function WebcamFeed({
     cameraRequestRef.current += 1;
     hasMeasuredFrameRef.current = false;
     lastOverlayRef.current = null;
+    isCameraMutedRef.current = false;
+    setIsCameraMuted(false);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => {
         track.onended = null;
         track.onmute = null;
+        track.onunmute = null;
         track.stop();
       });
       streamRef.current = null;
@@ -285,9 +290,23 @@ export default function WebcamFeed({
           }
         };
 
-        videoTrack.onmute = () => {
-          console.warn("[WebcamFeed] Track de vídeo foi temporariamente desativada pelo sistema operacional.");
+        const handleTrackMute = (muted: boolean) => {
+          if (streamRef.current !== stream || !isMonitoringRef.current) return;
+          isCameraMutedRef.current = muted;
+          setIsCameraMuted(muted);
+          hasMeasuredFrameRef.current = false;
+          lastOverlayRef.current = null;
+          lastLandmarksDetectedTimeRef.current = Date.now();
+          // Keep metrics paused after unmute until a fresh valid frame arrives.
+          if (presenceRef.current !== "PARTIALLY_OCCLUDED") {
+            presenceRef.current = "PARTIALLY_OCCLUDED";
+            setPresenceState("PARTIALLY_OCCLUDED");
+            onPresenceChangeRef.current?.("PARTIALLY_OCCLUDED");
+          }
         };
+        videoTrack.onmute = () => handleTrackMute(true);
+        videoTrack.onunmute = () => handleTrackMute(false);
+        if (videoTrack.muted) handleTrackMute(true);
       }
 
       if (videoRef.current) {
@@ -405,7 +424,7 @@ export default function WebcamFeed({
       // Limpa canvas para novo desenho
       ctx.clearRect(0, 0, w, h);
 
-      if (!isMonitoringRef.current || isHardwareBusyRef.current) {
+      if (!isMonitoringRef.current || isHardwareBusyRef.current || isCameraMutedRef.current) {
         animationFrameId = requestAnimationFrame(processFrame);
         return;
       }
@@ -493,7 +512,6 @@ export default function WebcamFeed({
           lastLandmarksDetectedTimeRef.current = now;
 
           const nextPresence = poseAngles && headPitch !== null ? "ACTIVE" : "PARTIALLY_OCCLUDED";
-          if (nextPresence !== "ACTIVE") hasMeasuredFrameRef.current = false;
           if (presenceRef.current !== nextPresence) {
             presenceRef.current = nextPresence;
             setPresenceState(nextPresence);
@@ -525,6 +543,9 @@ export default function WebcamFeed({
             onPresenceChangeRef.current?.("PARTIALLY_OCCLUDED");
           }
         }
+
+        // Paused tracking must not blend pre-gap posture into the first new measurement.
+        if (presenceRef.current !== "ACTIVE") hasMeasuredFrameRef.current = false;
 
         // -------------------------------------------------------------
         // 3. EXTRAÇÃO DE ÂNGULOS BIOMECÂNICOS & ATUALIZAÇÃO DE MÉTRICAS
@@ -578,7 +599,9 @@ export default function WebcamFeed({
                   : "Ombros Desalinhados";
           } else if (smoothedNeck > 14 || smoothedShoulder < 92) {
             postureStatus = "warning";
-            postureLabel = "Atenção à Inclinação do Pescoço";
+            postureLabel = smoothedNeck > 14
+              ? "Atenção à Inclinação do Pescoço"
+              : "Atenção ao Alinhamento dos Ombros";
           }
 
           onPostureUpdateRef.current?.({
@@ -753,11 +776,13 @@ export default function WebcamFeed({
                   ? "Monitoramento pausado"
                   : isHardwareBusy
                     ? "Conflito de hardware (Pausado)"
-                    : presenceState === "ABSENT"
-                      ? "Usuário ausente"
-                      : presenceState === "PARTIALLY_OCCLUDED"
-                        ? "Ajuste o enquadramento"
-                        : "Monitoramento ativo"}
+                    : isCameraMuted
+                      ? "Câmera temporariamente indisponível (Pausado)"
+                      : presenceState === "ABSENT"
+                        ? "Usuário ausente"
+                        : presenceState === "PARTIALLY_OCCLUDED"
+                          ? "Ajuste o enquadramento"
+                          : "Monitoramento ativo"}
               </span>
 
               {isSimulatedMode && isMonitoring && (
@@ -821,7 +846,9 @@ export default function WebcamFeed({
         {isMonitoring && !isHardwareBusy && hasCameraPermission && presenceState === "PARTIALLY_OCCLUDED" && (
           <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs shadow-lg backdrop-blur-md animate-fadeIn">
             <AlertTriangle size={15} />
-            <span>Posicione cabeça e ombros dentro da área pontilhada</span>
+            <span>{isCameraMuted
+              ? "Câmera temporariamente indisponível. A análise será retomada automaticamente."
+              : "Posicione cabeça e ombros dentro da área pontilhada"}</span>
           </div>
         )}
 
