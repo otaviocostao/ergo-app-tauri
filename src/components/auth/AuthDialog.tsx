@@ -9,9 +9,10 @@ interface AuthDialogProps {
   actions: ReactNode;
   illustration?: ReactNode;
   variant?: "online" | "success";
+  showCloseButton?: boolean;
 }
 
-export default function AuthDialog({ open, onClose, title, children, actions, illustration, variant = "online" }: AuthDialogProps) {
+export default function AuthDialog({ open, onClose, title, children, actions, illustration, variant = "online", showCloseButton = true }: AuthDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const descriptionId = useId();
@@ -36,11 +37,13 @@ export default function AuthDialog({ open, onClose, title, children, actions, il
       aria-describedby={descriptionId}
       onCancel={(event) => { event.preventDefault(); onClose(); }}
     >
-      <div className={`relative mx-auto flex w-full ${contentWidth} flex-col gap-2 px-6 pb-7 pt-12 sm:px-8 sm:pb-8`}>
+      {showCloseButton && (
         <button type="button" onClick={onClose} aria-label="Fechar janela"
           className="absolute right-3 top-3 flex size-8 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100 focus-visible:outline-2 focus-visible:outline-primary-600">
           <X size={18} aria-hidden="true" />
         </button>
+      )}
+      <div className={`mx-auto flex w-full ${contentWidth} flex-col gap-2 px-6 pb-7 ${showCloseButton ? "pt-12" : "pt-7 sm:pt-8"} sm:px-8 sm:pb-8`}>
         {illustration}
         <h2 id={titleId} className="text-center text-2xl font-semibold leading-8 tracking-tight dark:text-slate-100">
           {title}

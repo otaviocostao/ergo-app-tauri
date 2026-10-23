@@ -57,6 +57,15 @@ Estes registros descrevem o produto existente. Não são apresentados como novos
 - Usuário com `externalId` preenchido não pode editar seus dados pelo serviço local. Essa restrição de origem não equivale à autorização do usuário autenticado sobre cada registro.
 - Situação: implementada. Política de acesso por usuário, visitante e empresa pendente em P-08.
 
+### RN-13 Dados opcionais do usuário e nascimento
+
+- Origem e aprovação: solicitação do responsável pelo projeto nesta conversa em 20/10/2026; idade mínima de 14 anos confirmada explicitamente na mesma data.
+- Telefone e nascimento são opcionais no cadastro local e na edição do perfil. Campos não informados são persistidos como string vazia, mantendo a compatibilidade com as contas e o schema existentes.
+- Se preenchido no cadastro, o telefone deve conter DDD e 9 dígitos. Se preenchida, a data deve existir no calendário e corresponder a uma idade entre 14 e 100 anos completos, usando a data local do computador. A véspera do 101º aniversário ainda é aceita.
+- Datas impossíveis ou incompletas, futuras, abaixo da idade mínima e acima da idade máxima possuem mensagens específicas. O formulário aceita DD/MM/AAAA, e o serviço recebe YYYY-MM-DD.
+- Evidências de teste: `npm run test:birth-date` cobre datas impossíveis, campos vazios, aniversários e anos bissextos; os testes de `user_service` em `cargo test --manifest-path src-tauri/Cargo.toml` cobrem os mesmos limites, campos omitidos, persistência e remoção dos dados opcionais.
+- Situação: implementada. A faixa etária é uma regra de produto deste cadastro.
+
 ## Propostas pendentes de aprovação
 
 | ID | Proposta | Motivação e decisão necessária |

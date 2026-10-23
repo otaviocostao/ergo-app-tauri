@@ -78,6 +78,7 @@ export default function Login() {
       </AuthCard>
       <AuthDialog
         open={registrationDialog === "options"}
+        showCloseButton={false}
         onClose={() => setRegistrationDialog(null)}
         title="Como deseja se cadastrar?"
         actions={
@@ -109,6 +110,7 @@ export default function Login() {
       </AuthDialog>
       <AuthDialog
         open={registrationDialog === "online"}
+        showCloseButton={false}
         onClose={() => setRegistrationDialog(null)}
         title="Cadastro on-line"
         actions={
@@ -127,6 +129,7 @@ export default function Login() {
       </AuthDialog>
       <AuthDialog
         open={registrationComplete}
+        showCloseButton={false}
         variant="success"
         title="Cadastro realizado com sucesso!"
         onClose={closeSuccess}

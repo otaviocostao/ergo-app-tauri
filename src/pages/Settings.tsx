@@ -533,7 +533,6 @@ export default function Settings() {
                   setUserFeedback(null);
                 }}
                 disabled={!canEditUser || isSavingUser}
-                required={canEditUser}
               />
               <Input
                 label="E-mail"
@@ -554,7 +553,6 @@ export default function Settings() {
                   setUserFeedback(null);
                 }}
                 disabled={!canEditUser || isSavingUser}
-                required={canEditUser}
               />
             </div>
 

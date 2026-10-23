@@ -1,12 +1,14 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type FocusEventHandler, type KeyboardEvent } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
 import Input from "../Input";
 import CalendarSelect from "./CalendarSelect";
 import { authFieldStyles } from "./authStyles";
+import { birthDateBounds, dateValue, parseBirthDate } from "../../auth/birthDatePolicy";
 
 interface BirthDateInputProps {
   value: string;
   onChange: (value: string) => void;
+  onBlur?: FocusEventHandler<HTMLInputElement>;
   error?: string;
   disabled?: boolean;
 }
@@ -22,30 +24,27 @@ function dateAt(year: number, month: number, day: number) {
   return date;
 }
 
-function dateValue(date: Date) {
-  return `${String(date.getFullYear()).padStart(4, "0")}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-export default function BirthDateInput({ value, onChange, error, disabled = false }: BirthDateInputProps) {
+export default function BirthDateInput({ value, onChange, onBlur, error, disabled = false }: BirthDateInputProps) {
   const calendarId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const today = new Date();
-  const todayValue = dateValue(today);
-  const selected = value ? new Date(`${value}T12:00:00`) : today;
-  const initial = Number.isNaN(selected.getTime()) || dateValue(selected) > todayValue ? today : selected;
+  const { earliest, latest } = birthDateBounds(today);
+  const earliestValue = dateValue(earliest);
+  const latestValue = dateValue(latest);
+  const selected = parseBirthDate(value);
+  const initial = selected && dateValue(selected) >= earliestValue && dateValue(selected) <= latestValue ? selected : latest;
   const [view, setView] = useState(() => dateAt(initial.getFullYear(), initial.getMonth(), 1));
   const [activeDay, setActiveDay] = useState(initial.getDate());
   const year = view.getFullYear();
   const month = view.getMonth();
   const dayCount = dateAt(year, month + 1, 0).getDate();
   const firstWeekday = view.getDay();
-  const latestDay = year === today.getFullYear() && month === today.getMonth() ? today.getDate() : dayCount;
-  const firstYear = Math.min(today.getFullYear() - 120, year);
-  const years = Array.from({ length: today.getFullYear() - firstYear + 1 }, (_, index) => today.getFullYear() - index);
-  const canGoForward = year < today.getFullYear() || month < today.getMonth();
+  const years = Array.from({ length: latest.getFullYear() - earliest.getFullYear() + 1 }, (_, index) => latest.getFullYear() - index);
+  const canGoBack = year > earliest.getFullYear() || month > earliest.getMonth();
+  const canGoForward = year < latest.getFullYear() || month < latest.getMonth();
 
   useEffect(() => {
     if (!open) return;
@@ -81,12 +80,13 @@ export default function BirthDateInput({ value, onChange, error, disabled = fals
 
   function changeMonth(nextYear: number, nextMonth: number, day = activeDay) {
     let next = dateAt(nextYear, nextMonth, 1);
-    if (next.getFullYear() < 1) return;
-    if (dateValue(next) > todayValue) next = dateAt(today.getFullYear(), today.getMonth(), 1);
-    const lastDay = next.getFullYear() === today.getFullYear() && next.getMonth() === today.getMonth()
-      ? today.getDate() : dateAt(next.getFullYear(), next.getMonth() + 1, 0).getDate();
-    setView(next);
-    setActiveDay(Math.min(day, lastDay));
+    const nextDay = dateAt(next.getFullYear(), next.getMonth(), Math.min(day, dateAt(next.getFullYear(), next.getMonth() + 1, 0).getDate()));
+    if (dateValue(nextDay) < earliestValue) next = earliest;
+    else if (dateValue(nextDay) > latestValue) next = latest;
+    else next = nextDay;
+    setView(dateAt(next.getFullYear(), next.getMonth(), 1));
+    setActiveDay(next.getDate());
+    return next;
   }
 
   function navigateDays(event: KeyboardEvent<HTMLButtonElement>, day: number) {
@@ -108,9 +108,8 @@ export default function BirthDateInput({ value, onChange, error, disabled = fals
       default: return;
     }
     event.preventDefault();
-    if (next.getFullYear() < 1 || dateValue(next) > todayValue) return;
-    changeMonth(next.getFullYear(), next.getMonth(), next.getDate());
-    focusDay(next.getDate());
+    const destination = changeMonth(next.getFullYear(), next.getMonth(), next.getDate());
+    focusDay(destination.getDate());
   }
 
   return (
@@ -119,11 +118,13 @@ export default function BirthDateInput({ value, onChange, error, disabled = fals
     }} onKeyDown={(event) => {
       if (open && event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeCalendar(); }
     }}>
-      <Input ref={inputRef} label="Data de nascimento" type="date" lang="pt-BR" autoComplete="bday"
-        value={value} max={todayValue} onChange={(event) => onChange(event.target.value)}
-        error={error} disabled={disabled} aria-required="true"
+      <Input ref={inputRef} name="birthDate" label="Data de nascimento" type="date" lang="pt-BR" autoComplete="bday"
+        value={selected ? dateValue(selected) : ""} min={earliestValue} max={latestValue}
+        onChange={(event) => onChange(event.target.value)} onBlur={onBlur}
+        onInput={(event) => onChange(event.currentTarget.value)}
+        error={error} disabled={disabled}
         {...authFieldStyles}
-        inputClassName={`${authFieldStyles.inputClassName} pr-32! [&::-webkit-calendar-picker-indicator]:hidden`}
+        inputClassName={`${authFieldStyles.inputClassName} pr-14! [&::-webkit-calendar-picker-indicator]:hidden`}
         rightIcon={
           <button ref={triggerRef} type="button" disabled={disabled} onClick={toggleCalendar}
             aria-label="Escolher data de nascimento no calendário" aria-haspopup="dialog" aria-expanded={open}
@@ -143,12 +144,12 @@ export default function BirthDateInput({ value, onChange, error, disabled = fals
             </button>
           </div>
           <div className="mb-4 flex items-center gap-2">
-            <button type="button" onClick={() => changeMonth(year, month - 1)} disabled={year === 1 && month === 0}
+            <button type="button" onClick={() => changeMonth(year, month - 1)} disabled={!canGoBack}
               aria-label="Mês anterior" className="flex h-9 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-primary-600 disabled:opacity-30">
               <ChevronLeft size={18} aria-hidden="true" />
             </button>
             <CalendarSelect label="Mês de nascimento" value={month} onChange={(value) => changeMonth(year, value)}
-              className="flex-1" options={months.map((label, index) => ({ value: index, label, disabled: year === today.getFullYear() && index > today.getMonth() }))} />
+              className="flex-1" options={months.map((label, index) => ({ value: index, label, disabled: (year === earliest.getFullYear() && index < earliest.getMonth()) || (year === latest.getFullYear() && index > latest.getMonth()) }))} />
             <CalendarSelect label="Ano de nascimento" value={year} onChange={(value) => changeMonth(value, month)}
               className="w-22 shrink-0" options={years.map((option) => ({ value: option, label: String(option) }))} />
             <button type="button" onClick={() => changeMonth(year, month + 1)} disabled={!canGoForward}
@@ -166,13 +167,13 @@ export default function BirthDateInput({ value, onChange, error, disabled = fals
               const day = index + 1;
               const date = dateAt(year, month, day);
               const iso = dateValue(date);
-              const isSelected = iso === value;
-              return <button key={day} type="button" data-day={day} disabled={day > latestDay}
+              const isSelected = selected ? iso === dateValue(selected) : false;
+              return <button key={day} type="button" data-day={day} disabled={iso < earliestValue || iso > latestValue}
                 tabIndex={day === activeDay ? 0 : -1} aria-label={fullDate.format(date)} aria-pressed={isSelected}
-                aria-current={iso === todayValue ? "date" : undefined} onFocus={() => setActiveDay(day)}
+                onFocus={() => setActiveDay(day)}
                 onKeyDown={(event) => navigateDays(event, day)}
                 onClick={() => { onChange(iso); setOpen(false); inputRef.current?.focus(); }}
-                className={`flex h-9 items-center justify-center rounded-lg text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:text-slate-300 dark:disabled:text-slate-600 ${isSelected ? "bg-primary-700 font-semibold text-white hover:bg-primary-800 dark:bg-primary-500 dark:text-slate-950 dark:hover:bg-primary-400" : "text-slate-700 hover:bg-primary-50 dark:text-slate-300 dark:hover:bg-slate-800"} ${iso === todayValue && !isSelected ? "ring-1 ring-inset ring-primary-200 font-semibold dark:ring-primary-700" : ""}`}>
+                className={`flex h-9 items-center justify-center rounded-lg text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:text-slate-300 dark:disabled:text-slate-600 ${isSelected ? "bg-primary-700 font-semibold text-white hover:bg-primary-800 dark:bg-primary-500 dark:text-slate-950 dark:hover:bg-primary-400" : "text-slate-700 hover:bg-primary-50 dark:text-slate-300 dark:hover:bg-slate-800"}`}>
                 {day}
               </button>;
             })}
