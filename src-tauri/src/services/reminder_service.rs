@@ -3,10 +3,72 @@ use rusqlite::Connection;
 use uuid::Uuid;
 
 use crate::models::reminder::{
-    CreateReminderPayload, Reminder, ReminderFrequency, UpdateReminderPayload,
+    CreateReminderPayload, Reminder, ReminderFrequency, SystemReminderType, UpdateReminderPayload,
 };
 use crate::repositories::reminder_repository;
 use crate::services::auth_service::{require_authenticated_user_id, AuthState};
+
+/// Stable IDs keep one configuration per catalog entry and account without
+/// modifying the existing database schema or its migration checksum.
+pub fn ensure_system_reminders(conn: &Connection, user_id: i64) -> Result<(), String> {
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    for kind in SystemReminderType::ALL {
+        let id = kind.reminder_id(user_id);
+        if reminder_repository::find_by_id(&transaction, user_id, &id)
+            .map_err(|error| error.to_string())?
+            .is_some()
+        {
+            continue;
+        }
+        let (title, message, category, interval) = match kind {
+            SystemReminderType::PostureCheck => (
+                "Revise sua postura",
+                "Observe sua postura e ajuste os apoios para uma posição confortável.",
+                "Postura",
+                30,
+            ),
+            SystemReminderType::VisualBreak => (
+                "Faça uma pausa visual",
+                "Faça uma breve pausa da tela e direcione o olhar para um ponto distante.",
+                "Pausa Visual",
+                20,
+            ),
+            SystemReminderType::MovementBreak => (
+                "Mude de posição",
+                "Faça uma pausa para se movimentar e variar a posição, conforme seu conforto.",
+                "Exercício",
+                60,
+            ),
+        };
+        let now = Utc::now().to_rfc3339();
+        let reminder = Reminder {
+            id,
+            user_id: Some(user_id),
+            system_type: Some(kind),
+            title: title.into(),
+            message: message.into(),
+            description: Some(message.into()),
+            category: category.into(),
+            interval,
+            period: "08:00 - 18:00".into(),
+            frequency: ReminderFrequency::BusinessDays,
+            notification_tone: true,
+            status: "inativo".into(),
+            start_time: Some("08:00".into()),
+            end_time: Some("18:00".into()),
+            reminder_date: None,
+            custom_days: None,
+            last_sent_at: None,
+            created_at: Some(now.clone()),
+            updated_at: Some(now),
+        };
+        validate_schedule(&reminder)?;
+        reminder_repository::insert(&transaction, &reminder).map_err(|error| error.to_string())?;
+    }
+    transaction.commit().map_err(|error| error.to_string())
+}
 
 pub fn parse_time_to_minutes(time_str: &str) -> Option<i32> {
     let parts: Vec<&str> = time_str.split(':').collect();
@@ -54,7 +116,14 @@ pub fn validate_reminder_times(
 
 pub fn get_reminders(conn: &Connection, auth_state: &AuthState) -> Result<Vec<Reminder>, String> {
     let user_id = require_authenticated_user_id(auth_state)?;
-    reminder_repository::find_all(conn, user_id).map_err(|e| e.to_string())
+    let mut reminders = reminder_repository::find_all(conn, user_id).map_err(|e| e.to_string())?;
+    reminders.sort_by_key(|reminder| match reminder.system_type {
+        Some(SystemReminderType::PostureCheck) => 0,
+        Some(SystemReminderType::VisualBreak) => 1,
+        Some(SystemReminderType::MovementBreak) => 2,
+        None => 3,
+    });
+    Ok(reminders)
 }
 
 fn validate_schedule(reminder: &Reminder) -> Result<(), String> {
@@ -131,6 +200,12 @@ pub fn create_reminder(
     let now = Utc::now().to_rfc3339();
     let notification_tone = payload.notification_tone.unwrap_or(true);
     let status = payload.status.unwrap_or_else(|| "ativo".to_string());
+    if !matches!(status.as_str(), "ativo" | "inativo") {
+        return Err("Invalid reminder status".into());
+    }
+    if payload.title.trim().is_empty() || payload.message.trim().is_empty() {
+        return Err("Reminder title and message are required".into());
+    }
     let description = payload
         .description
         .or_else(|| Some(payload.message.clone()));
@@ -150,6 +225,7 @@ pub fn create_reminder(
     let reminder = Reminder {
         id: reminder_id,
         user_id: Some(user_id),
+        system_type: None,
         title: payload.title,
         message: payload.message,
         description,
@@ -183,6 +259,22 @@ pub fn update_reminder(
     let existing_reminder = reminder_repository::find_by_id(conn, user_id, &payload.id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Reminder with id '{}' not found", payload.id))?;
+
+    if existing_reminder.system_type.is_some()
+        && (payload.title.is_some()
+            || payload.message.is_some()
+            || payload.description.is_some()
+            || payload.category.is_some())
+    {
+        return Err("System reminder content is fixed; only scheduling and notification settings can be changed".into());
+    }
+    if payload
+        .status
+        .as_deref()
+        .is_some_and(|status| !matches!(status, "ativo" | "inativo"))
+    {
+        return Err("Invalid reminder status".into());
+    }
 
     let updated_title = payload.title.unwrap_or(existing_reminder.title);
     let updated_message = payload.message.unwrap_or(existing_reminder.message);
@@ -234,6 +326,7 @@ pub fn update_reminder(
     let now = Utc::now().to_rfc3339();
 
     let updated_reminder = Reminder {
+        system_type: existing_reminder.system_type,
         id: payload.id,
         user_id: Some(user_id),
         title: updated_title,
@@ -266,6 +359,12 @@ pub fn delete_reminder(
     id: &str,
 ) -> Result<bool, String> {
     let user_id = require_authenticated_user_id(auth_state)?;
+    if reminder_repository::find_by_id(conn, user_id, id)
+        .map_err(|error| error.to_string())?
+        .is_some_and(|reminder| reminder.system_type.is_some())
+    {
+        return Err("System reminders cannot be deleted; disable the reminder instead".into());
+    }
     let rows_affected =
         reminder_repository::delete(conn, user_id, id).map_err(|e| e.to_string())?;
     Ok(rows_affected > 0)
@@ -347,6 +446,275 @@ mod tests {
     fn update_payload(id: &str) -> UpdateReminderPayload {
         serde_json::from_value(serde_json::json!({ "id": id, "title": "Updated reminder" }))
             .unwrap()
+    }
+
+    #[test]
+    fn custom_reminders_coexist_with_the_catalog_and_allow_status_changes() {
+        let conn = setup_test_db();
+        let state = AuthState::new().unwrap();
+        let user_id = authenticate_test_user(&conn, &state, "owner@example.com");
+        ensure_system_reminders(&conn, user_id).unwrap();
+        let catalog = get_reminders(&conn, &state).unwrap();
+        let mut payload = create_payload();
+        payload.status = Some("inativo".into());
+        let created = create_reminder(&conn, &state, payload).unwrap();
+        assert_eq!(created.system_type, None);
+        assert_eq!(created.user_id, Some(user_id));
+        assert_eq!(created.status, "inativo");
+        assert!(Uuid::parse_str(&created.id).is_ok());
+        assert_eq!(get_reminders(&conn, &state).unwrap().len(), 4);
+
+        let settings = serde_json::from_value(serde_json::json!({
+            "id": created.id, "title": "My personal reminder", "status": "ativo"
+        }))
+        .unwrap();
+        let updated = update_reminder(&conn, &state, settings).unwrap();
+        assert_eq!(updated.title, "My personal reminder");
+        assert_eq!(updated.status, "ativo");
+        assert_eq!(
+            get_reminder_by_id(&conn, &state, &created.id).unwrap(),
+            updated
+        );
+        assert_eq!(
+            toggle_reminder_status(&conn, &state, &created.id)
+                .unwrap()
+                .status,
+            "inativo"
+        );
+        assert!(delete_reminder(&conn, &state, &created.id).unwrap());
+        assert_eq!(get_reminders(&conn, &state).unwrap(), catalog);
+    }
+
+    #[test]
+    fn custom_reminder_creation_validates_status_and_required_content() {
+        let conn = setup_test_db();
+        let state = AuthState::new().unwrap();
+        authenticate_test_user(&conn, &state, "owner@example.com");
+        for status in ["", "unknown", "ATIVO"] {
+            let mut payload = create_payload();
+            payload.status = Some(status.into());
+            assert_eq!(
+                create_reminder(&conn, &state, payload).unwrap_err(),
+                "Invalid reminder status"
+            );
+        }
+        for (title, message) in [(" ", "Message"), ("Title", "\t")] {
+            let mut payload = create_payload();
+            payload.title = title.into();
+            payload.message = message.into();
+            assert!(create_reminder(&conn, &state, payload).is_err());
+        }
+        assert!(get_reminders(&conn, &state).unwrap().is_empty());
+        let created = create_reminder(&conn, &state, create_payload()).unwrap();
+        assert_eq!(created.status, "ativo");
+    }
+
+    #[test]
+    fn custom_creation_cannot_impersonate_a_system_reminder() {
+        let conn = setup_test_db();
+        let state = AuthState::new().unwrap();
+        let user_id = authenticate_test_user(&conn, &state, "owner@example.com");
+        ensure_system_reminders(&conn, user_id).unwrap();
+        let system_id = SystemReminderType::PostureCheck.reminder_id(user_id);
+        let original = get_reminder_by_id(&conn, &state, &system_id).unwrap();
+        let payload = serde_json::from_value(serde_json::json!({
+            "id": system_id, "systemType": "POSTURE_CHECK",
+            "title": "Custom title", "message": "Custom message", "category": "Postura",
+            "interval": 15, "period": "08:00 - 18:00", "frequency": "DAILY",
+            "startTime": "08:00", "endTime": "18:00", "status": "ativo"
+        }))
+        .unwrap();
+        let custom = create_reminder(&conn, &state, payload).unwrap();
+        assert_ne!(custom.id, system_id);
+        assert_eq!(custom.system_type, None);
+        assert_eq!(
+            get_reminder_by_id(&conn, &state, &system_id).unwrap(),
+            original
+        );
+    }
+
+    #[test]
+    fn system_catalog_is_created_once_and_starts_disabled() {
+        let conn = setup_test_db();
+        let state = AuthState::new().unwrap();
+        let user_id = authenticate_test_user(&conn, &state, "owner@example.com");
+        ensure_system_reminders(&conn, user_id).unwrap();
+        let first = get_reminders(&conn, &state).unwrap();
+        ensure_system_reminders(&conn, user_id).unwrap();
+        assert_eq!(get_reminders(&conn, &state).unwrap(), first);
+        assert_eq!(first.len(), 3);
+        for (reminder, kind) in first.iter().zip(SystemReminderType::ALL) {
+            assert_eq!(reminder.system_type, Some(kind));
+            assert_eq!(reminder.id, kind.reminder_id(user_id));
+            assert_eq!(reminder.user_id, Some(user_id));
+            assert_eq!(reminder.status, "inativo");
+            assert_eq!(reminder.frequency, ReminderFrequency::BusinessDays);
+            assert_eq!(
+                serde_json::to_value(reminder).unwrap()["systemType"],
+                kind.as_str()
+            );
+            validate_schedule(reminder).unwrap();
+        }
+    }
+
+    #[test]
+    fn system_reminders_preserve_preferences_and_last_send_time() {
+        let conn = setup_test_db();
+        let state = AuthState::new().unwrap();
+        let user_id = authenticate_test_user(&conn, &state, "owner@example.com");
+        ensure_system_reminders(&conn, user_id).unwrap();
+        let original = get_reminders(&conn, &state).unwrap().remove(0);
+        let payload = serde_json::from_value(serde_json::json!({
+            "id": original.id, "interval": 15, "period": "09:00 - 17:00",
+            "startTime": "09:00", "endTime": "17:00", "frequency": "CUSTOM",
+            "customDays": ["MON", "WED"], "notificationTone": false, "status": "ativo"
+        }))
+        .unwrap();
+        let updated = update_reminder(&conn, &state, payload).unwrap();
+        assert_eq!(updated.system_type, original.system_type);
+        assert_eq!(updated.title, original.title);
+        assert_eq!(updated.message, original.message);
+        assert_eq!(updated.category, original.category);
+        assert_eq!(updated.interval, 15);
+        assert_eq!(updated.status, "ativo");
+        assert!(!updated.notification_tone);
+        let sent_at = "2026-10-19T12:00:00Z";
+        reminder_repository::update_last_sent_at(&conn, user_id, &updated.id, sent_at).unwrap();
+        let stored = get_reminder_by_id(&conn, &state, &updated.id).unwrap();
+        ensure_system_reminders(&conn, user_id).unwrap();
+        assert_eq!(
+            get_reminder_by_id(&conn, &state, &updated.id).unwrap(),
+            stored
+        );
+        assert_eq!(stored.last_sent_at.as_deref(), Some(sent_at));
+    }
+
+    #[test]
+    fn system_content_and_catalog_entries_cannot_be_changed_or_deleted() {
+        let conn = setup_test_db();
+        let state = AuthState::new().unwrap();
+        let user_id = authenticate_test_user(&conn, &state, "owner@example.com");
+        ensure_system_reminders(&conn, user_id).unwrap();
+        let original = get_reminders(&conn, &state).unwrap().remove(0);
+        for field in ["title", "message", "description", "category"] {
+            let mut payload = serde_json::json!({ "id": original.id });
+            payload[field] = serde_json::json!("Changed content");
+            assert!(
+                update_reminder(&conn, &state, serde_json::from_value(payload).unwrap()).is_err()
+            );
+            assert_eq!(
+                get_reminder_by_id(&conn, &state, &original.id).unwrap(),
+                original
+            );
+        }
+        assert!(delete_reminder(&conn, &state, &original.id).is_err());
+        assert_eq!(get_reminders(&conn, &state).unwrap().len(), 3);
+        assert_eq!(
+            toggle_reminder_status(&conn, &state, &original.id)
+                .unwrap()
+                .status,
+            "ativo"
+        );
+        assert_eq!(
+            toggle_reminder_status(&conn, &state, &original.id)
+                .unwrap()
+                .status,
+            "inativo"
+        );
+    }
+
+    #[test]
+    fn ergonomic_settings_are_isolated_between_users_and_legacy_records_are_preserved() {
+        let conn = setup_test_db();
+        let state = AuthState::new().unwrap();
+        let first_user = authenticate_test_user(&conn, &state, "first@example.com");
+        let legacy = create_reminder(&conn, &state, create_payload()).unwrap();
+        ensure_system_reminders(&conn, first_user).unwrap();
+        assert_eq!(get_reminders(&conn, &state).unwrap().len(), 4);
+        assert_eq!(
+            get_reminder_by_id(&conn, &state, &legacy.id).unwrap(),
+            legacy
+        );
+        let first_id = SystemReminderType::PostureCheck.reminder_id(first_user);
+        let second_user = authenticate_test_user(&conn, &state, "second@example.com");
+        ensure_system_reminders(&conn, second_user).unwrap();
+        assert!(get_reminder_by_id(&conn, &state, &first_id).is_err());
+        assert!(toggle_reminder_status(&conn, &state, &first_id).is_err());
+        assert!(!delete_reminder(&conn, &state, &first_id).unwrap());
+        assert!(get_reminders(&conn, &state)
+            .unwrap()
+            .iter()
+            .all(|reminder| reminder.user_id == Some(second_user) && reminder.status == "inativo"));
+    }
+
+    #[test]
+    fn catalog_types_are_derived_only_from_matching_server_owned_ids() {
+        assert_eq!(
+            SystemReminderType::from_reminder_id("system-reminder:7:POSTURE_CHECK", Some(7)),
+            Some(SystemReminderType::PostureCheck)
+        );
+        assert_eq!(
+            SystemReminderType::from_reminder_id("system-reminder:7:POSTURE_CHECK", Some(8)),
+            None
+        );
+        assert_eq!(
+            SystemReminderType::from_reminder_id("system-reminder:7:POSTURE_CHECK", None),
+            None
+        );
+        assert_eq!(
+            SystemReminderType::from_reminder_id("system-reminder:7:UNKNOWN", Some(7)),
+            None
+        );
+        assert_eq!(
+            SystemReminderType::from_reminder_id("legacy-id", Some(7)),
+            None
+        );
+    }
+
+    #[test]
+    fn system_preferences_survive_reopening_the_existing_schema() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("ergonomic-reminders.db");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(include_str!("../../migrations/0001_initial_migration.sql"))
+            .unwrap();
+        let state = AuthState::new().unwrap();
+        let user_id = authenticate_test_user(&conn, &state, "owner@example.com");
+        ensure_system_reminders(&conn, user_id).unwrap();
+        let id = SystemReminderType::VisualBreak.reminder_id(user_id);
+        let payload = serde_json::from_value(
+            serde_json::json!({ "id": id, "interval": 10, "status": "ativo" }),
+        )
+        .unwrap();
+        let configured = update_reminder(&conn, &state, payload).unwrap();
+        drop(conn);
+        let conn = Connection::open(&path).unwrap();
+        ensure_system_reminders(&conn, user_id).unwrap();
+        assert_eq!(get_reminder_by_id(&conn, &state, &id).unwrap(), configured);
+        assert_eq!(get_reminders(&conn, &state).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn invalid_schedule_or_status_does_not_change_a_system_reminder() {
+        let conn = setup_test_db();
+        let state = AuthState::new().unwrap();
+        let user_id = authenticate_test_user(&conn, &state, "owner@example.com");
+        ensure_system_reminders(&conn, user_id).unwrap();
+        let original = get_reminders(&conn, &state).unwrap().remove(0);
+        for changes in [
+            serde_json::json!({"interval": 0}),
+            serde_json::json!({"status": "unknown"}),
+        ] {
+            let mut payload = changes;
+            payload["id"] = serde_json::json!(original.id);
+            assert!(
+                update_reminder(&conn, &state, serde_json::from_value(payload).unwrap()).is_err()
+            );
+            assert_eq!(
+                get_reminder_by_id(&conn, &state, &original.id).unwrap(),
+                original
+            );
+        }
     }
 
     #[test]

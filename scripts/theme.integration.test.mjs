@@ -33,6 +33,7 @@ let session;
 let readPreference;
 let savePreference;
 let calls;
+let reminders;
 
 function authenticated(userId) {
   return { kind: "authenticated", user: {
@@ -53,6 +54,13 @@ async function invoke(command, payload) {
     case "is_local_user": return true;
     case "get_companies":
     case "get_workspaces": return [];
+    case "get_reminders": return reminders.map((reminder) => ({ ...reminder }));
+    case "update_reminder": {
+      const reminder = reminders.find(({ id }) => id === payload.payload.id);
+      assert.ok(reminder, "The reminder must exist before updating it");
+      Object.assign(reminder, payload.payload);
+      return { ...reminder };
+    }
     default: assert.fail(`Unexpected Tauri command: ${command}`);
   }
 }
@@ -78,9 +86,12 @@ function loadSource(filename) {
   });
   const localRequire = (specifier) => {
     if (specifier === "@tauri-apps/api/core") return { invoke, isTauri: () => true };
+    if (specifier === "@tauri-apps/api/event") return { listen: async () => () => {} };
     if (!specifier.startsWith(".")) return require(specifier);
     const base = path.resolve(path.dirname(filename), specifier);
-    const resolved = ts.sys.fileExists(`${base}.tsx`) ? `${base}.tsx` : `${base}.ts`;
+    const resolved = [`${base}.tsx`, `${base}.ts`, path.join(base, "index.tsx"), path.join(base, "index.ts")]
+      .find((candidate) => ts.sys.fileExists(candidate));
+    assert.ok(resolved, `Cannot resolve ${specifier} from ${filename}`);
     return loadSource(resolved);
   };
   vm.runInThisContext(`(function(require, module, exports) {\n${outputText}\n})`, { filename })(
@@ -116,6 +127,19 @@ beforeEach(() => {
   document.documentElement.style.colorScheme = "";
   session = { kind: "anonymous" };
   calls = [];
+  reminders = [
+    {
+      id: "system-reminder:1:VISUAL_BREAK", systemType: "VISUAL_BREAK", userId: 1,
+      title: "Faça uma pausa visual", message: "Descanse os olhos", category: "Pausa Visual",
+      interval: 20, period: "08:00 - 18:00", frequency: "BUSINESS_DAYS", notificationTone: true,
+      status: "inativo", startTime: "08:00", endTime: "18:00",
+    },
+    {
+      id: "custom-reminder", userId: 1, title: "Meu lembrete personalizado", message: "Beba água",
+      category: "Hidratação", interval: 60, period: "08:00 - 18:00", frequency: "DAILY",
+      notificationTone: true, status: "ativo", startTime: "08:00", endTime: "18:00",
+    },
+  ];
   readPreference = () => Promise.resolve("system");
   savePreference = (preference) => Promise.resolve(preference);
   media = new dom.window.EventTarget();
@@ -133,11 +157,11 @@ after(() => {
   }
 });
 
-async function mount(userId = null) {
+async function mount(userId = null, initialEntry = "/settings") {
   session = userId === null ? { kind: "anonymous" } : authenticated(userId);
   await act(async () => root.render(
     React.createElement(React.StrictMode, null,
-      React.createElement(MemoryRouter, { initialEntries: ["/settings"] },
+      React.createElement(MemoryRouter, { initialEntries: [initialEntry] },
         React.createElement(AuthProvider, null,
           React.createElement(ThemeProvider, null,
             React.createElement(Probe), React.createElement(AppRoutes),
@@ -312,3 +336,33 @@ test("refreshing the same account profile preserves theme without another read",
   assert.equal(calls.filter(({ command }) => command === "get_user_theme_preference").length, readCount);
   assertAppearance("dark");
 });
+
+for (const initialEntry of ["/settings?tab=notices", "/ergonomic-notices"]) {
+  test(`theme and ergonomic notices work together when entering ${initialEntry}`, async () => {
+    readPreference = () => Promise.resolve("dark");
+    await mount(1, initialEntry);
+    assertAppearance("dark");
+    assert.equal(document.querySelector('main button[aria-current="page"]').textContent, "Avisos de ergonomia");
+    assert.match(document.querySelector("main").textContent, /Faça uma pausa visual/);
+    assert.doesNotMatch(document.querySelector("main").textContent, /Meu lembrete personalizado/);
+    const noticeSwitch = document.querySelector('main input[role="switch"]');
+    assert.equal(noticeSwitch.checked, false);
+    await act(async () => noticeSwitch.click());
+    assert.equal(noticeSwitch.checked, true);
+    assert.equal(calls.filter(({ command }) => command === "update_reminder").length, 1);
+
+    await act(async () => {
+      [...document.querySelectorAll("main button")].find((button) => button.textContent === "Tema").click();
+    });
+    assert.equal(document.querySelector('input[name="app-theme"]:checked').value, "dark");
+    await act(async () => document.querySelector('input[name="app-theme"][value="light"]').click());
+    assertAppearance("light");
+    assert.equal(calls.filter(({ command }) => command === "update_user_theme_preference").length, 1);
+
+    await act(async () => {
+      [...document.querySelectorAll("main button")].find((button) => button.textContent === "Avisos de ergonomia").click();
+    });
+    assert.equal(document.querySelector('main input[role="switch"]').checked, true);
+    assertAppearance("light");
+  });
+}

@@ -123,6 +123,8 @@ pub fn login(
 
     match stored_user {
         Some(stored) if verified => {
+            crate::services::reminder_service::ensure_system_reminders(conn, stored.user.id)
+                .map_err(|_| AuthError::internal())?;
             let session = Session::Authenticated {
                 user: Box::new(stored.user),
             };
@@ -221,6 +223,11 @@ mod tests {
         let serialized = serde_json::to_value(&session).unwrap();
         assert_eq!(serialized["kind"], "authenticated");
         assert_eq!(serialized["user"]["email"], "ana@example.com");
+        let reminders = crate::services::reminder_service::get_reminders(&conn, &state).unwrap();
+        assert_eq!(reminders.len(), 3);
+        assert!(reminders
+            .iter()
+            .all(|reminder| reminder.system_type.is_some() && reminder.status == "inativo"));
 
         logout(&state).unwrap();
         assert!(matches!(get_session(&state).unwrap(), Session::Anonymous));

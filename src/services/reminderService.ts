@@ -17,9 +17,12 @@ export {
   WEEK_DAYS_OPTIONS,
 };
 
+export type SystemReminderType = "POSTURE_CHECK" | "VISUAL_BREAK" | "MOVEMENT_BREAK";
+
 export interface ReminderItem {
   id: string;
   userId?: number | null;
+  systemType?: SystemReminderType | null;
   title: string;
   message: string;
   description?: string;
@@ -47,7 +50,7 @@ export interface CreateReminderPayload {
   period: string;
   frequency: ReminderFrequency;
   notificationTone?: boolean;
-  status?: string;
+  status?: "ativo" | "inativo";
   startTime?: string;
   endTime?: string;
   reminderDate?: string;

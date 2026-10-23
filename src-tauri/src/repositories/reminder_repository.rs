@@ -1,9 +1,11 @@
-use crate::models::reminder::Reminder;
+use crate::models::reminder::{Reminder, SystemReminderType};
 use rusqlite::{params, Connection, OptionalExtension};
 
 pub const SELECT_REMINDER_FIELDS: &str = "id, title, message, description, category, interval, period, frequency, notification_tone, status, start_time, end_time, reminder_date, custom_days, created_at, updated_at, user_id, last_sent_at";
 
 pub fn map_reminder_row(row: &rusqlite::Row<'_>) -> Result<Reminder, rusqlite::Error> {
+    let id: String = row.get(0)?;
+    let user_id: Option<i64> = row.get(16)?;
     let notification_tone_int: i32 = row.get(8)?;
     let custom_days_raw: Option<String> = row.get(13)?;
     let custom_days: Option<Vec<String>> = match custom_days_raw {
@@ -12,8 +14,9 @@ pub fn map_reminder_row(row: &rusqlite::Row<'_>) -> Result<Reminder, rusqlite::E
     };
 
     Ok(Reminder {
-        id: row.get(0)?,
-        user_id: row.get(16)?,
+        system_type: SystemReminderType::from_reminder_id(&id, user_id),
+        id,
+        user_id,
         title: row.get(1)?,
         message: row.get(2)?,
         description: row.get(3)?,
