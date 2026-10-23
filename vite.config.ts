@@ -7,7 +7,21 @@ const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    {
+      name: "mediapipe-sourcemap-fix",
+      transform(code, id) {
+        if (id.includes("@mediapipe/tasks-vision")) {
+          return {
+            code: code.replace(/\/\/# sourceMappingURL=vision_bundle_mjs\.js\.map/, ""),
+            map: null,
+          };
+        }
+      },
+    },
+  ],
 
   assetsInclude: ["**/*.task", "**/*.wasm"],
   optimizeDeps: {

@@ -215,17 +215,13 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     expect(streams.every(item => item.track.stop.mock.calls.length === 1)).toBe(true);
   });
 
-  it("keeps calibration unavailable on camera denial until simulation is explicitly selected", async () => {
+  it("keeps calibration unavailable on camera denial", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     getUserMedia.mockRejectedValue(new DOMException("denied", "NotAllowedError"));
     await renderCalibration(); await reachCalibrationCamera(); await advance(200);
     const dialog = document.querySelector('[role="dialog"]');
     expect(dialog?.textContent).toContain("Permissão de câmera negada");
     expect(dialog?.textContent).toContain("Aguardando detecção confiável");
-    expect(dialog?.textContent).not.toContain("Detecção e Extração em Modo Simulado");
-    await clickButton("Ativar Modo Simulado"); await advance(200);
-    expect(dialog?.textContent).toContain("Detecção e Extração em Modo Simulado");
-    expect(dialog?.textContent).toContain("Pescoço:");
   });
 
   it.each([true, false])("hands the camera to calibration and restores the previous monitoring state (%s)", async running => {
@@ -474,19 +470,12 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     expect(update.mock.lastCall?.[0]).toMatchObject({ neckAngle: 0, shoulderBalance: 100, presence: "ACTIVE" });
   });
 
-  it("handles permission denial and runs the explicit simulation through the same algorithms", async () => {
+  it("handles permission denial and pauses metric publication", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     getUserMedia.mockRejectedValue(new DOMException("denied", "NotAllowedError"));
     await render(); await advance(200);
     expect(container.textContent).toContain("Permissão de câmera negada");
     expect(update).not.toHaveBeenCalled();
-    await act(async () => [...container.querySelectorAll("button")].find(button => button.textContent?.includes("Ativar Modo Simulado"))!.click());
-    await advance(200);
-    expect(biomechanics.calculateNeckAngle).toHaveBeenCalled();
-    expect(update.mock.lastCall?.[0]).toMatchObject({ presence: "ACTIVE" });
-    expect(update.mock.lastCall?.[0].neckAngle).toBeGreaterThanOrEqual(0);
-    expect(update.mock.lastCall?.[0].shoulderBalance).toBeLessThanOrEqual(100);
-    expect(container.textContent).toContain("Modo Simulado");
   });
 
   it("does not publish posture measurements before the detector is ready", async () => {
