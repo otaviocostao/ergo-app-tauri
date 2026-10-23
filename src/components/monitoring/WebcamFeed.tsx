@@ -12,14 +12,16 @@ import {
 import Button from "../Button";
 import Select from "../Select";
 import { poseDetector, type LandmarkPoint, POSE_LANDMARK_INDEX } from "../../services/vision";
+import { calculatePoseAngles, type PoseAngles } from "../../services/vision/poseAngles";
+import { calculateHeadPitch, type Point2D } from "../../services/vision/biomechanics";
 import type { UserPresenceState } from "../../types/vision";
 
 export type { UserPresenceState };
 
 export interface WebcamFeedProps {
   isMonitoring: boolean;
-  onToggleMonitoring: () => void;
-  onCalibrate: () => void;
+  onToggleMonitoring?: () => void;
+  onCalibrate?: () => void;
   onPostureUpdate?: (metrics: {
     neckAngle: number;
     shoulderBalance: number;
@@ -39,6 +41,16 @@ export interface WebcamFeedProps {
  * 90ms ≈ 11.1 FPS (atende ao requisito de 10-12 FPS para redução drástica de CPU/GPU).
  */
 const INFERENCE_INTERVAL_MS = 90;
+
+// Bridge short detection gaps without retaining stale body positions indefinitely.
+const OVERLAY_MAX_AGE_MS = 300;
+
+interface PoseOverlay {
+  head: Point2D;
+  leftShoulder: Point2D;
+  rightShoulder: Point2D;
+  detectedAt: number;
+}
 
 /**
  * Tempo de tolerância para ausência do usuário: 5 segundos.
@@ -64,12 +76,17 @@ export default function WebcamFeed({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const cameraRequestRef = useRef(0);
+  const hasMeasuredFrameRef = useRef(false);
+  const lastOverlayRef = useRef<PoseOverlay | null>(null);
 
   // Estados de dispositivos e permissão
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const [permissionError, setPermissionError] = useState<string | null>(null);
+  const [isCameraMuted, setIsCameraMuted] = useState(false);
+  const isCameraMutedRef = useRef(false);
 
   // Estados de concorrência de hardware (Exclusive Lock no Windows)
   const [isHardwareBusy, setIsHardwareBusy] = useState<boolean>(false);
@@ -77,13 +94,13 @@ export default function WebcamFeed({
 
   // Estados de IA e Presença
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
-  const [presenceState, setPresenceState] = useState<UserPresenceState>("ACTIVE");
+  const [presenceState, setPresenceState] = useState<UserPresenceState>("PARTIALLY_OCCLUDED");
   const [showOverlay] = useState<boolean>(true);
 
   // Refs de controle de ciclo de inferência
   const lastInferenceTimeRef = useRef<number>(0);
   const lastLandmarksDetectedTimeRef = useRef<number>(Date.now());
-  const presenceRef = useRef<UserPresenceState>("ACTIVE");
+  const presenceRef = useRef<UserPresenceState>("PARTIALLY_OCCLUDED");
   const isMonitoringRef = useRef<boolean>(isMonitoring);
   const isHardwareBusyRef = useRef<boolean>(false);
   const onPostureUpdateRef = useRef(onPostureUpdate);
@@ -196,10 +213,16 @@ export default function WebcamFeed({
   }, [enumerateCameras]);
 
   const stopCurrentStream = useCallback(() => {
+    cameraRequestRef.current += 1;
+    hasMeasuredFrameRef.current = false;
+    lastOverlayRef.current = null;
+    isCameraMutedRef.current = false;
+    setIsCameraMuted(false);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => {
         track.onended = null;
         track.onmute = null;
+        track.onunmute = null;
         track.stop();
       });
       streamRef.current = null;
@@ -218,6 +241,9 @@ export default function WebcamFeed({
       stopCurrentStream();
       setIsHardwareBusy(true);
       setHardwareErrorMessage(reason);
+      presenceRef.current = "PARTIALLY_OCCLUDED";
+      setPresenceState("PARTIALLY_OCCLUDED");
+      onPresenceChangeRef.current?.("PARTIALLY_OCCLUDED");
       onHardwareBusyChangeRef.current?.(true);
     },
     [stopCurrentStream]
@@ -231,6 +257,7 @@ export default function WebcamFeed({
     }
 
     stopCurrentStream();
+    const requestId = cameraRequestRef.current;
     setIsHardwareBusy(false);
     setHardwareErrorMessage(null);
     onHardwareBusyChangeRef.current?.(false);
@@ -253,6 +280,11 @@ export default function WebcamFeed({
       };
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      // Release requests that finished after pause, device switching or unmount.
+      if (requestId !== cameraRequestRef.current || !isMonitoringRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       streamRef.current = stream;
       onStreamChangeRef.current?.(stream);
 
@@ -266,9 +298,23 @@ export default function WebcamFeed({
           }
         };
 
-        videoTrack.onmute = () => {
-          console.warn("[WebcamFeed] Track de vídeo foi temporariamente desativada pelo sistema operacional.");
+        const handleTrackMute = (muted: boolean) => {
+          if (streamRef.current !== stream || !isMonitoringRef.current) return;
+          isCameraMutedRef.current = muted;
+          setIsCameraMuted(muted);
+          hasMeasuredFrameRef.current = false;
+          lastOverlayRef.current = null;
+          lastLandmarksDetectedTimeRef.current = Date.now();
+          // Keep metrics paused after unmute until a fresh valid frame arrives.
+          if (presenceRef.current !== "PARTIALLY_OCCLUDED") {
+            presenceRef.current = "PARTIALLY_OCCLUDED";
+            setPresenceState("PARTIALLY_OCCLUDED");
+            onPresenceChangeRef.current?.("PARTIALLY_OCCLUDED");
+          }
         };
+        videoTrack.onmute = () => handleTrackMute(true);
+        videoTrack.onunmute = () => handleTrackMute(false);
+        if (videoTrack.muted) handleTrackMute(true);
       }
 
       if (videoRef.current) {
@@ -287,6 +333,7 @@ export default function WebcamFeed({
       // Atualiza lista de dispositivos caso as labels estivessem anônimas antes do consentimento
       enumerateCameras();
     } catch (err: unknown) {
+      if (requestId !== cameraRequestRef.current) return;
       const error = err as { name?: string; message?: string };
       console.warn("[WebcamFeed] Erro ao obter acesso à câmera:", err);
 
@@ -362,10 +409,10 @@ export default function WebcamFeed({
       // Ajusta resolução do canvas para coincidir exatamente com as dimensões do container
       if (canvas.parentElement) {
         const rect = canvas.parentElement.getBoundingClientRect();
-        if (canvas.width !== rect.width || canvas.height !== rect.height) {
-          canvas.width = rect.width;
-          canvas.height = rect.height;
-        }
+        const width = Math.max(1, Math.round(rect.width));
+        const height = Math.max(1, Math.round(rect.height));
+        if (canvas.width !== width) canvas.width = width;
+        if (canvas.height !== height) canvas.height = height;
       }
 
       const w = canvas.width;
@@ -374,7 +421,7 @@ export default function WebcamFeed({
       // Limpa canvas para novo desenho
       ctx.clearRect(0, 0, w, h);
 
-      if (!isMonitoringRef.current || isHardwareBusyRef.current) {
+      if (!isMonitoringRef.current || isHardwareBusyRef.current || isCameraMutedRef.current) {
         animationFrameId = requestAnimationFrame(processFrame);
         return;
       }
@@ -390,7 +437,8 @@ export default function WebcamFeed({
       let currentPoseDetected = false;
       let leftShoulderPt: LandmarkPoint | null = null;
       let rightShoulderPt: LandmarkPoint | null = null;
-      let headPt: LandmarkPoint | null = null;
+      let poseAngles: PoseAngles | null = null;
+      let headPitch: number | null = null;
 
       if (shouldRunInference) {
         lastInferenceTimeRef.current = currentTime - (elapsedSinceLastInference % INFERENCE_INTERVAL_MS);
@@ -399,20 +447,21 @@ export default function WebcamFeed({
           // Inferência real através do MediaPipe WebGL / WebAssembly
           try {
             const detection = poseDetector.detectFrame(video);
+            headPitch = detection.hasFace ? calculateHeadPitch(detection.faceTransformationMatrix) : null;
             if (detection.hasPose && detection.poseLandmarks && detection.poseLandmarks.length >= 13) {
               const nose = detection.poseLandmarks[POSE_LANDMARK_INDEX.NOSE];
               const leftShoulder = detection.poseLandmarks[POSE_LANDMARK_INDEX.LEFT_SHOULDER];
               const rightShoulder = detection.poseLandmarks[POSE_LANDMARK_INDEX.RIGHT_SHOULDER];
 
               // Confirmação de confiança anatômica mínima
-              const hasConfidence =
-                (nose?.visibility ?? 1) > 0.35 &&
-                (leftShoulder?.visibility ?? 1) > 0.35 &&
-                (rightShoulder?.visibility ?? 1) > 0.35;
+              const hasConfidence = [nose, leftShoulder, rightShoulder].every((point) =>
+                point && Number.isFinite(point.x) && Number.isFinite(point.y) &&
+                (point.visibility ?? 1) > 0.35 && (point.presence ?? 1) > 0.35
+              );
 
               if (hasConfidence) {
                 currentPoseDetected = true;
-                headPt = nose;
+                poseAngles = calculatePoseAngles(detection.poseLandmarks, video.videoWidth, video.videoHeight);
                 leftShoulderPt = leftShoulder;
                 rightShoulderPt = rightShoulder;
               }
@@ -428,10 +477,11 @@ export default function WebcamFeed({
         if (currentPoseDetected) {
           lastLandmarksDetectedTimeRef.current = now;
 
-          if (presenceRef.current !== "ACTIVE") {
-            presenceRef.current = "ACTIVE";
-            setPresenceState("ACTIVE");
-            onPresenceChangeRef.current?.("ACTIVE");
+          const nextPresence = poseAngles && headPitch !== null ? "ACTIVE" : "PARTIALLY_OCCLUDED";
+          if (presenceRef.current !== nextPresence) {
+            presenceRef.current = nextPresence;
+            setPresenceState(nextPresence);
+            onPresenceChangeRef.current?.(nextPresence);
           }
         } else {
           const timeSinceLastDetection = now - lastLandmarksDetectedTimeRef.current;
@@ -444,9 +494,9 @@ export default function WebcamFeed({
 
               // Pausa o cômputo de má postura e avisa a página de monitoramento
               onPostureUpdateRef.current?.({
-                neckAngle: smoothedMetricsRef.current.neckAngle,
-                shoulderBalance: smoothedMetricsRef.current.shoulderBalance,
-                distanceCm: smoothedMetricsRef.current.distanceCm,
+                neckAngle: Math.round(smoothedMetricsRef.current.neckAngle),
+                shoulderBalance: Math.round(smoothedMetricsRef.current.shoulderBalance),
+                distanceCm: Math.round(smoothedMetricsRef.current.distanceCm),
                 status: "good",
                 statusLabel: "Usuário Ausente (Pausado)",
                 presence: "ABSENT",
@@ -460,34 +510,23 @@ export default function WebcamFeed({
           }
         }
 
+        // Paused tracking must not blend pre-gap posture into the first new measurement.
+        if (presenceRef.current !== "ACTIVE") hasMeasuredFrameRef.current = false;
+
         // -------------------------------------------------------------
         // 3. EXTRAÇÃO DE ÂNGULOS BIOMECÂNICOS & ATUALIZAÇÃO DE MÉTRICAS
         // -------------------------------------------------------------
-        if (currentPoseDetected && headPt && leftShoulderPt && rightShoulderPt) {
-          // Espelhamento horizontal para casar com a pré-visualização -scale-x-100 do vídeo
-          const headCanvasX = (1 - headPt.x) * w;
-          const headCanvasY = headPt.y * h;
-          const leftShoulderCanvasX = (1 - leftShoulderPt.x) * w;
-          const leftShoulderCanvasY = leftShoulderPt.y * h;
-          const rightShoulderCanvasX = (1 - rightShoulderPt.x) * w;
-          const rightShoulderCanvasY = rightShoulderPt.y * h;
-
-          const neckCanvasX = (leftShoulderCanvasX + rightShoulderCanvasX) / 2;
-          const neckCanvasY = (leftShoulderCanvasY + rightShoulderCanvasY) / 2;
-
-          // Cálculo da inclinação dos ombros
-          const shoulderDiffY = Math.abs(leftShoulderCanvasY - rightShoulderCanvasY);
-          const shoulderDiffX = Math.max(1, Math.abs(rightShoulderCanvasX - leftShoulderCanvasX));
-          const shoulderAngleDeg = (Math.atan2(shoulderDiffY, shoulderDiffX) * 180) / Math.PI;
-          const rawShoulderBalance = Math.max(0, Math.min(100, Math.round(100 - shoulderAngleDeg * 10)));
-
-          // Cálculo da inclinação do pescoço em relação à vertical
-          const neckVectorX = headCanvasX - neckCanvasX;
-          const neckVectorY = neckCanvasY - headCanvasY;
-          const rawNeckAngle = Math.max(
-            0,
-            Math.round(Math.abs((Math.atan2(neckVectorX, Math.max(1, neckVectorY)) * 180) / Math.PI))
-          );
+        if (currentPoseDetected && poseAngles && headPitch !== null && leftShoulderPt && rightShoulderPt) {
+          lastOverlayRef.current = {
+            head: { ...poseAngles.headCenter },
+            leftShoulder: { x: leftShoulderPt.x, y: leftShoulderPt.y },
+            rightShoulder: { x: rightShoulderPt.x, y: rightShoulderPt.y },
+            detectedAt: currentTime,
+          };
+          // Keep both upward and downward deviations; opposite signs must not
+          // cancel in the EMA, nor hide behind a centered image-plane vector.
+          const rawNeckAngle = Math.max(poseAngles.neckAngle, Math.abs(headPitch));
+          const rawShoulderBalance = poseAngles.shoulderBalance;
 
           // Estimativa de distância proporcional à largura dos ombros normalizada
           const shoulderWidthNorm = Math.sqrt(
@@ -499,15 +538,12 @@ export default function WebcamFeed({
           );
 
           // Suavização temporal (EMA) para estabilizar oscilações
-          const smoothedNeck = Math.round(
-            EMA_ALPHA * rawNeckAngle + (1 - EMA_ALPHA) * smoothedMetricsRef.current.neckAngle
-          );
-          const smoothedShoulder = Math.round(
-            EMA_ALPHA * rawShoulderBalance + (1 - EMA_ALPHA) * smoothedMetricsRef.current.shoulderBalance
-          );
-          const smoothedDist = Math.round(
-            EMA_ALPHA * rawDistanceCm + (1 - EMA_ALPHA) * smoothedMetricsRef.current.distanceCm
-          );
+          // Keep fractional values in the filter; round only when publishing to UI.
+          const alpha = hasMeasuredFrameRef.current ? EMA_ALPHA : 1;
+          const smoothedNeck = alpha * rawNeckAngle + (1 - alpha) * smoothedMetricsRef.current.neckAngle;
+          const smoothedShoulder = alpha * rawShoulderBalance + (1 - alpha) * smoothedMetricsRef.current.shoulderBalance;
+          const smoothedDist = alpha * rawDistanceCm + (1 - alpha) * smoothedMetricsRef.current.distanceCm;
+          hasMeasuredFrameRef.current = true;
 
           smoothedMetricsRef.current = {
             neckAngle: smoothedNeck,
@@ -529,13 +565,15 @@ export default function WebcamFeed({
                   : "Ombros Desalinhados";
           } else if (smoothedNeck > 14 || smoothedShoulder < 92) {
             postureStatus = "warning";
-            postureLabel = "Atenção à Inclinação do Pescoço";
+            postureLabel = smoothedNeck > 14
+              ? "Atenção à Inclinação do Pescoço"
+              : "Atenção ao Alinhamento dos Ombros";
           }
 
           onPostureUpdateRef.current?.({
-            neckAngle: smoothedNeck,
-            shoulderBalance: smoothedShoulder,
-            distanceCm: smoothedDist,
+            neckAngle: Math.round(smoothedNeck),
+            shoulderBalance: Math.round(smoothedShoulder),
+            distanceCm: Math.round(smoothedDist),
             status: postureStatus,
             statusLabel: postureLabel,
             presence: "ACTIVE",
@@ -546,15 +584,29 @@ export default function WebcamFeed({
       // -------------------------------------------------------------
       // 4. DESENHO DO ESQUELETO ERGONÔMICO NO CANVAS
       // -------------------------------------------------------------
+      const overlay = lastOverlayRef.current;
+      if (overlay && currentTime - overlay.detectedAt > OVERLAY_MAX_AGE_MS) {
+        lastOverlayRef.current = null;
+      }
       if (showOverlay && presenceRef.current !== "ABSENT") {
-        // Se a postura atual estiver disponível, desenha esqueleto conectado
-        if (headPt && leftShoulderPt && rightShoulderPt) {
-          const headCanvasX = (1 - headPt.x) * w;
-          const headCanvasY = headPt.y * h;
-          const leftShoulderCanvasX = (1 - leftShoulderPt.x) * w;
-          const leftShoulderCanvasY = leftShoulderPt.y * h;
-          const rightShoulderCanvasX = (1 - rightShoulderPt.x) * w;
-          const rightShoulderCanvasY = rightShoulderPt.y * h;
+        // Redraw the latest valid pose on every animation frame, between inferences.
+        if (lastOverlayRef.current) {
+          const { head: headPt, leftShoulder: leftShoulderPt, rightShoulder: rightShoulderPt } = lastOverlayRef.current;
+          // Match the video's centered object-cover crop and horizontal mirror.
+          const frameWidth = video?.videoWidth ? video.videoWidth : w;
+          const frameHeight = video?.videoHeight ? video.videoHeight : h;
+          const scale = Math.max(w / frameWidth, h / frameHeight);
+          const renderedWidth = frameWidth * scale;
+          const renderedHeight = frameHeight * scale;
+          const offsetX = (w - renderedWidth) / 2;
+          const offsetY = (h - renderedHeight) / 2;
+          const project = (point: Point2D) => ({
+            x: (1 - point.x) * renderedWidth + offsetX,
+            y: point.y * renderedHeight + offsetY,
+          });
+          const { x: headCanvasX, y: headCanvasY } = project(headPt);
+          const { x: leftShoulderCanvasX, y: leftShoulderCanvasY } = project(leftShoulderPt);
+          const { x: rightShoulderCanvasX, y: rightShoulderCanvasY } = project(rightShoulderPt);
 
           const neckCanvasX = (leftShoulderCanvasX + rightShoulderCanvasX) / 2;
           const neckCanvasY = (leftShoulderCanvasY + rightShoulderCanvasY) / 2;
@@ -574,7 +626,7 @@ export default function WebcamFeed({
           // Vetor Cervical (Pescoço -> Cabeça)
           ctx.beginPath();
           ctx.strokeStyle =
-            smoothedMetricsRef.current.neckAngle <= 15
+            smoothedMetricsRef.current.neckAngle <= 14
               ? "rgba(16, 185, 129, 0.85)"
               : smoothedMetricsRef.current.neckAngle <= 20
                 ? "rgba(245, 158, 11, 0.85)"
@@ -689,11 +741,13 @@ export default function WebcamFeed({
                   ? "Monitoramento pausado"
                   : isHardwareBusy
                     ? "Conflito de hardware (Pausado)"
-                    : presenceState === "ABSENT"
-                      ? "Usuário ausente"
-                      : presenceState === "PARTIALLY_OCCLUDED"
-                        ? "Ajuste o enquadramento"
-                        : "Monitoramento ativo"}
+                    : isCameraMuted
+                      ? "Câmera temporariamente indisponível (Pausado)"
+                      : presenceState === "ABSENT"
+                        ? "Usuário ausente"
+                        : presenceState === "PARTIALLY_OCCLUDED"
+                          ? "Ajuste o enquadramento"
+                          : "Monitoramento ativo"}
               </span>
             </div>
           </div>
@@ -746,7 +800,9 @@ export default function WebcamFeed({
         {isMonitoring && !isHardwareBusy && hasCameraPermission && presenceState === "PARTIALLY_OCCLUDED" && (
           <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs shadow-lg backdrop-blur-md animate-fadeIn">
             <AlertTriangle size={15} />
-            <span>Posicione cabeça e ombros dentro da área pontilhada</span>
+            <span>{isCameraMuted
+              ? "Câmera temporariamente indisponível. A análise será retomada automaticamente."
+              : "Posicione cabeça e ombros dentro da área pontilhada"}</span>
           </div>
         )}
 
@@ -810,33 +866,39 @@ export default function WebcamFeed({
           </div>
         )}
 
-        <div className="absolute bottom-4 flex items-center justify-center gap-2 z-20">
-          <Button
-            variant="primary"
-            size="md"
-            onClick={onToggleMonitoring}
-            className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white  backdrop-blur-md transition-all shadow-lg"
-          >
-            {isMonitoring ? (
-              <>
-                <VideoOff size={16} /> Pausar Monitoramento
-              </>
-            ) : (
-              <>
-                <Video size={16} /> Iniciar Monitoramento
-              </>
+        {(onToggleMonitoring || onCalibrate) && (
+          <div className="absolute bottom-4 flex items-center justify-center gap-2 z-20">
+            {onToggleMonitoring && (
+              <Button
+                variant="primary"
+                size="md"
+                onClick={onToggleMonitoring}
+                className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white  backdrop-blur-md transition-all shadow-lg"
+              >
+                {isMonitoring ? (
+                  <>
+                    <VideoOff size={16} /> Pausar Monitoramento
+                  </>
+                ) : (
+                  <>
+                    <Video size={16} /> Iniciar Monitoramento
+                  </>
+                )}
+              </Button>
             )}
-          </Button>
 
-          <Button
-            size="md"
-            onClick={onCalibrate}
-            className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white backdrop-blur-md transition-all shadow-lg"
-          >
-            <Crosshair size={14} />
-            Calibrar Postura Base
-          </Button>
-        </div>
+            {onCalibrate && (
+              <Button
+                size="md"
+                onClick={onCalibrate}
+                className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white backdrop-blur-md transition-all shadow-lg"
+              >
+                <Crosshair size={14} />
+                Calibrar Postura Base
+              </Button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

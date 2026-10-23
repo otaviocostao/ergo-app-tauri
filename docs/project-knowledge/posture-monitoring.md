@@ -274,7 +274,7 @@ Implementado e refatorado no componente `src/components/monitoring/WebcamFeed.ts
    - Transição graciosa para o estado `isHardwareBusy`, liberando a câmera sem quebrar a aplicação e exibindo overlay informativo com botão de retomada rápida (*"Retomar Monitoramento"*).
 
 4. **Detecção de Ausência do Usuário (ABSENT > 5s)**:
-   - Verificação contínua da presença e confiança anatômica mínima dos pontos-chave (nariz e ombros).
+   - Verificação contínua da presença e confiança anatômica mínima dos pontos-chave (nariz e ombros). A extração de ângulos exige também ao menos uma orelha confiável; com corpo visível e pontos insuficientes, permanece em detecção parcial e pausa as métricas.
    - Se nenhuma landmark válida for detectada por mais de 5 segundos, o estado transita para `ABSENT` (`UserPresenceState`).
    - O cálculo de má postura é pausado para não registrar falsos alertas ou degradar o Ergo Score enquanto a estação de trabalho está vazia.
    - Notificação em tempo real via callbacks `onPresenceChange` e `onPostureUpdate`.
@@ -289,10 +289,14 @@ Para verificar que as migrations e todos os fluxos de persistência do monitoram
 cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
 
-### 6.2 Onde Conectar a Próxima Task (Task 3.3: Extração de Ângulos, EAR e Calibração Base)
+### 6.2 Integração da Task 3.3 e Próximas Etapas
 O resultado retornado por `poseDetector.detectFrame(videoElement)` fornece:
 - `result.poseLandmarks` (para cálculo do ângulo de flexão do pescoço e inclinação dos ombros).
 - `result.faceLandmarks` (para cálculo do EAR dos olhos esquerdo e direito e contagem de piscadas).
 - `result.worldLandmarks` (coordenadas 3D métricas em metros para validação de distância).
 
-Os novos cálculos biomecânicos e histerese temporal serão organizados em módulos especializados dentro de `src/services/vision/` (ex.: `biomechanics.ts`, `blinkDetector.ts`, `temporalFilter.ts`) e consumidos tanto pelo feed quanto pelo buffer de agregação para persistência no SQLite.
+O feed já consome `poseAngles.ts`, que adapta os landmarks e chama as funções puras de `biomechanics.ts`. A conversão usa `video.videoWidth` e `video.videoHeight`, preservando a geometria quando a prévia muda de tamanho. O referencial da cabeça usa nariz e a média das orelhas visíveis; os ângulos brutos não aplicam uma calibração neutra.
+
+A inferência continua limitada a aproximadamente 11 FPS, e a suavização EMA mantém valores decimais até a publicação na interface. Capturas que terminam depois de uma pausa, troca de dispositivo ou desmontagem liberam os tracks imediatamente. Os testes do componente usam DOM, captura e detector simulados; a câmera física e a precisão da inferência MediaPipe exigem validação manual no aplicativo.
+
+EAR, calibração neutra, histerese temporal e buffer de agregação para persistência no SQLite permanecem como integrações futuras em módulos especializados (`blinkDetector.ts`, `temporalFilter.ts`).

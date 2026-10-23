@@ -148,15 +148,37 @@ O **histórico demonstrativo** é gerado em `src/data/reports.ts` para os últim
 ### Testes
 
 ```bash
+npm test
 npm run build
 npm run test:auth
 npm run test:reports
 npm run test:theme
 ```
 
+- `test`: testes geométricos, adaptação dos landmarks do MediaPipe e integração do componente de câmera com captura e detector simulados. Cobrem resolução do vídeo, espelhamento, confiança, oclusão, ausência, suavização, pausa, retomada, erros e liberação de streams pendentes. Use `npm run test:watch` durante o desenvolvimento.
 - `test:auth`: testes Rust com SQLite temporário, cobrindo cadastro, validações, duplicidade, hash, login, sessões, limite de tentativas, persistência e preferências de tema por conta, incluindo o padrão SQL automático.
 - `test:reports`: testes de agregação, comparação entre períodos, dias sem leituras, limites de calendário e consistência dos dados demonstrativos (Node.js 22.6+).
 - `test:theme`: testes do tema inicial e dos contratos de comunicação, além de testes de integração com React e jsdom. Exercita os providers de autenticação e tema, as rotas, o layout e Configurações em Strict Mode, com comunicação Tauri simulada. Cobre carregamento inicial, preservação de formulários em novas tentativas, restauração após falha ao salvar, mudanças do sistema e respostas atrasadas após logout ou troca de conta. As páginas sem relação com esses cenários são substituídas por componentes simples; os testes não acessam câmera, contas ou bancos reais.
+
+### Cálculos geométricos de pescoço e ombros
+
+O módulo `src/services/vision/biomechanics.ts` expõe funções puras para geometria em 2D e orientação vertical do rosto. As funções em 2D recebem pontos `{ x, y }`, com X crescendo para a direita e Y para baixo. Os eixos devem usar a mesma escala: converta landmarks normalizados para pixels com `x * largura` e `y * altura` do frame original.
+
+- `calculateNeckAngle(nose, ear, shoulderCenter)` retorna o ângulo em graus entre a vertical para cima e o vetor do centro dos ombros até o ponto médio entre nariz e orelha. Varia de 0° a 180°; 0° indica alinhamento vertical. Em vista lateral, o deslocamento horizontal representa projeção anterior; em vista frontal, representa inclinação lateral. O resultado é uma medida bruta em 2D; a comparação com uma postura neutra calibrada fica a cargo de quem chama a função.
+- `calculateShoulderBalance(leftShoulder, rightShoulder)` usa `atan2` para obter a inclinação aguda em relação à horizontal, independentemente da ordem dos ombros ou do espelhamento. Retorna `max(0, 100 - ângulo * 10)`: 0° → 100%, 3° → 70% e ≥ 10° → 0%.
+- `calculateHeadPitch(matrix)` extrai a rotação vertical assinada da cabeça a partir da matriz facial 4×4 do MediaPipe, em ordem de colunas. Ignora translação e escala uniforme, separa pitch de yaw/roll pela convenção `Rz * Ry * Rx` e retorna `null` para dados ausentes, inválidos ou rotação lateral singular. A saída estima a orientação do rosto em relação à câmera; não representa um ângulo cervical anatômico calibrado.
+
+Ambas retornam `null` para coordenadas não finitas ou vetores de comprimento zero, preservando a distinção entre medida indisponível e postura alinhada.
+
+O feed da câmera usa essas funções através de `src/services/vision/poseAngles.ts`. O adaptador converte as coordenadas normalizadas pela largura e altura reais do vídeo, independentemente do tamanho da prévia. Usa o ponto médio das duas orelhas visíveis na vista frontal ou a orelha visível na vista lateral, evitando selecionar sempre um lado. Nariz, ombros e ao menos uma orelha precisam ter coordenadas finitas e confiança acima de 0,35. Pontos insuficientes pausam as métricas e solicitam ajuste do enquadramento; ausência corporal por cinco segundos pausa o rastreamento.
+
+O detector habilita `outputFacialTransformationMatrixes` no [Face Landmarker](https://developers.google.com/edge/mediapipe/solutions/vision/face_landmarker/web_js) e repassa a matriz do rosto detectado no quadro atual. O feed usa `max(ângulo 2D, abs(pitch))` como desvio do pescoço, permitindo identificar olhar para cima ou para baixo mesmo quando o vetor cabeça–ombros permanece centralizado. Os limites atuais da interface são aviso acima de 14° e alerta acima de 20°. Se a matriz facial estiver ausente ou inválida, as métricas ficam pausadas como detecção parcial, sem assumir um pitch de 0° nem reutilizar a orientação do quadro anterior.
+
+O último passo do modal **Calibrar dispositivo** usa o mesmo `WebcamFeed` do monitoramento, desenhando os pontos detectados e exibindo suas métricas ao vivo. O desenho acompanha o espelhamento e o recorte central do vídeo (`object-cover`), inclusive quando a proporção da prévia muda. Ao abrir o assistente, a captura principal é liberada; a câmera só é ativada no último passo. Fechar o modal libera essa captura e restaura o estado anterior do monitoramento. Sem detecção confiável, o modal aguarda dados; falhas de câmera não ativam simulação automaticamente.
+
+A suavização EMA começa na primeira medida válida e mantém a precisão decimal internamente, arredondando apenas os valores exibidos. O módulo usa o valor absoluto do pitch antes do filtro, evitando cancelar desvios verticais de sentidos opostos. Após perder pontos necessários, a próxima medida válida reinicia o filtro. O modo simulado é ativado explicitamente e declara uma orientação vertical neutra para os dados demonstrativos. A distância permanece uma estimativa pela largura dos ombros; a comparação com uma referência neutra calibrada e a persistência de uma sessão real continuam em outras tarefas. A posição e inclinação da câmera afetam a orientação estimada; o assistente de ambiente ainda não salva uma referência neutra de cabeça.
+
+Para conferir com a webcam física, reinicie o aplicativo após atualizar o detector, execute `npm run tauri -- dev`, abra **Monitoramento**, permita a captura e enquadre rosto, orelhas e ombros, com a câmera aproximadamente na altura dos olhos. Compare postura alinhada e inclinada; olhe para baixo e depois para cima mantendo a cabeça centralizada horizontalmente. Sustente cada posição por cerca de um segundo: o desvio deve aumentar e mudar a classificação, ou indicar detecção parcial se o rosto deixar de ser reconhecido. Volte a olhar para a câmera e confira a recuperação. Abra **Calibrar Postura Base**, avance até a câmera e mova cabeça e ombros: os pontos devem acompanhar o corpo, e as métricas devem aguardar dados quando os pontos necessários não forem reconhecidos. Feche o modal e confira a retomada da captura principal. Redimensionar a janela deve preservar os ângulos para os mesmos landmarks. Pause e confirme a liberação da câmera, retome e verifique o retorno das métricas. Cubra os pontos necessários e saia do enquadramento por mais de cinco segundos para conferir os estados de detecção parcial e ausência. Os testes automatizados simulam a captura e o detector; disponibilidade do hardware, permissões do Windows e precisão do modelo com pessoas reais exigem essa conferência manual.
 
 ### 🔍 Como Inspecionar / Visualizar os Dados
 Para abrir e visualizar as tabelas do banco de dados na sua máquina local durante o desenvolvimento, utilize uma destas opções:
