@@ -509,7 +509,7 @@ export default function Settings() {
                 required={canEditUser}
               />
               <Input
-                label="Data de nascimento (opcional)"
+                label="Data de nascimento"
                 type="date"
                 value={birthDate}
                 onChange={(e) => {
@@ -530,7 +530,7 @@ export default function Settings() {
                 required={canEditUser}
               />
               <Input
-                label="Telefone (opcional)"
+                label="Telefone"
                 value={phone}
                 onChange={(e) => {
                   setPhone(FormatterHelper.formatPhone(e.target.value));
