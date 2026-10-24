@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { calculateHeadPitch } from "./biomechanics";
-import { PoseDetectorService } from "./poseDetector";
+import { FACE_EAR_INDEX, FACE_LANDMARK_INDEX, PoseDetectorService } from "./poseDetector";
 
 const sdk = vi.hoisted(() => ({
   createFace: vi.fn(), createPose: vi.fn(), faceDetect: vi.fn(), poseDetect: vi.fn(),
@@ -15,6 +15,16 @@ vi.mock("@mediapipe/tasks-vision", () => ({
 const matrix = { rows: 4, columns: 4, data: [1, 0, 0, 0, 0, 0.5, Math.sqrt(3) / 2, 0, 0, -Math.sqrt(3) / 2, 0.5, 0, 3, 2, -50, 1] };
 const video = { readyState: 4, videoWidth: 1280, videoHeight: 720 } as HTMLVideoElement;
 const faceResult = () => ({ faceLandmarks: [[{ x: 0.5, y: 0.3, z: 0 }]], facialTransformationMatrixes: [matrix] });
+
+describe("canonical face eye indices", () => {
+  it("maps anatomical eyes to P1..P6 without changing legacy arrays", () => {
+    expect(FACE_EAR_INDEX.RIGHT_EYE).toEqual([33, 160, 158, 133, 153, 144]);
+    expect(FACE_EAR_INDEX.LEFT_EYE).toEqual([362, 385, 387, 263, 373, 380]);
+    expect(FACE_LANDMARK_INDEX.LEFT_EYE.ALL).toEqual([33, 133, 160, 158, 144, 153]);
+    expect(FACE_LANDMARK_INDEX.RIGHT_IRIS_CENTER).toBe(468);
+    expect(FACE_LANDMARK_INDEX.LEFT_IRIS_CENTER).toBe(473);
+  });
+});
 
 describe("face orientation in the detector pipeline", () => {
   let detector: PoseDetectorService;

@@ -91,6 +91,8 @@ export const POSE_LANDMARK_INDEX = {
  * Utilizados para o cálculo do EAR (Eye Aspect Ratio), contagem de piscadas e orientação cefálica.
  */
 export const FACE_LANDMARK_INDEX = {
+  RIGHT_IRIS_CENTER: 468,
+  LEFT_IRIS_CENTER: 473,
   NOSE_TIP: 1,
   GLABELLA: 10,
   CHIN: 152,
@@ -114,6 +116,24 @@ export const FACE_LANDMARK_INDEX = {
     BOTTOM_2: 380,
     ALL: [362, 263, 385, 387, 373, 380] as const,
   },
+} as const;
+
+/**
+ * P1..P6 order for EAR, preserving the legacy image-side names above.
+ * Here LEFT/RIGHT refer to the subject's anatomical eyes. Legacy ALL arrays
+ * list both corners first and MUST NOT be passed directly to calculateEAR.
+ */
+export const FACE_EAR_INDEX = {
+  RIGHT_EYE: [
+    FACE_LANDMARK_INDEX.LEFT_EYE.OUTER, FACE_LANDMARK_INDEX.LEFT_EYE.TOP_1,
+    FACE_LANDMARK_INDEX.LEFT_EYE.TOP_2, FACE_LANDMARK_INDEX.LEFT_EYE.INNER,
+    FACE_LANDMARK_INDEX.LEFT_EYE.BOTTOM_2, FACE_LANDMARK_INDEX.LEFT_EYE.BOTTOM_1,
+  ],
+  LEFT_EYE: [
+    FACE_LANDMARK_INDEX.RIGHT_EYE.OUTER, FACE_LANDMARK_INDEX.RIGHT_EYE.TOP_1,
+    FACE_LANDMARK_INDEX.RIGHT_EYE.TOP_2, FACE_LANDMARK_INDEX.RIGHT_EYE.INNER,
+    FACE_LANDMARK_INDEX.RIGHT_EYE.BOTTOM_1, FACE_LANDMARK_INDEX.RIGHT_EYE.BOTTOM_2,
+  ],
 } as const;
 
 export const DEFAULT_DETECTOR_CONFIG: Required<PoseDetectorConfig> = {
