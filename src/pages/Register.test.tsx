@@ -116,7 +116,7 @@ describe("registration fields and birth date input", () => {
     expect(input("birthDate").min).toBe("1925-10-21");
     expect(input("birthDate").max).toBe("2012-10-20");
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Escolher data de nascimento no calendário"]')!.click());
-    expect(container.querySelector<HTMLButtonElement>('[data-day="21"]')!.disabled).toBe(true);
+    expect(container.querySelector('[data-day="21"]')!.getAttribute("aria-disabled")).toBe("true");
     await act(async () => container.querySelector<HTMLButtonElement>('[data-day="20"]')!.click());
     expect(input("birthDate").value).toBe("2012-10-20");
   });
@@ -138,6 +138,24 @@ describe("registration fields and birth date input", () => {
     expect(input("birthDate").value).toBe(value);
     await act(async () => container.querySelector<HTMLButtonElement>(`[aria-label="${allowedLabel}"]`)!.click());
     expect(container.querySelector('[aria-label="Mês de nascimento"]')?.textContent).toContain(nextMonth);
+  });
+
+  it.each([
+    ["2012-10-20", 21, 19, "2012-10-19"],
+    ["1925-10-21", 20, 22, "1925-10-22"],
+  ])("keeps the calendar open and the value unchanged when clicking an invalid day near %s", async (value, invalidDay, validDay, expected) => {
+    await fill("birthDate", value);
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Escolher data de nascimento no calendário"]')!.click());
+    await act(async () => vi.advanceTimersByTime(20));
+    const invalid = container.querySelector<HTMLButtonElement>(`[data-day="${invalidDay}"]`)!;
+    await act(async () => { invalid.focus(); invalid.click(); });
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.contains(document.activeElement)).toBe(true);
+    expect(input("birthDate").value).toBe(value);
+    expect(invalid.tabIndex).toBe(-1);
+    await act(async () => container.querySelector<HTMLButtonElement>(`[data-day="${validDay}"]`)!.click());
+    expect(input("birthDate").value).toBe(expected);
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
   });
 
   it.each([

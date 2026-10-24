@@ -168,12 +168,13 @@ export default function BirthDateInput({ value, onChange, onBlur, error, disable
               const date = dateAt(year, month, day);
               const iso = dateValue(date);
               const isSelected = selected ? iso === dateValue(selected) : false;
-              return <button key={day} type="button" data-day={day} disabled={iso < earliestValue || iso > latestValue}
-                tabIndex={day === activeDay ? 0 : -1} aria-label={fullDate.format(date)} aria-pressed={isSelected}
-                onFocus={() => setActiveDay(day)}
+              const isUnavailable = iso < earliestValue || iso > latestValue;
+              return <button key={day} type="button" data-day={day} aria-disabled={isUnavailable}
+                tabIndex={!isUnavailable && day === activeDay ? 0 : -1} aria-label={fullDate.format(date)} aria-pressed={isSelected}
+                onFocus={() => { if (!isUnavailable) setActiveDay(day); }}
                 onKeyDown={(event) => navigateDays(event, day)}
-                onClick={() => { onChange(iso); setOpen(false); inputRef.current?.focus(); }}
-                className={`flex h-9 items-center justify-center rounded-lg text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:text-slate-300 dark:disabled:text-slate-600 ${isSelected ? "bg-primary-700 font-semibold text-white hover:bg-primary-800 dark:bg-primary-500 dark:text-slate-950 dark:hover:bg-primary-400" : "text-slate-700 hover:bg-primary-50 dark:text-slate-300 dark:hover:bg-slate-800"}`}>
+                onClick={() => { if (isUnavailable) return; onChange(iso); setOpen(false); inputRef.current?.focus(); }}
+                className={`flex h-9 items-center justify-center rounded-lg text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-600 aria-disabled:cursor-not-allowed aria-disabled:text-slate-300 dark:aria-disabled:text-slate-600 ${isSelected ? "bg-primary-700 font-semibold text-white hover:bg-primary-800 dark:bg-primary-500 dark:text-slate-950 dark:hover:bg-primary-400" : "text-slate-700 hover:bg-primary-50 dark:text-slate-300 dark:hover:bg-slate-800"}`}>
                 {day}
               </button>;
             })}
