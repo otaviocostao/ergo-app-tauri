@@ -552,4 +552,22 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     await act(async () => track.onended?.call(track as unknown as MediaStreamTrack, new Event("ended")));
     expect(ocularUpdate.mock.lastCall?.[0]).toBeNull();
   });
+
+  it("publishes unavailable distance instead of estimating from shoulder width without calibration", async () => {
+    faceLandmarks = ocularFace();
+    await render(); await advance(200);
+    expect(update.mock.lastCall?.[0]).toMatchObject({ distanceCm: null, status: "good" });
+  });
+
+  it("renders blink warm-up and uncalibrated distance without an early fatigue classification", async () => {
+    faceLandmarks = ocularFace();
+    await act(async () => root.render(<Monitoring />)); mounted = true;
+    await advance(200);
+    expect(container.textContent).toContain("Taxa de Piscadas");
+    expect(container.textContent).toContain("Aguardando dados");
+    expect(container.textContent).toContain("Coletando dados");
+    expect(container.textContent).toContain("Aguardando calibração");
+    expect(container.textContent).not.toContain("Fadiga Visual:");
+    expect(container.textContent).not.toContain("Muito baixa");
+  });
 });
