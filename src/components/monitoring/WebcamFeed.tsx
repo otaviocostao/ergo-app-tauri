@@ -14,6 +14,7 @@ import Select from "../Select";
 import { poseDetector, type LandmarkPoint, POSE_LANDMARK_INDEX } from "../../services/vision";
 import { calculatePoseAngles, type PoseAngles } from "../../services/vision/poseAngles";
 import { calculateHeadPitch, type Point2D } from "../../services/vision/biomechanics";
+import { createOcularMetricsState, updateOcularMetrics, type OcularMetrics, type ScreenDistanceReference } from "../../services/vision/ocularMetrics";
 import type { UserPresenceState } from "../../types/vision";
 
 export type { UserPresenceState };
@@ -33,6 +34,10 @@ export interface WebcamFeedProps {
   onPresenceChange?: (presence: UserPresenceState) => void;
   onHardwareBusyChange?: (isBusy: boolean) => void;
   onStreamChange?: (stream: MediaStream | null) => void;
+  /** Per-inference ocular values; null on camera pause/mute/error. */
+  onOcularUpdate?: (metrics: OcularMetrics | null) => void;
+  /** Explicit calibration context; absent until the distance calibration flow exists. */
+  distanceReference?: ScreenDistanceReference | null;
   className?: string;
 }
 
@@ -70,6 +75,8 @@ export default function WebcamFeed({
   onPresenceChange,
   onHardwareBusyChange,
   onStreamChange,
+  onOcularUpdate,
+  distanceReference = null,
   className = "",
 }: WebcamFeedProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -79,6 +86,9 @@ export default function WebcamFeed({
   const cameraRequestRef = useRef(0);
   const hasMeasuredFrameRef = useRef(false);
   const lastOverlayRef = useRef<PoseOverlay | null>(null);
+  const ocularStateRef = useRef(createOcularMetricsState());
+  const onOcularUpdateRef = useRef(onOcularUpdate);
+  const distanceReferenceRef = useRef(distanceReference);
 
   // Estados de dispositivos e permissão
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -139,6 +149,16 @@ export default function WebcamFeed({
   useEffect(() => {
     onStreamChangeRef.current = onStreamChange;
   }, [onStreamChange]);
+
+  useEffect(() => {
+    onOcularUpdateRef.current = onOcularUpdate;
+    distanceReferenceRef.current = distanceReference;
+  }, [onOcularUpdate, distanceReference]);
+
+  const resetOcularTracking = useCallback(() => {
+    ocularStateRef.current = createOcularMetricsState();
+    onOcularUpdateRef.current?.(null);
+  }, []);
 
   /**
    * Inicializa o detector MediaPipe WebAssembly / GPU em segundo plano.
@@ -213,6 +233,7 @@ export default function WebcamFeed({
   }, [enumerateCameras]);
 
   const stopCurrentStream = useCallback(() => {
+    resetOcularTracking();
     cameraRequestRef.current += 1;
     hasMeasuredFrameRef.current = false;
     lastOverlayRef.current = null;
@@ -233,7 +254,7 @@ export default function WebcamFeed({
     }
 
     onStreamChangeRef.current?.(null);
-  }, []);
+  }, [resetOcularTracking]);
 
   const handleHardwareLock = useCallback(
     (reason: string) => {
@@ -300,6 +321,7 @@ export default function WebcamFeed({
 
         const handleTrackMute = (muted: boolean) => {
           if (streamRef.current !== stream || !isMonitoringRef.current) return;
+          resetOcularTracking();
           isCameraMutedRef.current = muted;
           setIsCameraMuted(muted);
           hasMeasuredFrameRef.current = false;
@@ -359,7 +381,7 @@ export default function WebcamFeed({
         setPermissionError("Não foi possível acessar a câmera. Verifique se o dispositivo está conectado e com permissões concedidas.");
       }
     }
-  }, [selectedDeviceId, stopCurrentStream, handleHardwareLock, enumerateCameras]);
+  }, [selectedDeviceId, stopCurrentStream, handleHardwareLock, enumerateCameras, resetOcularTracking]);
 
 
   useEffect(() => {
@@ -446,7 +468,15 @@ export default function WebcamFeed({
         if (poseDetector.isReady() && video && video.readyState >= 2) {
           // Inferência real através do MediaPipe WebGL / WebAssembly
           try {
-            const detection = poseDetector.detectFrame(video);
+            const detection = poseDetector.detectFrame(video, currentTime);
+            const ocular = updateOcularMetrics(ocularStateRef.current, detection,
+              video.videoWidth, video.videoHeight, distanceReferenceRef.current);
+            if (ocular) {
+              ocularStateRef.current = ocular.state;
+              onOcularUpdateRef.current?.(ocular.metrics);
+            } else {
+              resetOcularTracking();
+            }
             headPitch = detection.hasFace ? calculateHeadPitch(detection.faceTransformationMatrix) : null;
             if (detection.hasPose && detection.poseLandmarks && detection.poseLandmarks.length >= 13) {
               const nose = detection.poseLandmarks[POSE_LANDMARK_INDEX.NOSE];
@@ -467,8 +497,11 @@ export default function WebcamFeed({
               }
             }
           } catch (detectionErr) {
+            resetOcularTracking();
             console.warn("[WebcamFeed] Erro ao processar frame de detecção:", detectionErr);
           }
+        } else {
+          resetOcularTracking();
         }
 
         // -------------------------------------------------------------
@@ -687,7 +720,7 @@ export default function WebcamFeed({
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [isMonitoring, showOverlay]);
+  }, [isMonitoring, showOverlay, resetOcularTracking]);
 
   return (
     <div

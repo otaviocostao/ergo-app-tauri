@@ -8,6 +8,7 @@ import * as biomechanics from "../../services/vision/biomechanics";
 import WorkspaceCalibrationModal from "./WorkspaceCalibrationModal";
 import Monitoring from "../../pages/Monitoring";
 import { workspaceService } from "../../services/workspaceService";
+import { FACE_EAR_INDEX, type OcularMetrics, type ScreenDistanceReference } from "../../services/vision";
 
 function faceMatrix(pitch: number) {
   const radians = pitch * Math.PI / 180;
@@ -30,6 +31,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   let container: HTMLDivElement;
   let landmarks: LandmarkPoint[] | null;
   let faceTransformationMatrix: ReturnType<typeof faceMatrix> | null;
+  let faceLandmarks: LandmarkPoint[] | null;
   let previewWidth: number;
   let previewHeight: number;
   let drawnFrames: { segments: number; points: number }[];
@@ -38,6 +40,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   const update = vi.fn();
   const presence = vi.fn();
   const hardware = vi.fn();
+  const ocularUpdate = vi.fn<(metrics: OcularMetrics | null) => void>();
   const getUserMedia = vi.fn<() => Promise<MediaStream>>();
 
   function makeStream(muted = false) {
@@ -59,10 +62,11 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     });
   }
 
-  async function render(monitoring = true) {
+  async function render(monitoring = true, distanceReference?: ScreenDistanceReference) {
     await act(async () => {
       root.render(<WebcamFeed isMonitoring={monitoring} onToggleMonitoring={vi.fn()} onCalibrate={vi.fn()}
-        onPostureUpdate={update} onPresenceChange={presence} onHardwareBusyChange={hardware} />);
+        onPostureUpdate={update} onPresenceChange={presence} onHardwareBusyChange={hardware}
+        onOcularUpdate={ocularUpdate} distanceReference={distanceReference} />);
     });
     mounted = true;
   }
@@ -98,6 +102,8 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     landmarks = upright();
     faceTransformationMatrix = faceMatrix(0);
+    faceLandmarks = null;
+    ocularUpdate.mockReset();
     previewWidth = 800;
     previewHeight = 450;
     drawnFrames = [];
@@ -133,7 +139,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     vi.spyOn(poseDetector, "initialize").mockResolvedValue();
     vi.spyOn(poseDetector, "detectFrame").mockImplementation((): VisionDetectionResult => ({
       hasPose: landmarks !== null, poseLandmarks: landmarks, hasFace: faceTransformationMatrix !== null,
-      faceLandmarks: null, faceTransformationMatrix, worldLandmarks: null, timestamp: performance.now(),
+      faceLandmarks, faceTransformationMatrix, worldLandmarks: null, timestamp: performance.now(),
     }));
     vi.spyOn(biomechanics, "calculateNeckAngle");
     vi.spyOn(biomechanics, "calculateShoulderBalance");
@@ -484,5 +490,66 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     expect(update).not.toHaveBeenCalled();
     vi.mocked(poseDetector.isReady).mockReturnValue(true); await advance(200);
     expect(update.mock.lastCall?.[0]).toMatchObject({ neckAngle: 0, shoulderBalance: 100 });
+  });
+
+  function ocularFace(ear = 0.3): LandmarkPoint[] {
+    const points = Array.from({ length: 478 }, (): LandmarkPoint => ({ x: 0, y: 0, z: 0, visibility: 0 }));
+    for (const [indices, offset] of [[FACE_EAR_INDEX.RIGHT_EYE, 300], [FACE_EAR_INDEX.LEFT_EYE, 500]] as const) {
+      for (const [i, [x, y]] of [[0, 0], [3, -5 * ear], [7, -5 * ear], [10, 0], [7, 5 * ear], [3, 5 * ear]].entries()) {
+        points[indices[i]] = { x: (offset + x) / 1280, y: (200 + y) / 720, z: 0 };
+      }
+    }
+    points[468] = { x: 300 / 1280, y: 200 / 720, z: 0 };
+    points[473] = { x: 500 / 1280, y: 200 / 720, z: 0 };
+    return points;
+  }
+
+  it("publishes calibrated face distance using video dimensions independently of body detection", async () => {
+    faceLandmarks = ocularFace(); landmarks = null;
+    await render(true, { baselineDistanceCm: 60, baselineEyeDistancePx: 200, frameWidth: 1280, frameHeight: 720, source: "iris" });
+    await advance(200);
+    expect(ocularUpdate.mock.lastCall?.[0]).toMatchObject({ available: true, ear: 0.3, distanceCm: 60 });
+    previewWidth = 200; previewHeight = 700; await advance(100);
+    expect(ocularUpdate.mock.lastCall?.[0]?.distanceCm).toBe(60);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("detects a blink in the shared inference loop and clears it on missing face", async () => {
+    faceLandmarks = ocularFace();
+    await render(); await advance(200);
+    faceLandmarks = ocularFace(0.1); await advance(180);
+    faceLandmarks = ocularFace(); await advance(100);
+    expect(ocularUpdate.mock.calls.some(([metrics]) => metrics?.blinkEvent === "blink")).toBe(true);
+    expect(ocularUpdate.mock.lastCall?.[0]?.blinkRate.blinkCount).toBe(1);
+    faceLandmarks = null; await advance(100);
+    expect(ocularUpdate.mock.lastCall?.[0]).toMatchObject({ available: false, ear: null, distanceCm: null });
+  });
+
+  it("discards a pending blink and resets warm-up after mute and pause", async () => {
+    faceLandmarks = ocularFace();
+    await render(); await advance(200);
+    faceLandmarks = ocularFace(0.1); await advance(100);
+    const track = streams[streams.length - 1].track;
+    await setTrackMuted(track, true);
+    expect(ocularUpdate.mock.lastCall?.[0]).toBeNull();
+    faceLandmarks = ocularFace();
+    await setTrackMuted(track, false); await advance(200);
+    expect(ocularUpdate.mock.lastCall?.[0]?.blinkRate.blinkCount).toBe(0);
+    await render(false);
+    expect(ocularUpdate.mock.lastCall?.[0]).toBeNull();
+    await render(true); await advance(200);
+    expect(ocularUpdate.mock.lastCall?.[0]?.blinkRate.isWarmingUp).toBe(true);
+  });
+
+  it("invalidates ocular results when inference throws or hardware ends the stream", async () => {
+    faceLandmarks = ocularFace();
+    await render(); await advance(200);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(poseDetector.detectFrame).mockImplementation(() => { throw new Error("inference failed"); });
+    await advance(100);
+    expect(ocularUpdate.mock.lastCall?.[0]).toBeNull();
+    const track = streams[streams.length - 1].track;
+    await act(async () => track.onended?.call(track as unknown as MediaStreamTrack, new Event("ended")));
+    expect(ocularUpdate.mock.lastCall?.[0]).toBeNull();
   });
 });
