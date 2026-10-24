@@ -50,18 +50,32 @@ fn normalize_birth_date(value: &str, today: NaiveDate) -> Result<String, AuthErr
 }
 
 fn normalize_email(email: &str) -> Result<String, AuthError> {
-    let email = email.trim().to_lowercase();
+    let email = email.trim();
+    // Validate an unquoted mailbox and DNS labels; never treat a URL as a domain.
     let valid = email.split_once('@').is_some_and(|(local, domain)| {
         !local.is_empty()
+            && local.len() <= 64
+            && !local.starts_with('.')
+            && !local.ends_with('.')
+            && !local.contains("..")
+            && local
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"!#$%&'*+-/=?^_`{|}~.".contains(&byte))
             && domain.contains('.')
-            && !domain.starts_with('.')
-            && !domain.ends_with('.')
-            && !domain.contains('@')
+            && domain.split('.').all(|label| {
+                !label.is_empty()
+                    && label.len() <= 63
+                    && !label.starts_with('-')
+                    && !label.ends_with('-')
+                    && label
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            })
     });
-    if !valid || email.len() > 254 || email.chars().any(char::is_whitespace) {
+    if !valid || email.len() > 254 {
         return Err(AuthError::new("invalid_email", "Informe um e-mail válido."));
     }
-    Ok(email)
+    Ok(email.to_ascii_lowercase())
 }
 
 fn normalize_optional(
@@ -299,6 +313,86 @@ mod tests {
             phone: "(75) 99999-9999".into(),
             photo: None,
         }
+    }
+
+    #[test]
+    fn validates_email_examples_shared_with_the_frontend() {
+        let examples: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../scripts/fixtures/email-validation.json"
+        ))
+        .unwrap();
+        for email in examples["valid"].as_array().unwrap() {
+            let email = email.as_str().unwrap();
+            assert_eq!(
+                normalize_email(email).unwrap(),
+                email.trim().to_ascii_lowercase()
+            );
+        }
+
+        let conn = test_connection();
+        for email in examples["invalid"].as_array().unwrap() {
+            let email = email.as_str().unwrap();
+            let error = create_user(
+                &conn,
+                registration_payload("Ana", email, "Senha-segura-123!"),
+            )
+            .unwrap_err();
+            assert_eq!(error.code, "invalid_email", "{email:?}");
+        }
+        assert_eq!(user_repository::count(&conn).unwrap(), 0);
+    }
+
+    #[test]
+    fn validates_email_length_boundaries() {
+        let local = "a".repeat(64);
+        let label = "b".repeat(63);
+        let longest = format!("{local}@{label}.{label}.{}", "c".repeat(61));
+        assert_eq!(longest.len(), 254);
+        for email in [
+            format!("{local}@example.com"),
+            format!("ana@{label}.com"),
+            longest.clone(),
+        ] {
+            assert!(normalize_email(&email).is_ok(), "{email}");
+        }
+        for email in [
+            format!("{}@example.com", "a".repeat(65)),
+            format!("ana@{}.com", "b".repeat(64)),
+            format!("{longest}c"),
+        ] {
+            assert_eq!(normalize_email(&email).unwrap_err().code, "invalid_email");
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_email_when_updating_a_profile() {
+        let conn = test_connection();
+        let user = create_user(
+            &conn,
+            registration_payload("Ana", "ana@example.com", "Senha-segura-123!"),
+        )
+        .unwrap();
+        let result = update_user(
+            &conn,
+            UpdateUserPayload {
+                id: user.id,
+                first_name: user.first_name,
+                last_name: user.last_name,
+                birth_date: user.birth_date,
+                email: "ana@example.com/erro".into(),
+                phone: user.phone,
+                photo: None,
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            user_repository::find_by_id(&conn, user.id)
+                .unwrap()
+                .unwrap()
+                .user
+                .email,
+            "ana@example.com"
+        );
     }
 
     #[test]
