@@ -16,8 +16,8 @@ const benefits = [
 
 export default function AuthCard({ titleId, children, contentClassName = "" }: AuthCardProps) {
   return (
-    <section className="grid w-full rounded-3xl border border-slate-200/80 bg-white shadow-[0_16px_64px_-24px_rgba(3,45,38,0.22)] md:grid-cols-[0.85fr_1.4fr]" aria-labelledby={titleId}>
-      <aside className="relative flex flex-col justify-between overflow-hidden rounded-t-3xl bg-primary-800 p-6 text-white md:rounded-l-3xl md:rounded-tr-none md:p-8 lg:p-10">
+    <section className="grid w-full rounded-3xl border border-slate-200/80 bg-white shadow-[0_16px_64px_-24px_rgba(3,45,38,0.22)] dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/20 md:grid-cols-[0.85fr_1.4fr]" aria-labelledby={titleId}>
+      <aside className="relative flex flex-col justify-between overflow-hidden rounded-t-3xl bg-primary-800 p-6 text-white dark:bg-primary-950 md:rounded-l-3xl md:rounded-tr-none md:p-8 lg:p-10">
         <div aria-hidden="true" className="pointer-events-none absolute -bottom-28 -left-28 size-80 rounded-full border border-white/10" />
         <div aria-hidden="true" className="pointer-events-none absolute -bottom-16 -left-16 size-56 rounded-full border border-white/10" />
         <div className="relative flex items-center gap-3">

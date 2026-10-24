@@ -7,11 +7,18 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "postinstall": "node scripts/copy-wasm.mjs",
     "setup:wasm": "node scripts/copy-wasm.mjs",
     "tauri": "tauri",
     "test:auth": "cargo test --manifest-path src-tauri/Cargo.toml --lib",
-    "test:reports": "node --experimental-strip-types --test scripts/reports.test.mjs"
+    "test:birth-date": "node --experimental-strip-types --test scripts/birth-date.test.mjs",
+    "test:email": "vitest run src/auth/emailPolicy.test.ts",
+    "test:registration": "vitest run src/pages/Register.test.tsx",
+    "test:reports": "node --experimental-strip-types --test scripts/reports.test.mjs",
+    "test:reminders": "node --experimental-strip-types --test scripts/reminders.test.mjs",
+    "test:theme": "node --test scripts/theme.test.mjs scripts/theme.integration.test.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.1.0",
@@ -27,11 +34,14 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2",
+    "@types/node": "^26.6.5",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "jsdom": "^30.1.3",
     "tailwindcss": "^4.3.3",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "vite": "^7.0.4",
+    "vitest": "^4.1.12"
   }
 }

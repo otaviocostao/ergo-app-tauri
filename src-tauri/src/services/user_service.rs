@@ -1,4 +1,4 @@
-use chrono::{NaiveDate, Utc};
+use chrono::{Datelike, Local, Months, NaiveDate};
 use rusqlite::Connection;
 
 use crate::models::auth::AuthError;
@@ -6,19 +6,76 @@ use crate::models::user::{CreateUserPayload, NewUser, UpdateUserPayload, User};
 use crate::repositories::user_repository;
 use crate::services::auth_service;
 
+fn normalize_birth_date(value: &str, today: NaiveDate) -> Result<String, AuthError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(String::new());
+    }
+    let invalid_date = || {
+        AuthError::new(
+            "invalid_birth_date",
+            "Informe uma data de nascimento válida.",
+        )
+    };
+    let date = NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| invalid_date())?;
+    if date.format("%Y-%m-%d").to_string() != value || date.year() < 1 {
+        return Err(invalid_date());
+    }
+    if date > today {
+        return Err(AuthError::new(
+            "future_birth_date",
+            "A data de nascimento não pode estar no futuro.",
+        ));
+    }
+    let earliest = today
+        .checked_sub_months(Months::new(101 * 12))
+        .and_then(|date| date.succ_opt())
+        .ok_or_else(AuthError::internal)?;
+    let latest = today
+        .checked_sub_months(Months::new(14 * 12))
+        .ok_or_else(AuthError::internal)?;
+    if date < earliest {
+        return Err(AuthError::new(
+            "birth_date_too_old",
+            "A data de nascimento não pode indicar mais de 100 anos.",
+        ));
+    }
+    if date > latest {
+        return Err(AuthError::new(
+            "birth_date_too_recent",
+            "A data de nascimento deve indicar pelo menos 14 anos.",
+        ));
+    }
+    Ok(value.to_string())
+}
+
 fn normalize_email(email: &str) -> Result<String, AuthError> {
-    let email = email.trim().to_lowercase();
+    let email = email.trim();
+    // Validate an unquoted mailbox and DNS labels; never treat a URL as a domain.
     let valid = email.split_once('@').is_some_and(|(local, domain)| {
         !local.is_empty()
+            && local.len() <= 64
+            && !local.starts_with('.')
+            && !local.ends_with('.')
+            && !local.contains("..")
+            && local
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"!#$%&'*+-/=?^_`{|}~.".contains(&byte))
             && domain.contains('.')
-            && !domain.starts_with('.')
-            && !domain.ends_with('.')
-            && !domain.contains('@')
+            && domain.split('.').all(|label| {
+                !label.is_empty()
+                    && label.len() <= 63
+                    && !label.starts_with('-')
+                    && !label.ends_with('-')
+                    && label
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            })
     });
-    if !valid || email.len() > 254 || email.chars().any(char::is_whitespace) {
+    if !valid || email.len() > 254 {
         return Err(AuthError::new("invalid_email", "Informe um e-mail válido."));
     }
-    Ok(email)
+    Ok(email.to_ascii_lowercase())
 }
 
 fn normalize_optional(
@@ -81,16 +138,14 @@ pub fn update_user(conn: &Connection, payload: UpdateUserPayload) -> Result<User
         return Err("Last name must be between 2 and 60 characters.".to_string());
     }
 
-    let birth_date = payload.birth_date.trim().to_string();
-    let parsed_birth_date = NaiveDate::parse_from_str(&birth_date, "%Y-%m-%d")
-        .map_err(|_| "Please enter a valid birth date (YYYY-MM-DD).".to_string())?;
-    if parsed_birth_date > Utc::now().date_naive() {
-        return Err("Birth date cannot be in the future.".to_string());
-    }
+    let birth_date = normalize_birth_date(&payload.birth_date, Local::now().date_naive())
+        .map_err(|error| error.message.to_string())?;
 
     let email = normalize_email(&payload.email).map_err(|e| e.message.to_string())?;
 
-    if let Some(existing) = user_repository::find_by_email(conn, &email).map_err(|e| e.to_string())? {
+    if let Some(existing) =
+        user_repository::find_by_email(conn, &email).map_err(|e| e.to_string())?
+    {
         if existing.user.id != payload.id {
             return Err("This email is already in use by another user.".to_string());
         }
@@ -101,7 +156,7 @@ pub fn update_user(conn: &Connection, payload: UpdateUserPayload) -> Result<User
         .chars()
         .filter(|character| character.is_ascii_digit())
         .count();
-    if !(8..=15).contains(&phone_digit_count) || phone.chars().count() > 30 {
+    if !phone.is_empty() && (!(8..=15).contains(&phone_digit_count) || phone.chars().count() > 30) {
         return Err("Please enter a valid phone number.".to_string());
     }
 
@@ -132,7 +187,6 @@ pub fn update_user(conn: &Connection, payload: UpdateUserPayload) -> Result<User
         .ok_or_else(|| format!("User with id '{}' not found after update", payload.id))
 }
 
-
 pub fn create_user(conn: &Connection, payload: CreateUserPayload) -> Result<User, AuthError> {
     let first_name = payload
         .first_name
@@ -157,19 +211,7 @@ pub fn create_user(conn: &Connection, payload: CreateUserPayload) -> Result<User
         ));
     }
 
-    let birth_date = payload.birth_date.trim().to_string();
-    let parsed_birth_date = NaiveDate::parse_from_str(&birth_date, "%Y-%m-%d").map_err(|_| {
-        AuthError::new(
-            "invalid_birth_date",
-            "Informe uma data de nascimento válida.",
-        )
-    })?;
-    if parsed_birth_date > Utc::now().date_naive() {
-        return Err(AuthError::new(
-            "invalid_birth_date",
-            "A data de nascimento não pode estar no futuro.",
-        ));
-    }
+    let birth_date = normalize_birth_date(&payload.birth_date, Local::now().date_naive())?;
 
     let email = normalize_email(&payload.email)?;
     let phone = payload.phone.trim().to_string();
@@ -177,11 +219,12 @@ pub fn create_user(conn: &Connection, payload: CreateUserPayload) -> Result<User
         .chars()
         .filter(|character| character.is_ascii_digit())
         .count();
-    if phone_digit_count != 11
-        || phone.chars().count() > 15
-        || phone.chars().any(|character| {
-            !character.is_ascii_digit() && !matches!(character, '(' | ')' | ' ' | '-')
-        })
+    if !phone.is_empty()
+        && (phone_digit_count != 11
+            || phone.chars().count() > 15
+            || phone.chars().any(|character| {
+                !character.is_ascii_digit() && !matches!(character, '(' | ')' | ' ' | '-')
+            }))
     {
         return Err(AuthError::new(
             "invalid_phone",
@@ -273,6 +316,219 @@ mod tests {
     }
 
     #[test]
+    fn validates_email_examples_shared_with_the_frontend() {
+        let examples: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../scripts/fixtures/email-validation.json"
+        ))
+        .unwrap();
+        for email in examples["valid"].as_array().unwrap() {
+            let email = email.as_str().unwrap();
+            assert_eq!(
+                normalize_email(email).unwrap(),
+                email.trim().to_ascii_lowercase()
+            );
+        }
+
+        let conn = test_connection();
+        for email in examples["invalid"].as_array().unwrap() {
+            let email = email.as_str().unwrap();
+            let error = create_user(
+                &conn,
+                registration_payload("Ana", email, "Senha-segura-123!"),
+            )
+            .unwrap_err();
+            assert_eq!(error.code, "invalid_email", "{email:?}");
+        }
+        assert_eq!(user_repository::count(&conn).unwrap(), 0);
+    }
+
+    #[test]
+    fn validates_email_length_boundaries() {
+        let local = "a".repeat(64);
+        let label = "b".repeat(63);
+        let longest = format!("{local}@{label}.{label}.{}", "c".repeat(61));
+        assert_eq!(longest.len(), 254);
+        for email in [
+            format!("{local}@example.com"),
+            format!("ana@{label}.com"),
+            longest.clone(),
+        ] {
+            assert!(normalize_email(&email).is_ok(), "{email}");
+        }
+        for email in [
+            format!("{}@example.com", "a".repeat(65)),
+            format!("ana@{}.com", "b".repeat(64)),
+            format!("{longest}c"),
+        ] {
+            assert_eq!(normalize_email(&email).unwrap_err().code, "invalid_email");
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_email_when_updating_a_profile() {
+        let conn = test_connection();
+        let user = create_user(
+            &conn,
+            registration_payload("Ana", "ana@example.com", "Senha-segura-123!"),
+        )
+        .unwrap();
+        let result = update_user(
+            &conn,
+            UpdateUserPayload {
+                id: user.id,
+                first_name: user.first_name,
+                last_name: user.last_name,
+                birth_date: user.birth_date,
+                email: "ana@example.com/erro".into(),
+                phone: user.phone,
+                photo: None,
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            user_repository::find_by_id(&conn, user.id)
+                .unwrap()
+                .unwrap()
+                .user
+                .email,
+            "ana@example.com"
+        );
+    }
+
+    #[test]
+    fn validates_optional_birth_dates_and_distinct_errors() {
+        let today = NaiveDate::from_ymd_opt(2026, 10, 20).unwrap();
+        for value in [
+            "",
+            "   ",
+            "1925-10-21",
+            "1926-10-19",
+            "1926-10-20",
+            "2012-10-20",
+            "2000-02-29",
+        ] {
+            assert!(normalize_birth_date(value, today).is_ok(), "{value}");
+        }
+        for (value, code) in [
+            ("2000-02-31", "invalid_birth_date"),
+            ("2001-02-29", "invalid_birth_date"),
+            ("0000-01-01", "invalid_birth_date"),
+            ("2000-2-01", "invalid_birth_date"),
+            ("31/02/2000", "invalid_birth_date"),
+            ("1925-10-20", "birth_date_too_old"),
+            ("2012-10-21", "birth_date_too_recent"),
+            ("2026-01-01", "birth_date_too_recent"),
+            ("2026-10-20", "birth_date_too_recent"),
+            ("2026-10-21", "future_birth_date"),
+        ] {
+            assert_eq!(
+                normalize_birth_date(value, today).unwrap_err().code,
+                code,
+                "{value}"
+            );
+        }
+    }
+
+    #[test]
+    fn clamps_birth_date_age_cutoffs_on_leap_days() {
+        let today = NaiveDate::from_ymd_opt(2024, 2, 29).unwrap();
+        for value in ["2010-02-28", "1924-02-29", "1923-03-01"] {
+            assert!(normalize_birth_date(value, today).is_ok());
+        }
+        assert_eq!(
+            normalize_birth_date("2010-03-01", today).unwrap_err().code,
+            "birth_date_too_recent"
+        );
+        assert_eq!(
+            normalize_birth_date("1923-02-28", today).unwrap_err().code,
+            "birth_date_too_old"
+        );
+    }
+
+    #[test]
+    fn creates_and_updates_users_without_optional_personal_fields() {
+        let conn = test_connection();
+        let payload: CreateUserPayload = serde_json::from_value(serde_json::json!({
+            "firstName": "Ana",
+            "lastName": "Silva",
+            "email": "ana@example.com",
+            "password": "Senha-segura-123!"
+        }))
+        .unwrap();
+        let user = create_user(&conn, payload).unwrap();
+        assert_eq!(user.birth_date, "");
+        assert_eq!(user.phone, "");
+
+        let updated = update_user(
+            &conn,
+            UpdateUserPayload {
+                id: user.id,
+                first_name: "Ana Maria".into(),
+                last_name: user.last_name,
+                birth_date: "   ".into(),
+                email: user.email,
+                phone: "   ".into(),
+                photo: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(updated.first_name, "Ana Maria");
+        assert_eq!(updated.birth_date, "");
+        assert_eq!(updated.phone, "");
+    }
+
+    #[test]
+    fn rejects_invalid_registration_birth_dates_before_persisting() {
+        let conn = test_connection();
+        let mut payload = registration_payload("Ana", "ana@example.com", "Senha-segura-123!");
+        payload.birth_date = "2000-02-31".into();
+        assert_eq!(
+            create_user(&conn, payload).unwrap_err().code,
+            "invalid_birth_date"
+        );
+        assert_eq!(user_repository::count(&conn).unwrap(), 0);
+    }
+
+    #[test]
+    fn can_clear_existing_optional_personal_fields() {
+        let conn = test_connection();
+        let user = create_user(
+            &conn,
+            registration_payload("Ana", "ana@example.com", "Senha-segura-123!"),
+        )
+        .unwrap();
+        assert!(!user.birth_date.is_empty());
+        assert!(!user.phone.is_empty());
+        let payload = UpdateUserPayload {
+            id: user.id,
+            first_name: user.first_name,
+            last_name: user.last_name,
+            birth_date: String::new(),
+            email: user.email,
+            phone: String::new(),
+            photo: None,
+        };
+        let updated = update_user(&conn, payload.clone()).unwrap();
+        assert_eq!(updated.birth_date, "");
+        assert_eq!(updated.phone, "");
+
+        let mut invalid = payload;
+        invalid.birth_date = "2000-02-31".into();
+        assert_eq!(
+            update_user(&conn, invalid).unwrap_err(),
+            "Informe uma data de nascimento válida."
+        );
+        assert_eq!(
+            user_repository::find_by_id(&conn, user.id)
+                .unwrap()
+                .unwrap()
+                .user
+                .birth_date,
+            ""
+        );
+    }
+
+    #[test]
     fn creates_normalized_user_without_exposing_password() {
         let conn = test_connection();
         let user = create_user(
@@ -343,7 +599,10 @@ mod tests {
         ] {
             let mut payload = registration_payload("Ana", "ana@example.com", "Senha-segura-123!");
             payload.phone = phone.into();
-            assert_eq!(create_user(&conn, payload).unwrap_err().code, "invalid_phone");
+            assert_eq!(
+                create_user(&conn, payload).unwrap_err().code,
+                "invalid_phone"
+            );
         }
         assert_eq!(user_repository::count(&conn).unwrap(), 0);
     }
@@ -409,13 +668,16 @@ mod tests {
         assert!(validate_is_local_user(&conn, local_user.id).is_ok());
 
         // Cria usuário simulado como vindo da plataforma online (com external_id)
-        let mut online_payload = registration_payload("Mariana", "mariana@example.com", "Senha-12345!");
+        let mut online_payload =
+            registration_payload("Mariana", "mariana@example.com", "Senha-12345!");
         online_payload.external_id = Some("ext-platform-999".into());
         let online_user = create_user(&conn, online_payload).unwrap();
 
         assert!(!is_local_user(&conn, online_user.id).unwrap());
         let validation_err = validate_is_local_user(&conn, online_user.id).unwrap_err();
-        assert!(validation_err.contains("Online platform users cannot have their data updated locally"));
+        assert!(
+            validation_err.contains("Online platform users cannot have their data updated locally")
+        );
     }
 
     #[test]
@@ -442,13 +704,17 @@ mod tests {
         assert_eq!(updated.last_name, "Ferreira");
         assert_eq!(updated.email, "lucas.ferreira@example.com");
         assert_eq!(updated.phone, "(75) 98888-7777");
-        assert_eq!(updated.photo, Some("data:image/png;base64,samplephoto".into()));
+        assert_eq!(
+            updated.photo,
+            Some("data:image/png;base64,samplephoto".into())
+        );
     }
 
     #[test]
     fn blocks_update_for_online_user_with_external_id() {
         let conn = test_connection();
-        let mut online_payload = registration_payload("Mariana", "mariana@example.com", "Senha-12345!");
+        let mut online_payload =
+            registration_payload("Mariana", "mariana@example.com", "Senha-12345!");
         online_payload.external_id = Some("ext-platform-888".into());
         let online_user = create_user(&conn, online_payload).unwrap();
 
@@ -466,9 +732,10 @@ mod tests {
         assert!(err.contains("Online platform users cannot have their data updated locally"));
 
         // Garante que os dados originais não foram alterados
-        let stored = user_repository::find_by_id(&conn, online_user.id).unwrap().unwrap();
+        let stored = user_repository::find_by_id(&conn, online_user.id)
+            .unwrap()
+            .unwrap();
         assert_eq!(stored.user.first_name, "Mariana");
         assert_eq!(stored.user.email, "mariana@example.com");
     }
 }
-

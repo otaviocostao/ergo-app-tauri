@@ -1,11 +1,14 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type FocusEventHandler, type KeyboardEvent } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
 import Input from "../Input";
 import CalendarSelect from "./CalendarSelect";
+import { authFieldStyles } from "./authStyles";
+import { birthDateBounds, dateValue, parseBirthDate } from "../../auth/birthDatePolicy";
 
 interface BirthDateInputProps {
   value: string;
   onChange: (value: string) => void;
+  onBlur?: FocusEventHandler<HTMLInputElement>;
   error?: string;
   disabled?: boolean;
 }
@@ -21,30 +24,27 @@ function dateAt(year: number, month: number, day: number) {
   return date;
 }
 
-function dateValue(date: Date) {
-  return `${String(date.getFullYear()).padStart(4, "0")}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-export default function BirthDateInput({ value, onChange, error, disabled = false }: BirthDateInputProps) {
+export default function BirthDateInput({ value, onChange, onBlur, error, disabled = false }: BirthDateInputProps) {
   const calendarId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const today = new Date();
-  const todayValue = dateValue(today);
-  const selected = value ? new Date(`${value}T12:00:00`) : today;
-  const initial = Number.isNaN(selected.getTime()) || dateValue(selected) > todayValue ? today : selected;
+  const { earliest, latest } = birthDateBounds(today);
+  const earliestValue = dateValue(earliest);
+  const latestValue = dateValue(latest);
+  const selected = parseBirthDate(value);
+  const initial = selected && dateValue(selected) >= earliestValue && dateValue(selected) <= latestValue ? selected : latest;
   const [view, setView] = useState(() => dateAt(initial.getFullYear(), initial.getMonth(), 1));
   const [activeDay, setActiveDay] = useState(initial.getDate());
   const year = view.getFullYear();
   const month = view.getMonth();
   const dayCount = dateAt(year, month + 1, 0).getDate();
   const firstWeekday = view.getDay();
-  const latestDay = year === today.getFullYear() && month === today.getMonth() ? today.getDate() : dayCount;
-  const firstYear = Math.min(today.getFullYear() - 120, year);
-  const years = Array.from({ length: today.getFullYear() - firstYear + 1 }, (_, index) => today.getFullYear() - index);
-  const canGoForward = year < today.getFullYear() || month < today.getMonth();
+  const years = Array.from({ length: latest.getFullYear() - earliest.getFullYear() + 1 }, (_, index) => latest.getFullYear() - index);
+  const canGoBack = year > earliest.getFullYear() || month > earliest.getMonth();
+  const canGoForward = year < latest.getFullYear() || month < latest.getMonth();
 
   useEffect(() => {
     if (!open) return;
@@ -80,12 +80,13 @@ export default function BirthDateInput({ value, onChange, error, disabled = fals
 
   function changeMonth(nextYear: number, nextMonth: number, day = activeDay) {
     let next = dateAt(nextYear, nextMonth, 1);
-    if (next.getFullYear() < 1) return;
-    if (dateValue(next) > todayValue) next = dateAt(today.getFullYear(), today.getMonth(), 1);
-    const lastDay = next.getFullYear() === today.getFullYear() && next.getMonth() === today.getMonth()
-      ? today.getDate() : dateAt(next.getFullYear(), next.getMonth() + 1, 0).getDate();
-    setView(next);
-    setActiveDay(Math.min(day, lastDay));
+    const nextDay = dateAt(next.getFullYear(), next.getMonth(), Math.min(day, dateAt(next.getFullYear(), next.getMonth() + 1, 0).getDate()));
+    if (dateValue(nextDay) < earliestValue) next = earliest;
+    else if (dateValue(nextDay) > latestValue) next = latest;
+    else next = nextDay;
+    setView(dateAt(next.getFullYear(), next.getMonth(), 1));
+    setActiveDay(next.getDate());
+    return next;
   }
 
   function navigateDays(event: KeyboardEvent<HTMLButtonElement>, day: number) {
@@ -107,9 +108,8 @@ export default function BirthDateInput({ value, onChange, error, disabled = fals
       default: return;
     }
     event.preventDefault();
-    if (next.getFullYear() < 1 || dateValue(next) > todayValue) return;
-    changeMonth(next.getFullYear(), next.getMonth(), next.getDate());
-    focusDay(next.getDate());
+    const destination = changeMonth(next.getFullYear(), next.getMonth(), next.getDate());
+    focusDay(destination.getDate());
   }
 
   return (
@@ -118,46 +118,47 @@ export default function BirthDateInput({ value, onChange, error, disabled = fals
     }} onKeyDown={(event) => {
       if (open && event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeCalendar(); }
     }}>
-      <Input ref={inputRef} label="Data de nascimento" type="date" lang="pt-BR" autoComplete="bday"
-        value={value} max={todayValue} onChange={(event) => onChange(event.target.value)}
-        error={error} disabled={disabled} aria-required="true"
-        inputSize="md" containerClassName="gap-2" helperClassName="text-xs dark:text-slate-500!"
-        labelClassName="text-sm! font-medium! text-slate-700! dark:text-slate-700!"
-        inputClassName="h-11 bg-slate-50/80 pr-32! text-slate-900 select-text focus:bg-white [color-scheme:light] [&::-webkit-calendar-picker-indicator]:hidden dark:border-slate-200! dark:bg-slate-50! dark:text-slate-900! dark:disabled:border-slate-200! dark:disabled:bg-slate-100! dark:disabled:text-slate-400! dark:aria-invalid:border-red-500!"
+      <Input ref={inputRef} name="birthDate" label="Data de nascimento" type="date" lang="pt-BR" autoComplete="bday"
+        value={selected ? dateValue(selected) : ""} min={earliestValue} max={latestValue}
+        onChange={(event) => onChange(event.target.value)} onBlur={onBlur}
+        onInput={(event) => onChange(event.currentTarget.value)}
+        error={error} disabled={disabled}
+        {...authFieldStyles}
+        inputClassName={`${authFieldStyles.inputClassName} pr-14! [&::-webkit-calendar-picker-indicator]:hidden`}
         rightIcon={
           <button ref={triggerRef} type="button" disabled={disabled} onClick={toggleCalendar}
             aria-label="Escolher data de nascimento no calendário" aria-haspopup="dialog" aria-expanded={open}
             aria-controls={open ? calendarId : undefined}
-            className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-primary-50 px-2.5 text-sm font-medium text-primary-800 transition-colors hover:bg-primary-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
+            className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-primary-50 px-2.5 text-sm font-medium text-primary-800 transition-colors hover:bg-primary-100 dark:bg-primary-950/50 dark:text-primary-200 dark:hover:bg-primary-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50">
             <CalendarDays size={16} aria-hidden="true" />
           </button>
         } />
       {open && !disabled && (
         <div id={calendarId} role="dialog" aria-label="Escolher data de nascimento"
-          className="absolute left-0 top-full z-30 mt-2 w-full max-w-sm rounded-xl border border-slate-200 bg-white p-4 text-slate-900 shadow-xl [color-scheme:light]">
+          className="absolute left-0 top-full z-30 mt-2 w-full max-w-sm rounded-xl border border-slate-200 bg-white p-4 text-slate-900 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
           <div className="mb-3 flex items-center justify-between gap-2">
             <p className="text-sm font-semibold">Selecione sua data de nascimento</p>
             <button type="button" onClick={closeCalendar} aria-label="Fechar calendário"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-primary-600">
+              className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-primary-600">
               <X size={16} aria-hidden="true" />
             </button>
           </div>
           <div className="mb-4 flex items-center gap-2">
-            <button type="button" onClick={() => changeMonth(year, month - 1)} disabled={year === 1 && month === 0}
-              aria-label="Mês anterior" className="flex h-9 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-primary-600 disabled:opacity-30">
+            <button type="button" onClick={() => { if (canGoBack) changeMonth(year, month - 1); }} aria-disabled={!canGoBack}
+              aria-label="Mês anterior" className="flex h-9 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-primary-600 aria-disabled:cursor-not-allowed aria-disabled:opacity-30">
               <ChevronLeft size={18} aria-hidden="true" />
             </button>
             <CalendarSelect label="Mês de nascimento" value={month} onChange={(value) => changeMonth(year, value)}
-              className="flex-1" options={months.map((label, index) => ({ value: index, label, disabled: year === today.getFullYear() && index > today.getMonth() }))} />
+              className="flex-1" options={months.map((label, index) => ({ value: index, label, disabled: (year === earliest.getFullYear() && index < earliest.getMonth()) || (year === latest.getFullYear() && index > latest.getMonth()) }))} />
             <CalendarSelect label="Ano de nascimento" value={year} onChange={(value) => changeMonth(value, month)}
               className="w-22 shrink-0" options={years.map((option) => ({ value: option, label: String(option) }))} />
-            <button type="button" onClick={() => changeMonth(year, month + 1)} disabled={!canGoForward}
-              aria-label="Próximo mês" className="flex h-9 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-primary-600 disabled:opacity-30">
+            <button type="button" onClick={() => { if (canGoForward) changeMonth(year, month + 1); }} aria-disabled={!canGoForward}
+              aria-label="Próximo mês" className="flex h-9 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-primary-600 aria-disabled:cursor-not-allowed aria-disabled:opacity-30">
               <ChevronRight size={18} aria-hidden="true" />
             </button>
           </div>
           <p className="sr-only" aria-live="polite">{months[month]} de {year}</p>
-          <div className="mb-1 grid grid-cols-7 text-center text-xs font-medium text-slate-500" aria-hidden="true">
+          <div className="mb-1 grid grid-cols-7 text-center text-xs font-medium text-slate-500 dark:text-slate-400" aria-hidden="true">
             {weekdays.map((weekday) => <span key={weekday} className="py-1">{weekday}</span>)}
           </div>
           <div className="grid grid-cols-7 gap-1" role="group" aria-label={`Dias de ${months[month]} de ${year}`}>
@@ -166,13 +167,14 @@ export default function BirthDateInput({ value, onChange, error, disabled = fals
               const day = index + 1;
               const date = dateAt(year, month, day);
               const iso = dateValue(date);
-              const isSelected = iso === value;
-              return <button key={day} type="button" data-day={day} disabled={day > latestDay}
-                tabIndex={day === activeDay ? 0 : -1} aria-label={fullDate.format(date)} aria-pressed={isSelected}
-                aria-current={iso === todayValue ? "date" : undefined} onFocus={() => setActiveDay(day)}
+              const isSelected = selected ? iso === dateValue(selected) : false;
+              const isUnavailable = iso < earliestValue || iso > latestValue;
+              return <button key={day} type="button" data-day={day} aria-disabled={isUnavailable}
+                tabIndex={!isUnavailable && day === activeDay ? 0 : -1} aria-label={fullDate.format(date)} aria-pressed={isSelected}
+                onFocus={() => { if (!isUnavailable) setActiveDay(day); }}
                 onKeyDown={(event) => navigateDays(event, day)}
-                onClick={() => { onChange(iso); setOpen(false); inputRef.current?.focus(); }}
-                className={`flex h-9 items-center justify-center rounded-lg text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:text-slate-300 ${isSelected ? "bg-primary-700 font-semibold text-white hover:bg-primary-800" : "text-slate-700 hover:bg-primary-50"} ${iso === todayValue && !isSelected ? "ring-1 ring-inset ring-primary-200 font-semibold" : ""}`}>
+                onClick={() => { if (isUnavailable) return; onChange(iso); setOpen(false); inputRef.current?.focus(); }}
+                className={`flex h-9 cursor-pointer items-center justify-center rounded-lg text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-600 aria-disabled:cursor-not-allowed aria-disabled:text-slate-300 dark:aria-disabled:text-slate-600 ${isSelected ? "bg-primary-700 font-semibold text-white hover:bg-primary-800 dark:bg-primary-500 dark:text-slate-950 dark:hover:bg-primary-400" : "text-slate-700 hover:bg-primary-50 dark:text-slate-300 dark:hover:bg-slate-800"}`}>
                 {day}
               </button>;
             })}

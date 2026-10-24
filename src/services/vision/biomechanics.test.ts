@@ -1,0 +1,171 @@
+import { describe, expect, it } from "vitest";
+import {
+  calculateNeckAngle,
+  calculateShoulderBalance,
+  type Point2D,
+} from "./biomechanics";
+
+const origin: Point2D = { x: 0, y: 0 };
+const nose: Point2D = { x: 0, y: -4 };
+const ear: Point2D = { x: 0, y: -2 };
+
+function rotate(point: Point2D, degrees: number): Point2D {
+  const radians = degrees * Math.PI / 180;
+  return {
+    x: point.x * Math.cos(radians) - point.y * Math.sin(radians),
+    y: point.x * Math.sin(radians) + point.y * Math.cos(radians),
+  };
+}
+
+function transform(point: Point2D, scale: number, offset: Point2D): Point2D {
+  return { x: point.x * scale + offset.x, y: point.y * scale + offset.y };
+}
+
+describe("calculateNeckAngle", () => {
+  it("measures zero for a head centered above the shoulders", () => {
+    expect(calculateNeckAngle(nose, ear, origin)).toBe(0);
+  });
+
+  it.each([-180, -120, -90, -60, -45, -30, -20, -12, -5, 5, 12, 20, 30, 45, 60, 90, 120, 180])(
+    "measures a simulated %s degree rotation from the upward vertical",
+    (degrees) => {
+      expect(calculateNeckAngle(rotate(nose, degrees), rotate(ear, degrees), origin))
+        .toBeCloseTo(Math.abs(degrees), 10);
+    },
+  );
+
+  it("uses both nose and ear to locate the head midpoint", () => {
+    expect(calculateNeckAngle({ x: 6, y: -4 }, ear, origin)).toBeCloseTo(45, 10);
+    expect(calculateNeckAngle(nose, { x: 6, y: -2 }, origin)).toBeCloseTo(45, 10);
+  });
+
+  it.each([-3, 3])("measures a horizontal head displacement of %s units", (dx) => {
+    expect(calculateNeckAngle({ x: dx, y: -4 }, { x: dx, y: -2 }, origin))
+      .toBeCloseTo(45, 10);
+  });
+
+  it.each([0.01, 1, 1000])("is invariant under translation and uniform scale %s", (scale) => {
+    const offset = { x: 320, y: 240 };
+    const points = [rotate(nose, 30), rotate(ear, 30), origin]
+      .map((point) => transform(point, scale, offset));
+
+    expect(calculateNeckAngle(points[0], points[1], points[2])).toBeCloseTo(30, 9);
+  });
+
+  it("preserves the angle when the image is mirrored", () => {
+    const points = [rotate(nose, 35), rotate(ear, 35), origin];
+    const mirrored = points.map(({ x, y }) => ({ x: 640 - x, y }));
+
+    expect(calculateNeckAngle(mirrored[0], mirrored[1], mirrored[2])).toBeCloseTo(35, 10);
+  });
+
+  it("measures 45 degrees after converting normalized landmarks to a 1200x600 frame", () => {
+    const pixels = ({ x, y }: Point2D): Point2D => ({ x: x * 1200, y: y * 600 });
+
+    expect(calculateNeckAngle(
+      pixels({ x: 0.375, y: 0.15 }),
+      pixels({ x: 0.625, y: 0.35 }),
+      pixels({ x: 0.25, y: 0.75 }),
+    )).toBeCloseTo(45, 10);
+  });
+
+  it("returns null when the head midpoint coincides with the shoulder center", () => {
+    expect(calculateNeckAngle({ x: -1, y: -1 }, { x: 1, y: 1 }, origin)).toBeNull();
+  });
+
+  it("does not discard a small but nonzero neck vector", () => {
+    expect(calculateNeckAngle(
+      { x: 1e-12, y: -1.5e-12 },
+      { x: 1e-12, y: -0.5e-12 },
+      origin,
+    )).toBeCloseTo(45, 10);
+  });
+
+  it("returns null when finite coordinates overflow during subtraction", () => {
+    expect(calculateNeckAngle(
+      { x: Number.MAX_VALUE, y: -4 },
+      { x: Number.MAX_VALUE, y: -2 },
+      { x: -Number.MAX_VALUE, y: 0 },
+    )).toBeNull();
+  });
+});
+
+describe("calculateShoulderBalance", () => {
+  it.each([
+    [-180, 100], [-179, 90], [-175, 50], [-90, 0], [-45, 0], [-10, 0],
+    [-6, 40], [-3, 70], [-1, 90], [0, 100], [1, 90], [3, 70], [6, 40],
+    [9.5, 5], [10, 0], [10.1, 0], [45, 0], [90, 0], [175, 50], [179, 90], [180, 100],
+  ])("maps a %s degree shoulder line to %s percent", (degrees, expected) => {
+    const right = rotate({ x: 2, y: 0 }, degrees);
+
+    expect(calculateShoulderBalance(origin, right)).toBeCloseTo(expected, 10);
+  });
+
+  it.each([-90, -6, 0, 3, 90, 175, 180])(
+    "does not change when shoulder labels are swapped at %s degrees",
+    (degrees) => {
+      const right = rotate({ x: 2, y: 0 }, degrees);
+      expect(calculateShoulderBalance(right, origin))
+        .toBeCloseTo(calculateShoulderBalance(origin, right)!, 10);
+    },
+  );
+
+  it("handles exactly horizontal and vertical lines", () => {
+    expect(calculateShoulderBalance({ x: 600, y: 200 }, { x: 100, y: 200 })).toBe(100);
+    expect(calculateShoulderBalance({ x: 100, y: 200 }, { x: 100, y: 600 })).toBe(0);
+  });
+
+  it.each([0.01, 1, 1000])("is invariant under translation and uniform scale %s", (scale) => {
+    const offset = { x: 320, y: 240 };
+    const left = transform(origin, scale, offset);
+    const right = transform(rotate({ x: 2, y: 0 }, 3), scale, offset);
+
+    expect(calculateShoulderBalance(left, right)).toBeCloseTo(70, 8);
+  });
+
+  it("preserves the balance when the image is mirrored", () => {
+    const right = rotate({ x: 2, y: 0 }, 6);
+    expect(calculateShoulderBalance({ x: 640, y: 0 }, { x: 640 - right.x, y: right.y }))
+      .toBeCloseTo(40, 10);
+  });
+
+  it("returns null for coincident shoulders", () => {
+    expect(calculateShoulderBalance(origin, origin)).toBeNull();
+  });
+
+  it("does not discard a small but nonzero shoulder span", () => {
+    expect(calculateShoulderBalance(origin, { x: 1e-12, y: 0 })).toBe(100);
+  });
+
+  it("returns null when finite coordinates overflow during subtraction", () => {
+    expect(calculateShoulderBalance(
+      { x: -Number.MAX_VALUE, y: 0 },
+      { x: Number.MAX_VALUE, y: 0 },
+    )).toBeNull();
+  });
+});
+
+describe.each([NaN, Infinity, -Infinity])("invalid coordinate %s", (value) => {
+  it.each(["x", "y"] as const)("rejects a non-finite %s in any neck landmark", (axis) => {
+    expect(calculateNeckAngle({ ...nose, [axis]: value }, ear, origin)).toBeNull();
+    expect(calculateNeckAngle(nose, { ...ear, [axis]: value }, origin)).toBeNull();
+    expect(calculateNeckAngle(nose, ear, { ...origin, [axis]: value })).toBeNull();
+  });
+
+  it.each(["x", "y"] as const)("rejects a non-finite %s in either shoulder", (axis) => {
+    const right = { x: 2, y: 0 };
+    expect(calculateShoulderBalance({ ...origin, [axis]: value }, right)).toBeNull();
+    expect(calculateShoulderBalance(origin, { ...right, [axis]: value })).toBeNull();
+  });
+});
+
+it("does not mutate input landmarks", () => {
+  const frozenNose = Object.freeze({ x: 0, y: -4 });
+  const frozenEar = Object.freeze({ x: 0, y: -2 });
+  const frozenLeft = Object.freeze({ x: -1, y: 0 });
+  const frozenRight = Object.freeze({ x: 1, y: 0 });
+  const frozenCenter = Object.freeze({ x: 0, y: 0 });
+
+  expect(calculateNeckAngle(frozenNose, frozenEar, frozenCenter)).toBe(0);
+  expect(calculateShoulderBalance(frozenLeft, frozenRight)).toBe(100);
+});

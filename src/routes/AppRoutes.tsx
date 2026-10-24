@@ -1,18 +1,22 @@
 import { Routes, Route, Navigate, Outlet } from "react-router-dom";
+import PageLoading from "../components/PageLoading";
 import MainLayout from "../components/MainLayout";
 import Dashboard from "../pages/Dashboard";
 import Reports from "../pages/Reports";
 import Reminders from "../pages/Reminders";
 import Monitoring from "../pages/Monitoring";
 import Settings from "../pages/Settings";
-import Login from "../pages/Login";
 import Register from "../pages/Register";
+import Login from "../pages/Login";
 import AuthLayout from "../components/auth/AuthLayout";
 import { useAuth } from "../auth/AuthContext";
+import { useTheme } from "../theme/ThemeContext";
 
 function RequireSession() {
   const { session } = useAuth();
-  return session.kind === "authenticated" ? <Outlet /> : <Navigate to="/login" replace />;
+  return session.kind === "authenticated"
+    ? <Outlet />
+    : <Navigate to="/login" replace />;
 }
 
 function AnonymousOnly() {
@@ -22,7 +26,10 @@ function AnonymousOnly() {
 
 export default function AppRoutes() {
   const { loading } = useAuth();
-  if (loading) return <div className="min-h-screen flex items-center justify-center" role="status">Abrindo Ergo…</div>;
+  const { isInitializing: themeInitializing } = useTheme();
+  if (loading || themeInitializing) {
+    return <PageLoading fullScreen />;
+  }
   return (
     <Routes>
       <Route element={<AnonymousOnly />}>
@@ -38,6 +45,7 @@ export default function AppRoutes() {
           <Route path="/dashboard/alertas-preventivos" element={<Navigate to="/reports?view=alerts&period=day" replace />} />
           <Route path="/monitoring" element={<Monitoring />} />
           <Route path="/reminders" element={<Reminders />} />
+          <Route path="/ergonomic-notices" element={<Navigate to="/settings?tab=notices" replace />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

@@ -42,6 +42,13 @@ Estes registros descrevem o produto existente. Não são apresentados como novos
 - Frequência `ONCE` exige data não vazia; `CUSTOM` exige ao menos um dia. O serviço preserva data apenas para `ONCE` e dias apenas para `CUSTOM`.
 - Situação: implementada para cadastro e edição. Isso não demonstra a existência de um agendador ou entrega de notificações. A validação atual também não comprova validade de calendário de toda data recebida ou validade de cada dia personalizado.
 
+#### Preferências dos avisos padrão
+
+- Origem e aprovação: solicitação do responsável pelo projeto em 21/10/2026 para concentrar os avisos padrão em Configurações.
+- **Configurações → Avisos de ergonomia** apresenta os três avisos padrão da conta, inicialmente inativos, com ativação e desativação individual por interruptor. A preferência é salva automaticamente; uma falha informa o erro e mantém o estado anterior.
+- O botão **Configurar** reutiliza o formulário para horários, dias, frequência, intervalo e som. Lembretes personalizados continuam em **Lembretes**. A rota anterior de avisos redireciona para a aba de Configurações.
+- Evidências: build TypeScript/Vite e testes de lembretes do backend, incluindo preservação de preferências e isolamento por usuário. O roteiro de verificação manual está no README.
+
 ### RN-12 Contas locais e sessão
 
 - Origem: [serviço de autenticação](https://github.com/otaviocostao/ergo-app-tauri/blob/45d248839f61df2fae1ca78599a1511efb9ef1d1/src-tauri/src/services/auth_service.rs), [serviço de usuários](https://github.com/otaviocostao/ergo-app-tauri/blob/45d248839f61df2fae1ca78599a1511efb9ef1d1/src-tauri/src/services/user_service.rs) e [rotas](https://github.com/otaviocostao/ergo-app-tauri/blob/45d248839f61df2fae1ca78599a1511efb9ef1d1/src/routes/AppRoutes.tsx).
@@ -49,6 +56,15 @@ Estes registros descrevem o produto existente. Não são apresentados como novos
 - Senhas são armazenadas com Argon2id. O limitador aceita até cinco tentativas na janela de 30 segundos; login bem-sucedido reinicia a contagem.
 - Usuário com `externalId` preenchido não pode editar seus dados pelo serviço local. Essa restrição de origem não equivale à autorização do usuário autenticado sobre cada registro.
 - Situação: implementada. Política de acesso por usuário, visitante e empresa pendente em P-08.
+
+### RN-13 Dados opcionais do usuário e nascimento
+
+- Origem e aprovação: solicitação do responsável pelo projeto nesta conversa em 20/10/2026; idade mínima de 14 anos confirmada explicitamente na mesma data.
+- Telefone e nascimento são opcionais no cadastro local e na edição do perfil. Campos não informados são persistidos como string vazia, mantendo a compatibilidade com as contas e o schema existentes.
+- Se preenchido no cadastro, o telefone deve conter DDD e 9 dígitos. Se preenchida, a data deve existir no calendário e corresponder a uma idade entre 14 e 100 anos completos, usando a data local do computador. A véspera do 101º aniversário ainda é aceita.
+- Datas impossíveis ou incompletas, futuras, abaixo da idade mínima e acima da idade máxima possuem mensagens específicas. O formulário aceita DD/MM/AAAA, e o serviço recebe YYYY-MM-DD.
+- Evidências de teste: `npm run test:birth-date` cobre datas impossíveis, campos vazios, aniversários e anos bissextos; os testes de `user_service` em `cargo test --manifest-path src-tauri/Cargo.toml` cobrem os mesmos limites, campos omitidos, persistência e remoção dos dados opcionais.
+- Situação: implementada. A faixa etária é uma regra de produto deste cadastro.
 
 ## Propostas pendentes de aprovação
 

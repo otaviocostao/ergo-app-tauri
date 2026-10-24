@@ -31,7 +31,7 @@ O [índice da base de conhecimento](docs/base-conhecimento/README.md) reúne o e
 
 - Ao abrir o app, a tela inicial é o login (`/login`).
 - **Cadastrar** abre um modal para escolher entre o cadastro on-line de empresas e o cadastro off-line. Como ainda não há backend remoto, a opção **Cadastrar online** exibe o aviso de indisponibilidade; **Cadastrar offline** abre o cadastro no próprio app (`/cadastro`).
-- O cadastro local pede nome, e-mail, senha de 8 a 128 caracteres e confirmação da senha. Após o sucesso, uma animação de verificação é exibida antes do retorno ao login.
+- O cadastro local pede nome, sobrenome, e-mail, senha de 8 a 70 caracteres e confirmação da senha. Telefone e data de nascimento são opcionais. Se preenchido, o telefone deve conter DDD e 9 dígitos; o nascimento deve ser uma data real, não futura, correspondente a uma idade de 14 a 100 anos completos. Datas digitadas usam DD/MM/AAAA e são enviadas ao backend como YYYY-MM-DD. Após o sucesso, uma animação de verificação é exibida antes do retorno ao login.
 - A conta permanece no SQLite após encerrar o app. A sessão fica somente na memória do processo Rust: recarregar a tela ou ocultar a janela pelo X mantém a sessão; usar **Sair do Ergo** e abrir novamente exige novo login.
 - Senhas são armazenadas como hash **Argon2id**, com salt aleatório por cadastro. O hash nunca é retornado ao frontend. Após cinco tentativas de login em 30 segundos, novas tentativas aguardam o fim dessa janela.
 - Não há envio de dados, confirmação de e-mail, recuperação de senha ou sincronização online nesta versão. O SQLite não é criptografado; o login não substitui as permissões de acesso aos arquivos do sistema operacional.
@@ -43,6 +43,14 @@ Compartilhe código, `package-lock.json`, `src-tauri/Cargo.lock` e migrações p
 No PowerShell, se `npm.ps1` estiver bloqueado, use `npm.cmd ci` e `npm.cmd run tauri dev`.
 
 `npm run dev` abre apenas a prévia web das telas de login e cadastro. Login/cadastro reais e acesso às telas internas exigem o app Tauri. A prévia não simula um cadastro bem-sucedido. A interface usa a pilha de fontes do sistema e não depende do download de fontes.
+
+### Carregamento das telas
+
+As páginas de login, cadastro e as páginas internas usam importações estáticas e fazem parte do bundle inicial. As rotas internas exigem autenticação; sessões anônimas são redirecionadas para o login.
+
+Durante a consulta inicial da sessão e a primeira leitura do tema de cada conta, a interface mostra um indicador de carregamento em tela cheia. Nas navegações internas, a barra lateral e o cabeçalho permanecem montados. Novas tentativas de leitura do tema mostram o progresso em um aviso dentro da página, preservando formulários e alterações ainda não salvas. Os estilos globais fazem parte do carregamento inicial.
+
+O Tailwind procura classes em `src/` e `index.html`. Classes usadas por novos componentes devem estar nesses arquivos. O observador de desenvolvimento do Vite ignora `src-tauri/`, `logs/` e `dist/`, evitando acompanhar o backend, os perfis de navegador dos testes e os arquivos compilados. Mudanças no frontend continuam atualizando a prévia automaticamente.
 
 ### Execução na bandeja do sistema
 
@@ -77,7 +85,7 @@ Ao rodar a aplicação em modo dev ou produção, o arquivo do banco de dados `e
 - **Linux:** `~/.config/com.ergo.ergo-app-tauri/ergo.db`
 
 ### 🔄 Migrações Automáticas
-O backend abre o banco e aplica a migração SQLx de `src-tauri/migrations/` na inicialização. Nesta fase do projeto, `0001_initial_migration.sql` contém todo o schema: usuários, lembretes, empresas e ambientes de trabalho. A tabela `_sqlx_migrations` registra a versão aplicada.
+O backend abre o banco e aplica a migração SQLx de `src-tauri/migrations/` na inicialização. Nesta fase do projeto, os dados locais são considerados descartáveis e `0001_initial_migration.sql` contém todo o schema: usuários, lembretes, empresas e ambientes de trabalho. A tabela `_sqlx_migrations` registra a versão aplicada.
 
 Para adicionar novas tabelas ou alterar tabelas existentes:
 1. Atualize `src-tauri/migrations/0001_initial_migration.sql`, mantendo o schema completo na migração inicial.
@@ -93,7 +101,43 @@ As permissões de SQL genérico foram removidas de `src-tauri/capabilities/defau
 
 As contas e os lembretes por usuário são persistidos no SQLite local. As rotas internas exigem uma conta autenticada. As métricas de ergonomia continuam demonstrativas.
 
+### Preferência de tema por usuário
+
+O campo `users.theme_preference` guarda `light`, `dark` ou `system`. Novas contas recebem `system` (Automático), tanto no cadastro pelo aplicativo quanto no padrão SQL da coluna. Essa preferência acompanha o tema do computador, inclusive quando ele muda com o aplicativo aberto.
+
+Os comandos `get_user_theme_preference` e `update_user_theme_preference` consultam e alteram somente a conta da sessão autenticada. A atualização recebe `{ payload: { theme: "dark" } }`, sem identificador de usuário, e preserva os demais dados cadastrais. O serviço frontend `src/services/userThemeService.ts` disponibiliza essas operações.
+
+Ao entrar na conta, o aplicativo carrega sua preferência antes de mostrar as telas internas. Em Configurações, a escolha é aplicada imediatamente e gravada no banco; enquanto a operação está em andamento, o seletor fica desabilitado. Se a gravação falhar, a aparência anterior é restaurada e uma mensagem é exibida. Se a primeira leitura falhar, o aplicativo acompanha o tema do sistema temporariamente, informa a falha e permite tentar novamente antes de alterar a preferência.
+
+O botão **Tentar novamente** recarrega a preferência mantendo a página e seus formulários montados. Durante essa leitura, o aviso mostra o progresso e o seletor de tema permanece desabilitado. Se a nova tentativa falhar, a aparência atual é mantida e o botão volta a ficar disponível.
+
+Na abertura e após sair da conta, login e cadastro usam o tema do computador. Um script no HTML aplica essa aparência antes do bundle React, e as telas acompanham mudanças do sistema enquanto permanecem abertas. A preferência de uma conta é consultada somente após sua autenticação. Contas com `light` ou `dark` usam a escolha explícita ao entrar; contas com `system` acompanham o computador.
+
+O antigo registro `ergo.theme` do navegador não é consultado nem gravado. Login, cadastro, calendário de nascimento, mensagens e janelas acompanham o tema ativo. A prévia web, sem banco Tauri, também acompanha o sistema.
+
+Logout e troca de conta invalidam respostas pendentes, para que uma operação anterior não altere a aparência ou as mensagens da conta atual. Atualizar os dados do mesmo perfil não recarrega o tema. A preferência permanece local a este dispositivo, sem sincronização com a plataforma online.
+
+Como o schema de tema foi alterado na migração inicial, bancos criados com uma versão anterior dessa migração precisam ser recriados conforme o procedimento de desenvolvimento acima. Isso inclui bancos com o padrão antigo `light` ou com a antiga tabela de tema da última conta. A recriação descarta contas e dados locais; o aplicativo não migra nem apaga esses arquivos automaticamente. Quando os dados precisarem ser preservados, será necessário adotar migrações incrementais.
+
 ### Disparo dos lembretes
+
+O sistema disponibiliza três avisos fixos de ergonomia por conta: **Revise sua postura** (intervalo inicial de 30 minutos), **Faça uma pausa visual** (20 minutos) e **Mude de posição** (60 minutos). Eles são criados no login, inicialmente desativados, com período inicial de 08h às 18h em dias úteis. Em **Configurações → Avisos de ergonomia**, cada aviso possui um interruptor para ativar ou desativar, com gravação automática. O botão **Configurar** permite ajustar dias, horários, frequência, intervalo e som.
+
+**Lembretes** (`/reminders`) lista os personalizados e oferece **Novo lembrete**. Os padrões ficam na aba **Avisos de ergonomia** de **Configurações** (`/settings?tab=notices`), apresentados em cartões com seu estado atual. A rota antiga `/ergonomic-notices` redireciona para essa aba. As duas áreas reutilizam o carregamento e os formulários, com a separação por `systemType` centralizada no componente `ReminderList`.
+
+Título, mensagem e categoria dos avisos padrão são definidos pelo sistema e protegidos também no backend. Esses avisos podem ser desativados, mas não excluídos. Para adicionar seus próprios avisos, abra **Lembretes**, use **Novo lembrete**, preencha título, mensagem, categoria e agendamento e clique em **Salvar**. Os lembretes personalizados, inclusive os já existentes, podem ser editados e excluídos, mantendo suas configurações e histórico.
+
+O campo **Status** no formulário permite salvar qualquer aviso como **Ativo** ou **Inativo**. Nos avisos padrão, também é possível alterar o estado diretamente pelo interruptor do cartão em Configurações; ele responde imediatamente e restaura o estado anterior se a gravação falhar. Durante a gravação, somente os controles do aviso alterado são bloqueados, sem mudar o texto ou a opacidade dos demais cartões. Para alterar o status de um lembrete personalizado, clique no lápis de edição, escolha o estado desejado e clique em **Salvar**. Apenas avisos ativos enviam notificações. Novos lembretes personalizados começam ativos, e o status pode ser alterado antes de salvar.
+
+Os tipos `POSTURE_CHECK`, `VISUAL_BREAK` e `MOVEMENT_BREAK` são expostos em `systemType`. Cada aviso usa um identificador estável por usuário (`system-reminder:<userId>:<type>`), que permite reconhecer o catálogo e evitar duplicações sem alterar o schema ou o checksum da migração inicial. Entrar novamente na conta cria apenas avisos ausentes e preserva preferências e último envio.
+
+#### Decisão de reutilização de `reminders`
+
+A entidade pode ser reutilizada porque os dois grupos compartilham proprietário, mensagem, preferências de envio, status e histórico do último disparo. A leitura do repositório, o agendador, a notificação nativa e o registro de envio continuam únicos. As regras específicas se concentram no serviço: conteúdo fixo e exclusão bloqueada para os padrões, edição completa para os personalizados. A separação das telas usa uma única classificação, sem acrescentar filtros de tipo às consultas existentes.
+
+A coluna `type` foi avaliada, mas não foi adicionada nesta implementação. `systemType` é derivado dos identificadores estáveis gerados pelo backend e do proprietário; registros personalizados continuam com UUID e tipo nulo. Isso mantém compatibilidade com os bancos existentes. A classificação depende dessa convenção de ID; se o catálogo futuramente precisar de tipos configuráveis ou consultas SQL por tipo, a alternativa deve ser reavaliada com uma migração de dados compatível.
+
+A criação dos três padrões já foi antecipada no login por `ensure_system_reminders`, de forma idempotente e sem sobrescrever preferências. Sua configuração fica na aba de avisos em Configurações. O gatilho baseado em tempo efetivo de tela, como “após 20 minutos de monitoramento”, permanece para a integração com o módulo de monitoramento: os intervalos atuais seguem os horários configurados, independentemente de uma sessão monitorada estar ativa. Essa futura decisão de quando disparar deve reutilizar o transporte de notificações e a persistência de envio existentes, definir como pausas e retomadas afetam a contagem e substituir o agendamento por relógio desses avisos para evitar disparos em duplicidade.
 
 O agendador Rust acompanha os lembretes do usuário conectado a cada segundo e funciona em qualquer tela, com a janela aberta, minimizada ou oculta na bandeja após clicar no X. Escolher **Sair do Ergo** encerra o agendador; ele não funciona como um serviço do sistema operacional.
 
@@ -106,29 +150,59 @@ O agendador Rust acompanha os lembretes do usuário conectado a cada segundo e f
 - Após o plugin aceitar o envio, `reminders.last_sent_at` registra o horário efetivo em UTC (RFC 3339). Falhas reportadas pelo plugin não alteram esse campo. Esse registro não confirma a exibição ou a leitura da notificação pelo usuário. O modal de detalhes mostra o último envio no fuso local do computador, ou “Nunca enviado”, e se atualiza quando está aberto durante um disparo.
 - Registrar o envio altera somente `last_sent_at`, preservando `updated_at` como referência das alterações do lembrete. Edições e mudanças de status continuam atualizando `updated_at`, inclusive a desativação automática de lembretes que não se repetem. O campo começa vazio e não recompõe envios anteriores a esta implementação.
 
-Para conferir manualmente: entre na conta, crie um lembrete diário com início no próximo minuto, intervalo de um minuto e fim pelo menos três minutos depois. O primeiro aviso deve acontecer um minuto após o início; confira o seguinte, desative o lembrete e confirme que não há novos avisos. Repita com notificação silenciosa, outra tela aberta e a janela minimizada. Para “Não repetir”, escolha a data local de hoje e um horário futuro.
+Para conferir manualmente: entre novamente na conta e abra **Configurações → Avisos de ergonomia**. Em uma conta que ainda não tenha configurado os avisos, os três padrões devem aparecer desativados, sem opções de criação e exclusão. Ative e desative cada interruptor, recarregue a tela e confira a persistência. Simule uma falha de gravação e confira que o estado anterior é mantido, com mensagem de erro. Use **Configurar** em um dos avisos para frequência diária, com início no próximo minuto, intervalo de um minuto e fim pelo menos três minutos depois; ative o aviso. O primeiro envio deve acontecer um minuto após o início; confira o seguinte, desative pelo interruptor e confirme que não há novos envios. Repita com notificação silenciosa, outra tela aberta e a janela minimizada. Para “Não repetir”, escolha a data local de hoje e um horário futuro. Confira o redirecionamento de `/ergonomic-notices` para a aba de Configurações. Abra **Lembretes**, crie um personalizado com **Status: Inativo**, clique no lápis e altere para **Ativo**. Confirme que os personalizados aparecem apenas em **Lembretes** e os padrões apenas na aba de avisos. Entre novamente e confira que os horários e os estados foram preservados; depois exclua apenas o personalizado.
 
 ### Relatórios de postura
 
 A opção **Relatórios** no menu abre `/reports`. Os três cartões **Ver detalhes** da tela inicial abrem as respectivas seções: índice ergonômico, boa postura e alertas. Os endereços antigos em `/dashboard/` redirecionam para essas seções.
 
-- Filtros de dia, semana (segunda a domingo) e mês, com seleção de data e navegação entre períodos. Filtros e seção ficam na URL para preservar a navegação de voltar/avançar.
-- Visão geral com evolução em pontos percentuais, tempo em boa postura, alertas por hora, pausas, meta demonstrativa de 6h e histórico diário.
+- Filtros de dia, semana (domingo a sábado) e mês, com seleção de data e navegação entre períodos. Filtros e seção ficam na URL para preservar a navegação de voltar/avançar.
+- Visão geral com evolução em pontos percentuais, tempo em boa postura, alertas por hora, tempo em monitoramento, meta demonstrativa de 6h e histórico diário. A seção de alertas inclui a contagem de alertas críticos.
 - Detalhes com distribuição do tempo dentro/fora da faixa, mapa de intervalos de 10 minutos, melhores horários e registro de alertas por tipo.
 - O índice é ponderado pelo tempo monitorado; dias sem leituras não recebem pontuação. Períodos em andamento comparam os dias decorridos com o mesmo trecho do período anterior (limitado ao tamanho do mês anterior).
 
-O aviso na tela identifica o **histórico demonstrativo**, gerado em `src/data/reports.ts` para os últimos 120 dias, com leituras em dias úteis. A tela inicial usa essa mesma fonte. Ainda não há persistência de medições ou ligação entre o monitoramento ao vivo e os relatórios; a evolução exibida é ilustrativa.
+O **histórico demonstrativo** é gerado em `src/data/reports.ts` para os últimos 120 dias, com leituras em dias úteis. A tela inicial usa essa mesma fonte; o aviso demonstrativo foi removido da interface. Os relatórios ainda não consultam as medições persistidas pelo backend nem o monitoramento ao vivo; a evolução exibida é ilustrativa.
 
 ### Testes
 
 ```bash
+npm test
 npm run build
 npm run test:auth
+npm run test:birth-date
+npm run test:email
+npm run test:registration
 npm run test:reports
+npm run test:theme
 ```
 
-- `test:auth`: testes Rust com SQLite temporário, cobrindo cadastro, validações, duplicidade, hash, login, sessões, limite de tentativas e persistência.
+- `test`: testes geométricos, adaptação dos landmarks do MediaPipe e integração do componente de câmera com captura e detector simulados. Cobrem resolução do vídeo, espelhamento, confiança, oclusão, ausência, suavização, pausa, retomada, erros e liberação de streams pendentes. Use `npm run test:watch` durante o desenvolvimento.
+- `test:auth`: testes Rust com SQLite temporário, cobrindo cadastro, validações, duplicidade, hash, login, sessões, limite de tentativas, persistência e preferências de tema por conta, incluindo o padrão SQL automático.
+- `test:birth-date`: datas reais, anos bissextos e limites de idade de 14 a 100 anos.
+- `test:email`: formato e limites de tamanho de e-mails, com exemplos compartilhados entre frontend e backend. A validação verifica a sintaxe; não consulta DNS nem confirma a existência da caixa postal.
+- `test:registration`: formulário em DOM simulado, cobrindo validação no blur e no envio, asteriscos nos obrigatórios, input nativo de data, limites do calendário e campos opcionais. A aparência e a edição por segmentos da data exigem conferência no aplicativo desktop.
 - `test:reports`: testes de agregação, comparação entre períodos, dias sem leituras, limites de calendário e consistência dos dados demonstrativos (Node.js 22.6+).
+- `test:theme`: testes do tema inicial e dos contratos de comunicação, além de testes de integração com React e jsdom. Exercita os providers de autenticação e tema, as rotas, o layout e Configurações em Strict Mode, com comunicação Tauri simulada. Cobre carregamento inicial, preservação de formulários em novas tentativas, restauração após falha ao salvar, mudanças do sistema e respostas atrasadas após logout ou troca de conta. As páginas sem relação com esses cenários são substituídas por componentes simples; os testes não acessam câmera, contas ou bancos reais.
+
+### Cálculos geométricos de pescoço e ombros
+
+O módulo `src/services/vision/biomechanics.ts` expõe funções puras para geometria em 2D e orientação vertical do rosto. As funções em 2D recebem pontos `{ x, y }`, com X crescendo para a direita e Y para baixo. Os eixos devem usar a mesma escala: converta landmarks normalizados para pixels com `x * largura` e `y * altura` do frame original.
+
+- `calculateNeckAngle(nose, ear, shoulderCenter)` retorna o ângulo em graus entre a vertical para cima e o vetor do centro dos ombros até o ponto médio entre nariz e orelha. Varia de 0° a 180°; 0° indica alinhamento vertical. Em vista lateral, o deslocamento horizontal representa projeção anterior; em vista frontal, representa inclinação lateral. O resultado é uma medida bruta em 2D; a comparação com uma postura neutra calibrada fica a cargo de quem chama a função.
+- `calculateShoulderBalance(leftShoulder, rightShoulder)` usa `atan2` para obter a inclinação aguda em relação à horizontal, independentemente da ordem dos ombros ou do espelhamento. Retorna `max(0, 100 - ângulo * 10)`: 0° → 100%, 3° → 70% e ≥ 10° → 0%.
+- `calculateHeadPitch(matrix)` extrai a rotação vertical assinada da cabeça a partir da matriz facial 4×4 do MediaPipe, em ordem de colunas. Ignora translação e escala uniforme, separa pitch de yaw/roll pela convenção `Rz * Ry * Rx` e retorna `null` para dados ausentes, inválidos ou rotação lateral singular. A saída estima a orientação do rosto em relação à câmera; não representa um ângulo cervical anatômico calibrado.
+
+Ambas retornam `null` para coordenadas não finitas ou vetores de comprimento zero, preservando a distinção entre medida indisponível e postura alinhada.
+
+O feed da câmera usa essas funções através de `src/services/vision/poseAngles.ts`. O adaptador converte as coordenadas normalizadas pela largura e altura reais do vídeo, independentemente do tamanho da prévia. Usa o ponto médio das duas orelhas visíveis na vista frontal ou a orelha visível na vista lateral, evitando selecionar sempre um lado. Nariz, ombros e ao menos uma orelha precisam ter coordenadas finitas e confiança acima de 0,35. Pontos insuficientes pausam as métricas e solicitam ajuste do enquadramento; ausência corporal por cinco segundos pausa o rastreamento.
+
+O detector habilita `outputFacialTransformationMatrixes` no [Face Landmarker](https://developers.google.com/edge/mediapipe/solutions/vision/face_landmarker/web_js) e repassa a matriz do rosto detectado no quadro atual. O feed usa `max(ângulo 2D, abs(pitch))` como desvio do pescoço, permitindo identificar olhar para cima ou para baixo mesmo quando o vetor cabeça–ombros permanece centralizado. Os limites atuais da interface são aviso acima de 14° e alerta acima de 20°. Se a matriz facial estiver ausente ou inválida, as métricas ficam pausadas como detecção parcial, sem assumir um pitch de 0° nem reutilizar a orientação do quadro anterior.
+
+O último passo do modal **Calibrar dispositivo** usa o mesmo `WebcamFeed` do monitoramento, desenhando os pontos detectados e exibindo suas métricas ao vivo. O desenho acompanha o espelhamento e o recorte central do vídeo (`object-cover`), inclusive quando a proporção da prévia muda. Ao abrir o assistente, a captura principal é liberada; a câmera só é ativada no último passo. Fechar o modal libera essa captura e restaura o estado anterior do monitoramento. Sem detecção confiável, o modal aguarda dados; falhas de câmera não ativam simulação automaticamente.
+
+A suavização EMA começa na primeira medida válida e mantém a precisão decimal internamente, arredondando apenas os valores exibidos. O módulo usa o valor absoluto do pitch antes do filtro, evitando cancelar desvios verticais de sentidos opostos. Após perder pontos necessários, a próxima medida válida reinicia o filtro. O modo simulado é ativado explicitamente e declara uma orientação vertical neutra para os dados demonstrativos. A distância permanece uma estimativa pela largura dos ombros; a comparação com uma referência neutra calibrada e a persistência de uma sessão real continuam em outras tarefas. A posição e inclinação da câmera afetam a orientação estimada; o assistente de ambiente ainda não salva uma referência neutra de cabeça.
+
+Para conferir com a webcam física, reinicie o aplicativo após atualizar o detector, execute `npm run tauri -- dev`, abra **Monitoramento**, permita a captura e enquadre rosto, orelhas e ombros, com a câmera aproximadamente na altura dos olhos. Compare postura alinhada e inclinada; olhe para baixo e depois para cima mantendo a cabeça centralizada horizontalmente. Sustente cada posição por cerca de um segundo: o desvio deve aumentar e mudar a classificação, ou indicar detecção parcial se o rosto deixar de ser reconhecido. Volte a olhar para a câmera e confira a recuperação. Abra **Calibrar Postura Base**, avance até a câmera e mova cabeça e ombros: os pontos devem acompanhar o corpo, e as métricas devem aguardar dados quando os pontos necessários não forem reconhecidos. Feche o modal e confira a retomada da captura principal. Redimensionar a janela deve preservar os ângulos para os mesmos landmarks. Pause e confirme a liberação da câmera, retome e verifique o retorno das métricas. Cubra os pontos necessários e saia do enquadramento por mais de cinco segundos para conferir os estados de detecção parcial e ausência. Os testes automatizados simulam a captura e o detector; disponibilidade do hardware, permissões do Windows e precisão do modelo com pessoas reais exigem essa conferência manual.
 
 ### 🔍 Como Inspecionar / Visualizar os Dados
 Para abrir e visualizar as tabelas do banco de dados na sua máquina local durante o desenvolvimento, utilize uma destas opções:

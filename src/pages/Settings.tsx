@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Cloud, Laptop, Monitor, ShieldCheck } from "lucide-react";
 import Header from "../components/Header";
 import Button from "../components/Button";
@@ -10,32 +11,44 @@ import { companyService, type CompanyItem } from "../services/companyService";
 import { userService } from "../services/userService";
 import { workspaceService, type WorkspaceItem } from "../services/workspaceService";
 import { FormatterHelper } from "../helpers/FormatterHelper";
+import ReminderList from "../components/Reminder/ReminderList";
+import { useTheme } from "../theme/ThemeContext";
+import { themeOptions, type ThemePreference } from "../theme/theme";
 
-type SettingsTab = "user" | "company" | "theme" | "workspace";
-type ThemeOption = "Claro" | "Escuro" | "Automático";
+type SettingsTab = "user" | "company" | "theme" | "workspace" | "notices";
 
 const yesNoOptions = [
   { label: "Sim", value: "sim" },
   { label: "Não", value: "nao" },
 ];
 
-function ThemePreview({ theme }: { theme: ThemeOption }) {
-  if (theme === "Claro") {
+function ThemePreview({ theme }: { theme: ThemePreference }) {
+  if (theme === "light") {
     return <div className="h-14 rounded-md border border-gray-200 bg-[linear-gradient(135deg,#ffffff_60%,#f4f6f9_60%)]" />;
   }
 
-  if (theme === "Escuro") {
-    return <div className="h-14 rounded-md bg-[linear-gradient(135deg,#101a2e_60%,#16233d_60%)]" />;
+  if (theme === "dark") {
+    return <div className="h-14 rounded-md bg-[linear-gradient(135deg,var(--color-night-surface)_60%,var(--color-night-raised)_60%)]" />;
   }
 
-  return <div className="h-14 rounded-md bg-[linear-gradient(90deg,#ffffff_50%,#101a2e_50%)]" />;
+  return <div className="h-14 rounded-md bg-[linear-gradient(90deg,#ffffff_50%,var(--color-night-surface)_50%)]" />;
 }
 
 export default function Settings() {
   const { session, refreshSession } = useAuth();
   const user = session.kind === "authenticated" ? session.user : null;
-  const [activeTab, setActiveTab] = useState<SettingsTab>("user");
-  const [theme, setTheme] = useState<ThemeOption>("Claro");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const activeTab: SettingsTab = requestedTab === "company" || requestedTab === "theme" || requestedTab === "workspace" || requestedTab === "notices" ? requestedTab : "user";
+  const setActiveTab = useCallback((tab: SettingsTab) => {
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      if (tab === "user") next.delete("tab");
+      else next.set("tab", tab);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+  const { theme, resolvedTheme, setTheme, isReady: themeReady, isSaving: themeSaving } = useTheme();
   const [company, setCompany] = useState<CompanyItem | null>(null);
   const [isLoadingCompany, setIsLoadingCompany] = useState<boolean>(true);
 
@@ -155,7 +168,7 @@ export default function Settings() {
     if (!isLoadingCompany && !company && activeTab === "company") {
       setActiveTab("user");
     }
-  }, [isLoadingCompany, company, activeTab]);
+  }, [isLoadingCompany, company, activeTab, setActiveTab]);
 
   useEffect(() => {
     let isMounted = true;
@@ -206,6 +219,7 @@ export default function Settings() {
     ...(company ? [{ id: "company" as const, label: "Empresa" }] : []),
     { id: "theme", label: "Tema" },
     { id: "workspace", label: "Ambiente de Trabalho" },
+    { id: "notices", label: "Avisos de ergonomia" },
   ];
 
   const handlePhotoChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -391,7 +405,7 @@ export default function Settings() {
     <div className="w-full min-h-full pb-8">
       <Header
         title="Configurações"
-        subtitle="Gerencie seu perfil, empresa, tema e ambiente de trabalho."
+        subtitle="Gerencie seu perfil, aparência, ambiente de trabalho e avisos de ergonomia."
       />
 
       <div className="mb-6 flex gap-6 overflow-x-auto border-b border-gray-200 dark:border-slate-800">
@@ -400,15 +414,18 @@ export default function Settings() {
             key={tab.id}
             type="button"
             onClick={() => setActiveTab(tab.id)}
-            className={`whitespace-nowrap border-b-2 px-0.5 py-3 text-sm transition-colors ${activeTab === tab.id
+            aria-current={activeTab === tab.id ? "page" : undefined}
+            className={`cursor-pointer whitespace-nowrap border-b-2 px-0.5 py-3 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-500 ${activeTab === tab.id
               ? "border-primary-500 font-semibold text-primary-500"
-              : "border-transparent text-gray-500 hover:text-slate-800 dark:hover:text-slate-200"
+              : "border-transparent text-gray-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
               }`}
           >
             {tab.label}
           </button>
         ))}
       </div>
+
+      {activeTab === "notices" && <ReminderList kind="system" />}
 
       {activeTab === "user" && (
         <section className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
@@ -428,7 +445,7 @@ export default function Settings() {
                   </span>
                 ) : null}
               </div>
-              <p className="mt-1 text-sm text-gray-500">
+              <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
                 {canEditUser
                   ? "Edite e salve suas informações cadastrais locais a qualquer momento"
                   : user
@@ -516,7 +533,6 @@ export default function Settings() {
                   setUserFeedback(null);
                 }}
                 disabled={!canEditUser || isSavingUser}
-                required={canEditUser}
               />
               <Input
                 label="E-mail"
@@ -537,7 +553,6 @@ export default function Settings() {
                   setUserFeedback(null);
                 }}
                 disabled={!canEditUser || isSavingUser}
-                required={canEditUser}
               />
             </div>
 
@@ -573,7 +588,7 @@ export default function Settings() {
       {activeTab === "company" && company && (
         <section className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="text-base font-bold text-slate-800 dark:text-white">Informações da empresa</h2>
-          <p className="mb-5 mt-1 text-sm text-gray-500">Dados da sua empresa cadastrados na plataforma online</p>
+          <p className="mb-5 mt-1 text-sm text-gray-500 dark:text-slate-400">Dados da sua empresa cadastrados na plataforma online</p>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Input label="Razão Social" value={company.legalName ?? ""} disabled />
@@ -598,26 +613,35 @@ export default function Settings() {
       )}
 
       {activeTab === "theme" && (
-        <section className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
+        <section aria-busy={themeSaving} className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="text-base font-bold text-slate-800 dark:text-white">Tema</h2>
-          <p className="mb-5 mt-1 text-sm text-gray-500">Escolha como o Ergo aparece para você</p>
+          <p className="mb-5 mt-1 text-sm text-gray-500 dark:text-slate-400">Escolha como o Ergo aparece para você. A mudança é aplicada na hora.</p>
 
-          <div className="grid max-w-3xl grid-cols-1 gap-3 sm:grid-cols-3">
-            {(["Claro", "Escuro", "Automático"] as ThemeOption[]).map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => setTheme(option)}
-                className={`rounded-lg border-2 p-3 text-left transition-colors ${theme === option
-                  ? "border-primary-500"
+          <fieldset disabled={themeSaving || !themeReady} className="grid max-w-3xl grid-cols-1 gap-3 sm:grid-cols-3 disabled:opacity-60">
+            <legend className="sr-only">Aparência do aplicativo</legend>
+            {themeOptions.map((option) => (
+              <label
+                key={option.value}
+                className={`${themeSaving || !themeReady ? "cursor-default" : "cursor-pointer"} rounded-lg border-2 p-3 text-left transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-primary-500 ${theme === option.value
+                  ? "border-primary-500 bg-primary-50/50 dark:bg-primary-950/30"
                   : "border-gray-200 hover:border-primary-200 dark:border-slate-700"
                   }`}
               >
-                <ThemePreview theme={option} />
-                <span className="mt-2 block text-sm font-semibold text-slate-800 dark:text-slate-100">{option}</span>
-              </button>
+                <input type="radio" name="app-theme" value={option.value} checked={theme === option.value}
+                  onChange={() => setTheme(option.value)} className="sr-only" />
+                <div aria-hidden="true"><ThemePreview theme={option.value} /></div>
+                <span className="mt-2 block text-sm font-semibold text-slate-800 dark:text-slate-100">{option.label}</span>
+                <span className="mt-1 block text-xs leading-5 text-slate-500 dark:text-slate-400">{option.description}</span>
+              </label>
             ))}
-          </div>
+          </fieldset>
+          <p className="mt-4 text-xs leading-5 text-slate-500 dark:text-slate-400" role="status">
+            {!themeReady ? "Sua preferência de tema ainda não foi carregada."
+              : themeSaving ? "Salvando sua preferência de tema…"
+              : theme === "system"
+                ? `O sistema está usando o tema ${resolvedTheme === "dark" ? "escuro" : "claro"}. Sua preferência fica salva na sua conta neste dispositivo.`
+                : "Sua preferência é salva automaticamente na sua conta neste dispositivo."}
+          </p>
         </section>
       )}
 
@@ -625,7 +649,7 @@ export default function Settings() {
         <section className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
           <div className="mb-4">
             <h2 className="text-base font-bold text-slate-800 dark:text-white">Ambiente de Trabalho</h2>
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
               Informações do seu ambiente de trabalho e periféricos usadas para calibrar o monitoramento ergonômico.
             </p>
           </div>
