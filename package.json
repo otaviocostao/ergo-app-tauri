@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "postinstall": "node scripts/copy-wasm.mjs",
     "setup:wasm": "node scripts/copy-wasm.mjs",
     "tauri": "tauri",
@@ -15,6 +17,7 @@
     "test:email": "vitest run src/auth/emailPolicy.test.ts",
     "test:registration": "vitest run src/pages/Register.test.tsx",
     "test:reports": "node --experimental-strip-types --test scripts/reports.test.mjs",
+    "test:reminders": "node --experimental-strip-types --test scripts/reminders.test.mjs",
     "test:theme": "node --test scripts/theme.test.mjs scripts/theme.integration.test.mjs"
   },
   "dependencies": {
@@ -31,6 +34,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2",
+    "@types/node": "^26.6.5",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",

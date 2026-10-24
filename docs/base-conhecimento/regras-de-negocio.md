@@ -42,6 +42,13 @@ Estes registros descrevem o produto existente. Não são apresentados como novos
 - Frequência `ONCE` exige data não vazia; `CUSTOM` exige ao menos um dia. O serviço preserva data apenas para `ONCE` e dias apenas para `CUSTOM`.
 - Situação: implementada para cadastro e edição. Isso não demonstra a existência de um agendador ou entrega de notificações. A validação atual também não comprova validade de calendário de toda data recebida ou validade de cada dia personalizado.
 
+#### Preferências dos avisos padrão
+
+- Origem e aprovação: solicitação do responsável pelo projeto em 21/10/2026 para concentrar os avisos padrão em Configurações.
+- **Configurações → Avisos de ergonomia** apresenta os três avisos padrão da conta, inicialmente inativos, com ativação e desativação individual por interruptor. A preferência é salva automaticamente; uma falha informa o erro e mantém o estado anterior.
+- O botão **Configurar** reutiliza o formulário para horários, dias, frequência, intervalo e som. Lembretes personalizados continuam em **Lembretes**. A rota anterior de avisos redireciona para a aba de Configurações.
+- Evidências: build TypeScript/Vite e testes de lembretes do backend, incluindo preservação de preferências e isolamento por usuário. O roteiro de verificação manual está no README.
+
 ### RN-12 Contas locais e sessão
 
 - Origem: [serviço de autenticação](https://github.com/otaviocostao/ergo-app-tauri/blob/45d248839f61df2fae1ca78599a1511efb9ef1d1/src-tauri/src/services/auth_service.rs), [serviço de usuários](https://github.com/otaviocostao/ergo-app-tauri/blob/45d248839f61df2fae1ca78599a1511efb9ef1d1/src-tauri/src/services/user_service.rs) e [rotas](https://github.com/otaviocostao/ergo-app-tauri/blob/45d248839f61df2fae1ca78599a1511efb9ef1d1/src/routes/AppRoutes.tsx).

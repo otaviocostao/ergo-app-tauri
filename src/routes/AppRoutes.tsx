@@ -45,6 +45,7 @@ export default function AppRoutes() {
           <Route path="/dashboard/alertas-preventivos" element={<Navigate to="/reports?view=alerts&period=day" replace />} />
           <Route path="/monitoring" element={<Monitoring />} />
           <Route path="/reminders" element={<Reminders />} />
+          <Route path="/ergonomic-notices" element={<Navigate to="/settings?tab=notices" replace />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
