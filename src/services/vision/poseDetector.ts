@@ -104,6 +104,11 @@ export const FACE_LANDMARK_INDEX = {
     TOP_2: 158,
     BOTTOM_1: 144,
     BOTTOM_2: 153,
+    /** Aliases anatômicos explícitos (temporal = externo, nasal = interno) */
+    TOP_TEMPORAL: 160,
+    TOP_NASAL: 158,
+    BOTTOM_TEMPORAL: 144,
+    BOTTOM_NASAL: 153,
     ALL: [33, 133, 160, 158, 144, 153] as const,
   },
   // 6 pontos para cálculo de EAR do Olho Direito
@@ -114,25 +119,52 @@ export const FACE_LANDMARK_INDEX = {
     TOP_2: 387,
     BOTTOM_1: 373,
     BOTTOM_2: 380,
+    /** Aliases anatômicos explícitos (temporal = externo, nasal = interno) */
+    TOP_TEMPORAL: 385,
+    TOP_NASAL: 387,
+    BOTTOM_TEMPORAL: 380,
+    BOTTOM_NASAL: 373,
     ALL: [362, 263, 385, 387, 373, 380] as const,
   },
 } as const;
 
 /**
- * P1..P6 order for EAR, preserving the legacy image-side names above.
- * Here LEFT/RIGHT refer to the subject's anatomical eyes. Legacy ALL arrays
- * list both corners first and MUST NOT be passed directly to calculateEAR.
+ * Ordem canônica P1..P6 para cálculo do EAR (Soukupová & Čech, 2016):
+ *   P1: Canto externo (temporal)
+ *   P2: Pálpebra superior externa (temporal)
+ *   P3: Pálpebra superior interna (nasal)
+ *   P4: Canto interno (nasal)
+ *   P5: Pálpebra inferior interna (nasal)  <-- par vertical com P3
+ *   P6: Pálpebra inferior externa (temporal) <-- par vertical com P2
+ *
+ * Fórmula: (|P2 - P6| + |P3 - P5|) / (2 * |P1 - P4|)
+ *
+ * NOTA DE NOMENCLATURA:
+ * 1. LEFT/RIGHT aqui referem-se aos olhos anatômicos do sujeito.
+ * 2. As chaves legadas BOTTOM_1/BOTTOM_2 possuíam sentidos invertidos:
+ *    - LEFT_EYE (olho anatômico direito): BOTTOM_1 era temporal (144) e BOTTOM_2 era nasal (153).
+ *    - RIGHT_EYE (olho anatômico esquerdo): BOTTOM_1 era nasal (373) e BOTTOM_2 era temporal (380).
+ *    Os aliases anatômicos TOP/BOTTOM_TEMPORAL e TOP/BOTTOM_NASAL acima eliminam essa ambiguidade.
+ * 3. Ambas as tuplas canônicas resultam em:
+ *    - RIGHT_EYE (anatômico direito):  [33, 160, 158, 133, 153, 144]
+ *    - LEFT_EYE (anatômico esquerdo): [362, 385, 387, 263, 373, 380]
  */
 export const FACE_EAR_INDEX = {
   RIGHT_EYE: [
-    FACE_LANDMARK_INDEX.LEFT_EYE.OUTER, FACE_LANDMARK_INDEX.LEFT_EYE.TOP_1,
-    FACE_LANDMARK_INDEX.LEFT_EYE.TOP_2, FACE_LANDMARK_INDEX.LEFT_EYE.INNER,
-    FACE_LANDMARK_INDEX.LEFT_EYE.BOTTOM_2, FACE_LANDMARK_INDEX.LEFT_EYE.BOTTOM_1,
+    FACE_LANDMARK_INDEX.LEFT_EYE.OUTER,
+    FACE_LANDMARK_INDEX.LEFT_EYE.TOP_TEMPORAL,
+    FACE_LANDMARK_INDEX.LEFT_EYE.TOP_NASAL,
+    FACE_LANDMARK_INDEX.LEFT_EYE.INNER,
+    FACE_LANDMARK_INDEX.LEFT_EYE.BOTTOM_NASAL,
+    FACE_LANDMARK_INDEX.LEFT_EYE.BOTTOM_TEMPORAL,
   ],
   LEFT_EYE: [
-    FACE_LANDMARK_INDEX.RIGHT_EYE.OUTER, FACE_LANDMARK_INDEX.RIGHT_EYE.TOP_1,
-    FACE_LANDMARK_INDEX.RIGHT_EYE.TOP_2, FACE_LANDMARK_INDEX.RIGHT_EYE.INNER,
-    FACE_LANDMARK_INDEX.RIGHT_EYE.BOTTOM_1, FACE_LANDMARK_INDEX.RIGHT_EYE.BOTTOM_2,
+    FACE_LANDMARK_INDEX.RIGHT_EYE.OUTER,
+    FACE_LANDMARK_INDEX.RIGHT_EYE.TOP_TEMPORAL,
+    FACE_LANDMARK_INDEX.RIGHT_EYE.TOP_NASAL,
+    FACE_LANDMARK_INDEX.RIGHT_EYE.INNER,
+    FACE_LANDMARK_INDEX.RIGHT_EYE.BOTTOM_NASAL,
+    FACE_LANDMARK_INDEX.RIGHT_EYE.BOTTOM_TEMPORAL,
   ],
 } as const;
 
