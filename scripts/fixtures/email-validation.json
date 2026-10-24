@@ -32,6 +32,8 @@
     "ana@exam ple.com",
     "ana silva@example.com",
     "ana\tsilva@example.com",
+    "ana\n@example.com",
+    "ana@example\n.com",
     "ana@example.\ncom",
     ".ana@example.com",
     "ana.@example.com",

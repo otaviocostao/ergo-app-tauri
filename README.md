@@ -151,6 +151,7 @@ O **histórico demonstrativo** é gerado em `src/data/reports.ts` para os últim
 npm run build
 npm run test:auth
 npm run test:birth-date
+npm run test:email
 npm run test:registration
 npm run test:reports
 npm run test:theme
@@ -158,6 +159,7 @@ npm run test:theme
 
 - `test:auth`: testes Rust com SQLite temporário, cobrindo cadastro, validações, duplicidade, hash, login, sessões, limite de tentativas, persistência e preferências de tema por conta, incluindo o padrão SQL automático.
 - `test:birth-date`: datas reais, anos bissextos e limites de idade de 14 a 100 anos.
+- `test:email`: formato e limites de tamanho de e-mails, com exemplos compartilhados entre frontend e backend. A validação verifica a sintaxe; não consulta DNS nem confirma a existência da caixa postal.
 - `test:registration`: formulário em DOM simulado, cobrindo validação no blur e no envio, asteriscos nos obrigatórios, input nativo de data, limites do calendário e campos opcionais. A aparência e a edição por segmentos da data exigem conferência no aplicativo desktop.
 - `test:reports`: testes de agregação, comparação entre períodos, dias sem leituras, limites de calendário e consistência dos dados demonstrativos (Node.js 22.6+).
 - `test:theme`: testes do tema inicial e dos contratos de comunicação, além de testes de integração com React e jsdom. Exercita os providers de autenticação e tema, as rotas, o layout e Configurações em Strict Mode, com comunicação Tauri simulada. Cobre carregamento inicial, preservação de formulários em novas tentativas, restauração após falha ao salvar, mudanças do sistema e respostas atrasadas após logout ou troca de conta. As páginas sem relação com esses cenários são substituídas por componentes simples; os testes não acessam câmera, contas ou bancos reais.

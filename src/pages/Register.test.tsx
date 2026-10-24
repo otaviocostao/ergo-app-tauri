@@ -111,6 +111,25 @@ describe("registration fields and birth date input", () => {
     expect(error("confirmation")).toBe("As senhas devem ser iguais.");
   });
 
+  it.each([
+    "ana@example..com", "ana@example.com/erro", "ana@.com", "ana@example.",
+    "ana@-example.com", "ana@sub_domain.com", "ana..silva@example.com",
+  ])("rejects malformed email %s on blur and on submit, then accepts a correction", async (email) => {
+    await fillRequired();
+    await fill("email", email);
+    await blur("email");
+    expect(error("email")).toBe("Informe um e-mail válido.");
+    await submit();
+    expect(error("email")).toBe("Informe um e-mail válido.");
+    expect(authService.register).not.toHaveBeenCalled();
+
+    await fill("email", "ana+trabalho@sub.example.com.br");
+    await blur("email");
+    expect(error("email")).toBeUndefined();
+    await submit();
+    expect(authService.register).toHaveBeenCalledWith(expect.objectContaining({ email: "ana+trabalho@sub.example.com.br" }));
+  });
+
   it("restores the native date input and restricts both input and calendar to the age bounds", async () => {
     expect(input("birthDate").type).toBe("date");
     expect(input("birthDate").min).toBe("1925-10-21");

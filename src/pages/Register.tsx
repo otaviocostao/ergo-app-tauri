@@ -12,6 +12,7 @@ import { authFieldStyles, authPrimaryButtonClass } from "../components/auth/auth
 import { authErrorMessage, authService, type Registration } from "../auth/authService";
 import { PASSWORD_MAX_LENGTH, passwordValidationMessage } from "../auth/passwordPolicy";
 import { birthDateValidationMessage, dateValue, parseBirthDate } from "../auth/birthDatePolicy";
+import { isValidEmail } from "../auth/emailPolicy";
 
 type Fields = Required<Pick<Registration, "firstName" | "lastName" | "birthDate" | "email" | "phone" | "password">> & {
   confirmation: string;
@@ -47,7 +48,7 @@ export default function Register() {
       case "birthDate": return badInput
         ? "Informe uma data de nascimento válida no formato DD/MM/AAAA."
         : birthDateValidationMessage(value);
-      case "email": return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()) ? undefined : "Informe um e-mail válido.";
+      case "email": return isValidEmail(value) ? undefined : "Informe um e-mail válido.";
       case "phone": return value.trim() && value.replace(/\D/g, "").length !== 11
         ? "Informe o telefone com DDD e 9 dígitos." : undefined;
       case "password": return value ? passwordValidationMessage(value) : "Informe sua senha.";
