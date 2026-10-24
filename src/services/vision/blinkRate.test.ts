@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createBlinkRateState, updateBlinkRate, type BlinkRateConfig, type BlinkRateUpdate } from "./blinkRate";
+import { classifyBlinkRate, createBlinkRateState, updateBlinkRate, type BlinkRateConfig, type BlinkRateUpdate } from "./blinkRate";
 
 const config: BlinkRateConfig = { windowMs: 60_000, minObservedMs: 30_000, maxGapMs: 250 };
 
@@ -63,5 +63,22 @@ describe("sliding blink rate", () => {
       { ...config, windowMs: 0 }, { ...config, minObservedMs: 0 }, { ...config, maxGapMs: NaN },
       { ...config, minObservedMs: 60_001 },
     ]) expect(updateBlinkRate(state, 200, true, false, invalid)).toBeNull();
+  });
+});
+
+describe("classifyBlinkRate", () => {
+  it.each([
+    [0, "high-risk"], [4.999, "high-risk"], [5, "attention"], [7.999, "attention"],
+    [8, "normal"], [15, "normal"], [20, "normal"],
+  ])("classifies %s blinks/min as %s at exact threshold boundaries", (rate, expected) => {
+    expect(classifyBlinkRate(rate as number)).toBe(expected);
+  });
+
+  it("supports configurable thresholds and preserves insufficient-data status", () => {
+    expect(classifyBlinkRate(9, { highRiskBelow: 10, attentionBelow: 15 })).toBe("high-risk");
+    expect(classifyBlinkRate(10, { highRiskBelow: 10, attentionBelow: 15 })).toBe("attention");
+    for (const invalid of [null, NaN, Infinity, -1]) expect(classifyBlinkRate(invalid)).toBeNull();
+    expect(classifyBlinkRate(12, { highRiskBelow: 8, attentionBelow: 8 })).toBeNull();
+    expect(classifyBlinkRate(12, { highRiskBelow: NaN, attentionBelow: 15 })).toBeNull();
   });
 });

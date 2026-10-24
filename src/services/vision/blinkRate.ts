@@ -1,4 +1,23 @@
-import { DEFAULT_BLINK_CONFIG, DEFAULT_BLINK_RATE_CONFIG } from "./ocularConfig";
+import { DEFAULT_BLINK_CONFIG, DEFAULT_BLINK_RATE_CONFIG, DEFAULT_BLINK_RATE_THRESHOLDS, type BlinkRateThresholds } from "./ocularConfig";
+
+/** Experimental low-blink-frequency indicator, not a dry-eye/fatigue diagnosis. */
+export type VisualFatigueLevel = "normal" | "attention" | "high-risk";
+
+/**
+ * Classifies a rate in blinks/min using configurable strict lower thresholds.
+ * The defaults and bibliographic rationale live in ocularConfig.ts. Null means
+ * insufficient/invalid data; high-risk is only a lower-frequency indicator.
+ */
+export function classifyBlinkRate(
+  blinksPerMinute: number | null,
+  thresholds: Readonly<BlinkRateThresholds> = DEFAULT_BLINK_RATE_THRESHOLDS,
+): VisualFatigueLevel | null {
+  if (blinksPerMinute === null || !Number.isFinite(blinksPerMinute) || blinksPerMinute < 0 ||
+    !Number.isFinite(thresholds.highRiskBelow) || !Number.isFinite(thresholds.attentionBelow) ||
+    thresholds.highRiskBelow < 0 || thresholds.attentionBelow <= thresholds.highRiskBelow) return null;
+  if (blinksPerMinute < thresholds.highRiskBelow) return "high-risk";
+  return blinksPerMinute < thresholds.attentionBelow ? "attention" : "normal";
+}
 
 /** Rolling time window, warm-up and maximum sample gap, all in ms. */
 export interface BlinkRateConfig {
