@@ -4,3 +4,4 @@ export * from "./ocularConfig";
 export * from "./biomechanics";
 export * from "./ocularLandmarks";
 export * from "./blinkDetector";
+export * from "./blinkRate";
