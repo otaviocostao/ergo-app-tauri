@@ -92,7 +92,7 @@ Para atender aos requisitos **RF-01**, **RF-02** e **RF-03**, o sistema deve uti
 
 Webcams padrão capturam a 30 FPS ou 60 FPS. No entanto, a biomecânica humana sentada em uma estação de trabalho evolui lentamente.
 - Processar todos os 30 ou 60 frames por segundo com IA sobrecarrega a CPU/GPU desnecessariamente (violando **RQ-03**).
-- **Taxa de inferência recomendada:** **10 a 12 FPS** (intervalo de ~80 a 100 ms entre inferências). Essa taxa garante detecção imediata de desvios posturais e captura precisa de piscadas (que duram entre 100 e 300 ms), consumindo até **65% menos energia**.
+- **Taxa atual de inferência:** aproximadamente **11 FPS** (90 ms entre inferências). A Task 3.4 preserva esse limite. Essa amostragem pode perder piscadas curtas e altera a precisão das bordas temporais; sua adequação e o consumo de energia precisam ser medidos no hardware de referência, com sequências anotadas.
 
 ### 3.2 Filtragem de Ruído Temporal (Filtro Passa-Baixa / One Euro Filter)
 
@@ -169,9 +169,10 @@ Com base na literatura ergonômica de trabalho em computador (NR-17, ISO 9241-5 
   - **Ruim / Crítico (Vermelho):** Desvio angular $> 6^\circ$ (Balance $< 85\%$).
 
 #### C. Distância do Usuário ao Monitor (Screen Distance)
-- **Cálculo:** Estimativa proporcional da distância através da distância interpupilar normalizada (IPD em pixels) ou largura biacromial comparada ao valor de calibração base de 60 cm:
-  $$DistanciaCm = 60 \times \left(\frac{IPD_{calibrado}}{IPD_{atual}}\right)$$
-- **Classificação (conforme NR-17 e literatura oftalmológica):**
+- **Implementado na Task 3.4:** estimativa pela IPD em pixels e distância conhecida na calibração, sem usar largura dos ombros:
+  $$DistanciaCm = DistanciaCm_{calibrada} \times \left(\frac{IPD_{calibrado}}{IPD_{atual}}\right)$$
+  O estimador reutiliza `baselineDistanceCm` e `baselineEyeDistancePx`; a integração exige método e resolução iguais aos da referência. Sem calibração, apresenta medida indisponível. O fluxo de coleta do baseline na UI permanece pendente.
+- **Faixas propostas neste planejamento, pendentes de fundamentação/validação específica:**
   - **Bom (Verde):** $50\text{ cm} \le DistanciaCm \le 75\text{ cm}$.
   - **Atenção (Amarelo):** $40\text{ cm} \le DistanciaCm < 50\text{ cm}$ ou $75\text{ cm} < DistanciaCm \le 85\text{ cm}$.
   - **Ruim / Crítico (Vermelho):** $DistanciaCm < 40\text{ cm}$ (risco de astenopia/fadiga visual) ou $> 85\text{ cm}$ (postura forçada para leitura).
@@ -179,10 +180,10 @@ Com base na literatura ergonômica de trabalho em computador (NR-17, ISO 9241-5 
 #### D. Padrão Ocular e Taxa de Piscadas (EAR & Blink Rate)
 - **Cálculo de EAR (Soukupová & Čech, 2016):**
   $$EAR = \frac{||p_2 - p_6|| + ||p_3 - p_5||}{2 \times ||p_1 - p_4||}$$
-- Uma piscada é registrada quando o EAR cai abaixo de $\approx 0.20$ por 2 a 4 frames (100 a 300 ms) e retorna ao nível normal ($> 0.25$).
-- **Taxa de piscadas por minuto:**
-  - **Normal:** 12 a 20 piscadas/minuto.
-  - **Atenção (Alerta de Fadiga Visual / Olho Seco):** Menos de 8 piscadas/minuto sustentadas por mais de 2 minutos contínuos.
+- **Implementado na Task 3.4:** fecha com EAR < 0,20, reabre com EAR ≥ 0,23 e conta apenas duração observada de 100–300 ms, usando timestamps. Ruído é descartado; fechamento prolongado gera evento separado. Perda facial e gaps invalidam o fechamento em andamento.
+- **Taxa implementada:** janela deslizante de 60 s, aquecimento mínimo de 30 s efetivamente observados e normalização por esse tempo. Limiares configuráveis padrão: `<5` muito baixa, `[5,8)` reduzida, `≥8` faixa de referência experimental. Não são cortes diagnósticos nem uma faixa fisiológica universal.
+- **Proposta de alerta futuro:** frequência abaixo de 8/min sustentada por mais de dois minutos; depende do motor de alertas e de avaliação. A classificação desta task não dispara notificações.
+- APIs, parâmetros, fontes e limitações: [guia da Task 3.4](algoritmos-oculares.md).
 
 ### 4.3 Histerese Temporal e Prevenção de Falsos Alertas
 
