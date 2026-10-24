@@ -85,7 +85,7 @@ são timestamps monotônicos em **ms**, injetados pelo chamador. Os padrões est
 em `ocularConfig.ts` e podem ser substituídos nas APIs individuais:
 
 - fecha quando EAR < 0,20; reabre quando EAR ≥ 0,23;
-- conta uma piscada ao reabrir depois de 100–300 ms, inclusive;
+- conta uma piscada ao reabrir depois de 70–300 ms, inclusive (compatível com a amostragem de ~90 ms da inferência);
 - descarta fechamentos mais curtos;
 - emite `prolonged-closure` uma vez ao observar duração > 300 ms, mesmo antes da
   reabertura; não o interpreta como piscada normal ou diagnóstico de micro-sono;

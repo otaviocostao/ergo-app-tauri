@@ -17,7 +17,7 @@ export interface BlinkDetectorConfig {
 export const DEFAULT_BLINK_CONFIG: Readonly<BlinkDetectorConfig> = Object.freeze({
   closeThreshold: 0.20,
   reopenThreshold: 0.23,
-  minClosedMs: 100,
+  minClosedMs: 70,
   maxClosedMs: 300,
   maxGapMs: 250,
 });

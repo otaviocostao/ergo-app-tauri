@@ -180,7 +180,7 @@ Com base na literatura ergonômica de trabalho em computador (NR-17, ISO 9241-5 
 #### D. Padrão Ocular e Taxa de Piscadas (EAR & Blink Rate)
 - **Cálculo de EAR (Soukupová & Čech, 2016):**
   $$EAR = \frac{||p_2 - p_6|| + ||p_3 - p_5||}{2 \times ||p_1 - p_4||}$$
-- **Implementado na Task 3.4:** fecha com EAR < 0,20, reabre com EAR ≥ 0,23 e conta apenas duração observada de 100–300 ms, usando timestamps. Ruído é descartado; fechamento prolongado gera evento separado. Perda facial e gaps invalidam o fechamento em andamento.
+- **Implementado na Task 3.4:** fecha com EAR < 0,20, reabre com EAR ≥ 0,23 e conta apenas duração observada de 70–300 ms, usando timestamps. Ruído é descartado; fechamento prolongado gera evento separado. Perda facial e gaps invalidam o fechamento em andamento.
 - **Taxa implementada:** janela deslizante de 60 s, aquecimento mínimo de 30 s efetivamente observados e normalização por esse tempo. Limiares configuráveis padrão: `<5` muito baixa, `[5,8)` reduzida, `≥8` faixa de referência experimental. Não são cortes diagnósticos nem uma faixa fisiológica universal.
 - **Proposta de alerta futuro:** frequência abaixo de 8/min sustentada por mais de dois minutos; depende do motor de alertas e de avaliação. A classificação desta task não dispara notificações.
 - APIs, parâmetros, fontes e limitações: [guia da Task 3.4](algoritmos-oculares.md).

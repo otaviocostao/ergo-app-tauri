@@ -12,14 +12,19 @@ function sequence(samples: readonly (readonly [number | null, number])[]): Blink
 }
 
 describe("timestamp-driven blink detector", () => {
-  it.each([100, 150, 300])("counts one normal blink lasting %s ms", duration => {
+  it.each([70, 100, 150, 300])("counts one normal blink lasting %s ms", duration => {
     const updates = sequence([[0.3, 0], [0.1, 50], [0.1, 50 + duration / 2], [0.3, 50 + duration]]);
     expect(updates[3].event).toBe("blink");
     expect(updates.filter(update => update.event === "blink")).toHaveLength(1);
   });
 
-  it("rejects noise shorter than 100ms", () => {
-    expect(sequence([[0.3, 0], [0.1, 50], [0.3, 149]])[2].event).toBeNull();
+  it("rejects noise shorter than 70ms", () => {
+    expect(sequence([[0.3, 0], [0.1, 50], [0.3, 119]])[2].event).toBeNull();
+  });
+
+  it("detects a single-frame blink at ~11 FPS (90ms sampling interval)", () => {
+    const updates = sequence([[0.3, 0], [0.1, 90], [0.3, 180]]);
+    expect(updates[2].event).toBe("blink");
   });
 
   it("holds closure through hysteresis jitter and uses strict closing/inclusive reopening", () => {

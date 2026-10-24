@@ -525,6 +525,16 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     expect(ocularUpdate.mock.lastCall?.[0]).toMatchObject({ available: false, ear: null, distanceCm: null });
   });
 
+  it("detects a single-inference blink lasting one 90ms cycle", async () => {
+    faceLandmarks = ocularFace();
+    await render(); await advance(200);
+    ocularUpdate.mockReset();
+    faceLandmarks = ocularFace(0.1); await advance(100);
+    faceLandmarks = ocularFace(); await advance(100);
+    expect(ocularUpdate.mock.calls.some(([metrics]) => metrics?.blinkEvent === "blink")).toBe(true);
+    expect(ocularUpdate.mock.lastCall?.[0]?.blinkRate.blinkCount).toBe(1);
+  });
+
   it("discards a pending blink and resets warm-up after mute and pause", async () => {
     faceLandmarks = ocularFace();
     await render(); await advance(200);
