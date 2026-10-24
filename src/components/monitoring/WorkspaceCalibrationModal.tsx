@@ -140,7 +140,10 @@ export default function WorkspaceCalibrationModal({
     ? deviceType === "notebook"
       ? [notebookStep, ...baseSteps]
       : baseSteps
-    : [poorlyPositionedWebcamStep, ...baseSteps];
+    : deviceType === "notebook"
+      ? [poorlyPositionedWebcamStep, notebookStep, ...baseSteps]
+      : [poorlyPositionedWebcamStep, ...baseSteps];
+
   const totalInformativeSteps = steps.length;
 
   const isFormStep = currentStepIndex === 0;
@@ -158,7 +161,6 @@ export default function WorkspaceCalibrationModal({
 
     async function loadWorkspace() {
       try {
-        // The backend lists workspaces from newest to oldest.
         const [workspace] = await workspaceService.getAll();
         if (cancelled) return;
 
