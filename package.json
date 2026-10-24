@@ -13,6 +13,9 @@
     "setup:wasm": "node scripts/copy-wasm.mjs",
     "tauri": "tauri",
     "test:auth": "cargo test --manifest-path src-tauri/Cargo.toml --lib",
+    "test:birth-date": "node --experimental-strip-types --test scripts/birth-date.test.mjs",
+    "test:email": "vitest run src/auth/emailPolicy.test.ts",
+    "test:registration": "vitest run src/pages/Register.test.tsx",
     "test:reports": "node --experimental-strip-types --test scripts/reports.test.mjs",
     "test:reminders": "node --experimental-strip-types --test scripts/reminders.test.mjs",
     "test:theme": "node --test scripts/theme.test.mjs scripts/theme.integration.test.mjs"

@@ -184,7 +184,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
                                 onClick={() => setShowPassword((prev) => !prev)}
                                 aria-label={showPassword ? "Ocultar senha" : "Exibir senha"}
                                 aria-pressed={showPassword}
-                                className="p-0.5 rounded hover:text-slate-700 dark:hover:text-slate-200 transition-colors focus:outline-none"
+                                className="p-0.5 rounded hover:text-slate-700 dark:hover:text-slate-200 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:focus-visible:outline-primary-400"
                                 title={showPassword ? "Ocultar senha" : "Exibir senha"}
                             >
                                 {showPassword ? <EyeOff size={currentSize.iconSize} /> : <Eye size={currentSize.iconSize} />}

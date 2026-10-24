@@ -31,7 +31,7 @@ O [índice da base de conhecimento](docs/base-conhecimento/README.md) reúne o e
 
 - Ao abrir o app, a tela inicial é o login (`/login`).
 - **Cadastrar** abre um modal para escolher entre o cadastro on-line de empresas e o cadastro off-line. Como ainda não há backend remoto, a opção **Cadastrar online** exibe o aviso de indisponibilidade; **Cadastrar offline** abre o cadastro no próprio app (`/cadastro`).
-- O cadastro local pede nome, e-mail, senha de 8 a 128 caracteres e confirmação da senha. Após o sucesso, uma animação de verificação é exibida antes do retorno ao login.
+- O cadastro local pede nome, sobrenome, e-mail, senha de 8 a 70 caracteres e confirmação da senha. Telefone e data de nascimento são opcionais. Se preenchido, o telefone deve conter DDD e 9 dígitos; o nascimento deve ser uma data real, não futura, correspondente a uma idade de 14 a 100 anos completos. Datas digitadas usam DD/MM/AAAA e são enviadas ao backend como YYYY-MM-DD. Após o sucesso, uma animação de verificação é exibida antes do retorno ao login.
 - A conta permanece no SQLite após encerrar o app. A sessão fica somente na memória do processo Rust: recarregar a tela ou ocultar a janela pelo X mantém a sessão; usar **Sair do Ergo** e abrir novamente exige novo login.
 - Senhas são armazenadas como hash **Argon2id**, com salt aleatório por cadastro. O hash nunca é retornado ao frontend. Após cinco tentativas de login em 30 segundos, novas tentativas aguardam o fim dessa janela.
 - Não há envio de dados, confirmação de e-mail, recuperação de senha ou sincronização online nesta versão. O SQLite não é criptografado; o login não substitui as permissões de acesso aos arquivos do sistema operacional.
@@ -169,12 +169,18 @@ O **histórico demonstrativo** é gerado em `src/data/reports.ts` para os últim
 npm test
 npm run build
 npm run test:auth
+npm run test:birth-date
+npm run test:email
+npm run test:registration
 npm run test:reports
 npm run test:theme
 ```
 
 - `test`: testes geométricos, adaptação dos landmarks do MediaPipe e integração do componente de câmera com captura e detector simulados. Cobrem resolução do vídeo, espelhamento, confiança, oclusão, ausência, suavização, pausa, retomada, erros e liberação de streams pendentes. Use `npm run test:watch` durante o desenvolvimento.
 - `test:auth`: testes Rust com SQLite temporário, cobrindo cadastro, validações, duplicidade, hash, login, sessões, limite de tentativas, persistência e preferências de tema por conta, incluindo o padrão SQL automático.
+- `test:birth-date`: datas reais, anos bissextos e limites de idade de 14 a 100 anos.
+- `test:email`: formato e limites de tamanho de e-mails, com exemplos compartilhados entre frontend e backend. A validação verifica a sintaxe; não consulta DNS nem confirma a existência da caixa postal.
+- `test:registration`: formulário em DOM simulado, cobrindo validação no blur e no envio, asteriscos nos obrigatórios, input nativo de data, limites do calendário e campos opcionais. A aparência e a edição por segmentos da data exigem conferência no aplicativo desktop.
 - `test:reports`: testes de agregação, comparação entre períodos, dias sem leituras, limites de calendário e consistência dos dados demonstrativos (Node.js 22.6+).
 - `test:theme`: testes do tema inicial e dos contratos de comunicação, além de testes de integração com React e jsdom. Exercita os providers de autenticação e tema, as rotas, o layout e Configurações em Strict Mode, com comunicação Tauri simulada. Cobre carregamento inicial, preservação de formulários em novas tentativas, restauração após falha ao salvar, mudanças do sistema e respostas atrasadas após logout ou troca de conta. As páginas sem relação com esses cenários são substituídas por componentes simples; os testes não acessam câmera, contas ou bancos reais.
 

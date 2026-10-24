@@ -22,9 +22,9 @@ export interface Registration {
   externalId?: string;
   firstName: string;
   lastName: string;
-  birthDate: string;
+  birthDate?: string;
   email: string;
-  phone: string;
+  phone?: string;
   photo?: string;
   password: string;
 }
