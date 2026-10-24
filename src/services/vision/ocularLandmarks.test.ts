@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateFaceEAR, getEyeLandmarksInPixels, normalizedPointToPixels } from "./ocularLandmarks";
+import { calculateFaceEAR, calculateInterpupillaryDistance, getEyeLandmarksInPixels, normalizedPointToPixels } from "./ocularLandmarks";
 import { FACE_EAR_INDEX, type LandmarkPoint } from "./poseDetector";
 
 function face(): LandmarkPoint[] {
@@ -34,5 +34,41 @@ describe("ocular landmark pixel adaptation", () => {
     expect(calculateFaceEAR(points, 1280, 720)).toBeNull();
     expect(normalizedPointToPixels({ x: NaN, y: 0 }, 1280, 720)).toBeNull();
     expect(normalizedPointToPixels({ x: Number.MAX_VALUE, y: 0 }, 1280, 720)).toBeNull();
+  });
+});
+
+describe("calculateInterpupillaryDistance", () => {
+  it("prefers iris centers, reports their source and uses both frame axes", () => {
+    const points = face();
+    points[468] = { x: 0.25, y: 0.25, z: 0 };
+    points[473] = { x: 0.75, y: 0.75, z: 0 };
+    expect(calculateInterpupillaryDistance(points, 600, 800)).toEqual({ distancePx: 500, source: "iris" });
+  });
+
+  it("falls back to eye-corner midpoints on a 468-point mesh or one unusable iris", () => {
+    const points = face();
+    expect(calculateInterpupillaryDistance(points.slice(0, 468), 1280, 720))
+      .toEqual({ distancePx: 200, source: "eye-corners" });
+    points[468] = { x: 0.1, y: 0.1, z: 0 };
+    expect(calculateInterpupillaryDistance(points, 1280, 720)?.distancePx).toBe(200);
+    expect(calculateInterpupillaryDistance(points, 1280, 720, "iris")).toBeNull();
+  });
+
+  it("can require corner calibration even when irises are present", () => {
+    const points = face();
+    points[468] = { x: 0.1, y: 0.1, z: 0 }; points[473] = { x: 0.9, y: 0.1, z: 0 };
+    expect(calculateInterpupillaryDistance(points, 1280, 720, "eye-corners"))
+      .toEqual({ distancePx: 200, source: "eye-corners" });
+  });
+
+  it("rejects missing/occluded corners, coincident centers, invalid sizes and non-finite iris", () => {
+    expect(calculateInterpupillaryDistance([], 1280, 720)).toBeNull();
+    const points = face(); points[33].presence = 0;
+    expect(calculateInterpupillaryDistance(points, 1280, 720)).toBeNull();
+    points[468] = { x: NaN, y: 0.5, z: 0 }; points[473] = { x: 0.6, y: 0.5, z: 0 };
+    expect(calculateInterpupillaryDistance(points, 1280, 720)).toBeNull();
+    points[468] = { ...points[473] };
+    expect(calculateInterpupillaryDistance(points, 1280, 720, "iris")).toBeNull();
+    expect(calculateInterpupillaryDistance(face(), 0, 720)).toBeNull();
   });
 });
