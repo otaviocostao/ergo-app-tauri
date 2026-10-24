@@ -122,6 +122,25 @@ describe("registration fields and birth date input", () => {
   });
 
   it.each([
+    ["2012-10-20", "Próximo mês", "Mês anterior", "Setembro"],
+    ["1925-10-21", "Mês anterior", "Próximo mês", "Novembro"],
+  ])("keeps the calendar open when clicking the blocked arrow at %s", async (value, blockedLabel, allowedLabel, nextMonth) => {
+    await fill("birthDate", value);
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[aria-label="Escolher data de nascimento no calendário"]')!.click();
+      vi.advanceTimersByTime(20);
+    });
+    const blocked = container.querySelector<HTMLButtonElement>(`[aria-label="${blockedLabel}"]`)!;
+    expect(blocked.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => { blocked.focus(); blocked.click(); });
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Mês de nascimento"]')?.textContent).toContain("Outubro");
+    expect(input("birthDate").value).toBe(value);
+    await act(async () => container.querySelector<HTMLButtonElement>(`[aria-label="${allowedLabel}"]`)!.click());
+    expect(container.querySelector('[aria-label="Mês de nascimento"]')?.textContent).toContain(nextMonth);
+  });
+
+  it.each([
     ["2012-10-21", "A data de nascimento deve indicar pelo menos 14 anos."],
     ["1925-10-20", "A data de nascimento não pode indicar mais de 100 anos."],
     ["2026-10-21", "A data de nascimento não pode estar no futuro."],

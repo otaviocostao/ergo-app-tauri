@@ -144,16 +144,16 @@ export default function BirthDateInput({ value, onChange, onBlur, error, disable
             </button>
           </div>
           <div className="mb-4 flex items-center gap-2">
-            <button type="button" onClick={() => changeMonth(year, month - 1)} disabled={!canGoBack}
-              aria-label="Mês anterior" className="flex h-9 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-primary-600 disabled:opacity-30">
+            <button type="button" onClick={() => { if (canGoBack) changeMonth(year, month - 1); }} aria-disabled={!canGoBack}
+              aria-label="Mês anterior" className="flex h-9 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-primary-600 aria-disabled:cursor-not-allowed aria-disabled:opacity-30">
               <ChevronLeft size={18} aria-hidden="true" />
             </button>
             <CalendarSelect label="Mês de nascimento" value={month} onChange={(value) => changeMonth(year, value)}
               className="flex-1" options={months.map((label, index) => ({ value: index, label, disabled: (year === earliest.getFullYear() && index < earliest.getMonth()) || (year === latest.getFullYear() && index > latest.getMonth()) }))} />
             <CalendarSelect label="Ano de nascimento" value={year} onChange={(value) => changeMonth(value, month)}
               className="w-22 shrink-0" options={years.map((option) => ({ value: option, label: String(option) }))} />
-            <button type="button" onClick={() => changeMonth(year, month + 1)} disabled={!canGoForward}
-              aria-label="Próximo mês" className="flex h-9 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-primary-600 disabled:opacity-30">
+            <button type="button" onClick={() => { if (canGoForward) changeMonth(year, month + 1); }} aria-disabled={!canGoForward}
+              aria-label="Próximo mês" className="flex h-9 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-primary-600 aria-disabled:cursor-not-allowed aria-disabled:opacity-30">
               <ChevronRight size={18} aria-hidden="true" />
             </button>
           </div>
