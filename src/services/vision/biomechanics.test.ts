@@ -3,6 +3,8 @@ import {
   calculateEAR,
   calculateMeanEAR,
   estimateScreenDistance,
+  clampScreenDistance,
+  smoothScreenDistance,
   calculateNeckAngle,
   calculateShoulderBalance,
   type Point2D,
@@ -251,5 +253,37 @@ describe("estimateScreenDistance", () => {
     expect(estimateScreenDistance(100, undefined)).toBeNull();
     expect(estimateScreenDistance(Number.MIN_VALUE, baseline)).toBeNull();
     expect(estimateScreenDistance(Number.MAX_VALUE, { baselineEyeDistancePx: Number.MIN_VALUE, baselineDistanceCm: 1 })).toBeNull();
+  });
+});
+
+describe("screen distance display filters", () => {
+  it.each([[10, 20], [20, 20], [60, 60], [150, 150], [300, 150]])("clamps %s cm to %s cm", (value, expected) => {
+    expect(clampScreenDistance(value)).toBe(expected);
+  });
+
+  it("supports configurable ranges independently of the raw estimate", () => {
+    expect(clampScreenDistance(30, 40, 100)).toBe(40);
+    expect(clampScreenDistance(110, 40, 100)).toBe(100);
+    expect(clampScreenDistance(60, 80, 40)).toBeNull();
+  });
+
+  it("starts at the current value and applies a fractional EMA without rounding", () => {
+    expect(smoothScreenDistance(60, null)).toBe(60);
+    expect(smoothScreenDistance(60, 50, 0.3)).toBeCloseTo(53, 10);
+    expect(smoothScreenDistance(60, 50, 0)).toBe(50);
+    expect(smoothScreenDistance(60, 50, 1)).toBe(60);
+    expect(smoothScreenDistance(600, null)).toBe(600);
+  });
+
+  it.each([0, -1, NaN, Infinity, -Infinity])("rejects invalid distances/ranges %s", invalid => {
+    expect(clampScreenDistance(invalid)).toBeNull();
+    expect(clampScreenDistance(60, invalid, 100)).toBeNull();
+    expect(clampScreenDistance(60, 20, invalid)).toBeNull();
+    expect(smoothScreenDistance(invalid, 60)).toBeNull();
+    expect(smoothScreenDistance(60, invalid)).toBeNull();
+  });
+
+  it.each([-0.1, 1.1, NaN, Infinity])("rejects invalid EMA alpha %s", alpha => {
+    expect(smoothScreenDistance(60, 50, alpha)).toBeNull();
   });
 });

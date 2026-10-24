@@ -1,4 +1,4 @@
-import { MIN_OCULAR_SPAN_PX, type ScreenDistanceBaseline } from "./ocularConfig";
+import { DEFAULT_DISTANCE_CONFIG, MIN_OCULAR_SPAN_PX, type ScreenDistanceBaseline } from "./ocularConfig";
 
 /**
  * Image-plane coordinates: x increases rightward and y increases downward.
@@ -160,4 +160,30 @@ export function estimateScreenDistance(
     .every(value => Number.isFinite(value) && value > 0)) return null;
   const distance = baseline.baselineDistanceCm * (baseline.baselineEyeDistancePx / interpupillaryDistancePx);
   return Number.isFinite(distance) && distance > 0 ? distance : null;
+}
+
+/** Optional display clamp in cm; invalid distances/ranges return null. */
+export function clampScreenDistance(
+  distanceCm: number,
+  minCm: number = DEFAULT_DISTANCE_CONFIG.minCm,
+  maxCm: number = DEFAULT_DISTANCE_CONFIG.maxCm,
+): number | null {
+  if (![distanceCm, minCm, maxCm].every(value => Number.isFinite(value) && value > 0) || minCm > maxCm) return null;
+  return Math.max(minCm, Math.min(maxCm, distanceCm));
+}
+
+/**
+ * Pure EMA in cm: alpha * current + (1-alpha) * previous, alpha in [0,1].
+ * A null previous value starts/resets the filter at the current measurement.
+ * Returns null for invalid input. No clamping and no hidden temporal state.
+ */
+export function smoothScreenDistance(
+  distanceCm: number,
+  previousCm: number | null,
+  alpha: number = DEFAULT_DISTANCE_CONFIG.alpha,
+): number | null {
+  if (!Number.isFinite(distanceCm) || distanceCm <= 0 || !Number.isFinite(alpha) || alpha < 0 || alpha > 1 ||
+    (previousCm !== null && (!Number.isFinite(previousCm) || previousCm <= 0))) return null;
+  const smoothed = previousCm === null ? distanceCm : alpha * distanceCm + (1 - alpha) * previousCm;
+  return Number.isFinite(smoothed) && smoothed > 0 ? smoothed : null;
 }
