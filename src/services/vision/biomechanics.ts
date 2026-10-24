@@ -1,3 +1,5 @@
+import { MIN_OCULAR_SPAN_PX } from "./ocularConfig";
+
 /**
  * Image-plane coordinates: x increases rightward and y increases downward.
  * Both axes must use the same scale (for example, pixels). Convert normalized
@@ -111,4 +113,24 @@ export function calculateShoulderBalance(
 
   const angle = Math.atan2(Math.abs(dy), Math.abs(dx)) * RADIANS_TO_DEGREES;
   return Math.max(0, Math.min(100, 100 - angle * 10));
+}
+
+/**
+ * Dimensionless EAR = (|P2-P6| + |P3-P5|) / (2 * |P1-P4|).
+ * Supply exactly six P1..P6 points in pixels (or equal-scale image axes),
+ * never raw width/height-normalized coordinates. Ignores z intentionally.
+ * Returns null for missing/non-finite points, near-zero width or overflow.
+ * Soukupova & Cech (2016): https://vision.fe.uni-lj.si/cvww2016/proceedings/papers/05.pdf
+ */
+export function calculateEAR(eyeLandmarks: readonly Point2D[] | null | undefined): number | null {
+  if (!eyeLandmarks || eyeLandmarks.length !== 6 ||
+    !Array.from(eyeLandmarks).every(point => point && isFinitePoint(point))) return null;
+
+  const distance = (a: Point2D, b: Point2D) => Math.hypot(a.x - b.x, a.y - b.y);
+  const width = distance(eyeLandmarks[0], eyeLandmarks[3]);
+  if (!Number.isFinite(width) || width <= MIN_OCULAR_SPAN_PX) return null;
+
+  const ear = (distance(eyeLandmarks[1], eyeLandmarks[5]) / width +
+    distance(eyeLandmarks[2], eyeLandmarks[4]) / width) / 2;
+  return Number.isFinite(ear) ? ear : null;
 }

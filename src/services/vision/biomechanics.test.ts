@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  calculateEAR,
   calculateNeckAngle,
   calculateShoulderBalance,
   type Point2D,
@@ -168,4 +169,50 @@ it("does not mutate input landmarks", () => {
 
   expect(calculateNeckAngle(frozenNose, frozenEar, frozenCenter)).toBe(0);
   expect(calculateShoulderBalance(frozenLeft, frozenRight)).toBe(100);
+});
+
+const openEye: readonly Point2D[] = Object.freeze([
+  { x: 0, y: 0 }, { x: 3, y: -1.5 }, { x: 7, y: -1.5 },
+  { x: 10, y: 0 }, { x: 7, y: 1.5 }, { x: 3, y: 1.5 },
+].map(point => Object.freeze(point)));
+
+describe("calculateEAR", () => {
+  it("measures 0.30 for an open eye and zero for a closed eye", () => {
+    expect(calculateEAR(openEye)).toBeCloseTo(0.30, 10);
+    expect(calculateEAR(openEye.map(point => ({ ...point, y: 0 })))).toBe(0);
+  });
+
+  it("combines asymmetric vertical openings", () => {
+    const eye = openEye.map(point => ({ ...point }));
+    eye[1].y = -0.5; eye[5].y = 0.5;
+    expect(calculateEAR(eye)).toBeCloseTo(0.20, 10);
+  });
+
+  it.each([0.01, 1, 1000])("preserves EAR under uniform scale %s and translation", scale => {
+    expect(calculateEAR(openEye.map(point => transform(point, scale, { x: 320, y: 240 }))))
+      .toBeCloseTo(0.30, 9);
+  });
+
+  it("rejects missing points, wrong counts, coincident or near-coincident corners", () => {
+    for (const points of [null, undefined, [], openEye.slice(1), [...openEye, origin], Array<Point2D>(6)]) {
+      expect(calculateEAR(points)).toBeNull();
+    }
+    expect(calculateEAR(openEye.map((point, i) => i === 3 ? openEye[0] : point))).toBeNull();
+    expect(calculateEAR(openEye.map(point => transform(point, 1e-12, origin)))).toBeNull();
+  });
+
+  it.each([NaN, Infinity, -Infinity])("rejects every non-finite coordinate %s", invalid => {
+    for (let index = 0; index < 6; index++) {
+      for (const axis of ["x", "y"] as const) {
+        expect(calculateEAR(openEye.map((point, i) => i === index ? { ...point, [axis]: invalid } : point)))
+          .toBeNull();
+      }
+    }
+  });
+
+  it("returns null when finite coordinates overflow during geometry", () => {
+    const eye = [...openEye];
+    eye[0] = { x: -Number.MAX_VALUE, y: 0 }; eye[3] = { x: Number.MAX_VALUE, y: 0 };
+    expect(calculateEAR(eye)).toBeNull();
+  });
 });
