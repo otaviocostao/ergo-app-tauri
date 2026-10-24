@@ -134,3 +134,13 @@ export function calculateEAR(eyeLandmarks: readonly Point2D[] | null | undefined
     distance(eyeLandmarks[2], eyeLandmarks[4]) / width) / 2;
   return Number.isFinite(ear) ? ear : null;
 }
+
+/** Mean dimensionless EAR, using the available eye if the other is invalid. */
+export function calculateMeanEAR(
+  leftEye: readonly Point2D[] | null | undefined,
+  rightEye: readonly Point2D[] | null | undefined,
+): number | null {
+  const left = calculateEAR(leftEye);
+  const right = calculateEAR(rightEye);
+  return left === null ? right : right === null ? left : left / 2 + right / 2;
+}

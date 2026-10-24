@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   calculateEAR,
+  calculateMeanEAR,
   calculateNeckAngle,
   calculateShoulderBalance,
   type Point2D,
@@ -175,6 +176,20 @@ const openEye: readonly Point2D[] = Object.freeze([
   { x: 0, y: 0 }, { x: 3, y: -1.5 }, { x: 7, y: -1.5 },
   { x: 10, y: 0 }, { x: 7, y: 1.5 }, { x: 3, y: 1.5 },
 ].map(point => Object.freeze(point)));
+
+describe("calculateMeanEAR", () => {
+  it("averages both eyes without mutating their frozen points", () => {
+    const smallerEye = openEye.map(point => ({ ...point, y: point.y / 2 }));
+    expect(calculateMeanEAR(openEye, smallerEye)).toBeCloseTo(0.225, 10);
+  });
+
+  it("uses either available eye and preserves a valid zero EAR", () => {
+    expect(calculateMeanEAR(null, openEye)).toBeCloseTo(0.30, 10);
+    expect(calculateMeanEAR(openEye, [])).toBeCloseTo(0.30, 10);
+    expect(calculateMeanEAR(openEye.map(point => ({ ...point, y: 0 })), undefined)).toBe(0);
+    expect(calculateMeanEAR(null, [])).toBeNull();
+  });
+});
 
 describe("calculateEAR", () => {
   it("measures 0.30 for an open eye and zero for a closed eye", () => {
