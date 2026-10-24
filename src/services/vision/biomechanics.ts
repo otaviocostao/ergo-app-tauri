@@ -1,4 +1,4 @@
-import { MIN_OCULAR_SPAN_PX } from "./ocularConfig";
+import { MIN_OCULAR_SPAN_PX, type ScreenDistanceBaseline } from "./ocularConfig";
 
 /**
  * Image-plane coordinates: x increases rightward and y increases downward.
@@ -143,4 +143,21 @@ export function calculateMeanEAR(
   const left = calculateEAR(leftEye);
   const right = calculateEAR(rightEye);
   return left === null ? right : right === null ? left : left / 2 + right / 2;
+}
+
+/**
+ * Raw pinhole estimate in cm: baselineDistanceCm * baselineEyeDistancePx / IPDpx.
+ * Reuses persisted calibration field names. Both IPDs must use the same frame
+ * resolution, optics and method (iris or eye-corner proxy). Requires a roughly
+ * frontal face; yaw/pitch foreshortening overestimates distance. No clamp/EMA.
+ * Returns null for absent/invalid calibration, nonpositive IPD or overflow.
+ */
+export function estimateScreenDistance(
+  interpupillaryDistancePx: number,
+  baseline: ScreenDistanceBaseline | null | undefined,
+): number | null {
+  if (!baseline || ![interpupillaryDistancePx, baseline.baselineEyeDistancePx, baseline.baselineDistanceCm]
+    .every(value => Number.isFinite(value) && value > 0)) return null;
+  const distance = baseline.baselineDistanceCm * (baseline.baselineEyeDistancePx / interpupillaryDistancePx);
+  return Number.isFinite(distance) && distance > 0 ? distance : null;
 }

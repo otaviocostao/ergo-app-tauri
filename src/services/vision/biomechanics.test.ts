@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   calculateEAR,
   calculateMeanEAR,
+  estimateScreenDistance,
   calculateNeckAngle,
   calculateShoulderBalance,
   type Point2D,
@@ -229,5 +230,26 @@ describe("calculateEAR", () => {
     const eye = [...openEye];
     eye[0] = { x: -Number.MAX_VALUE, y: 0 }; eye[3] = { x: Number.MAX_VALUE, y: 0 };
     expect(calculateEAR(eye)).toBeNull();
+  });
+});
+
+describe("estimateScreenDistance", () => {
+  const baseline = Object.freeze({ baselineEyeDistancePx: 100, baselineDistanceCm: 60 });
+
+  it.each([[100, 60], [50, 120], [200, 30], [10, 600]])("maps IPD %s px to %s cm without clamping", (ipd, cm) => {
+    expect(estimateScreenDistance(ipd, baseline)).toBe(cm);
+  });
+
+  it.each([0, -1, NaN, Infinity, -Infinity])("rejects invalid IPD or baseline values %s", invalid => {
+    expect(estimateScreenDistance(invalid, baseline)).toBeNull();
+    expect(estimateScreenDistance(100, { ...baseline, baselineEyeDistancePx: invalid })).toBeNull();
+    expect(estimateScreenDistance(100, { ...baseline, baselineDistanceCm: invalid })).toBeNull();
+  });
+
+  it("rejects missing calibration, overflow and numerical underflow", () => {
+    expect(estimateScreenDistance(100, null)).toBeNull();
+    expect(estimateScreenDistance(100, undefined)).toBeNull();
+    expect(estimateScreenDistance(Number.MIN_VALUE, baseline)).toBeNull();
+    expect(estimateScreenDistance(Number.MAX_VALUE, { baselineEyeDistancePx: Number.MIN_VALUE, baselineDistanceCm: 1 })).toBeNull();
   });
 });
