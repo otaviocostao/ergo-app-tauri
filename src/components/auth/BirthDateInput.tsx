@@ -139,7 +139,7 @@ export default function BirthDateInput({ value, onChange, onBlur, error, disable
           <div className="mb-3 flex items-center justify-between gap-2">
             <p className="text-sm font-semibold">Selecione sua data de nascimento</p>
             <button type="button" onClick={closeCalendar} aria-label="Fechar calendário"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-primary-600">
+              className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-primary-600">
               <X size={16} aria-hidden="true" />
             </button>
           </div>
