@@ -1,3 +1,5 @@
+import { DEFAULT_DISTANCE_CONFIG, MIN_OCULAR_SPAN_PX, type ScreenDistanceBaseline } from "./ocularConfig";
+
 /**
  * Image-plane coordinates: x increases rightward and y increases downward.
  * Both axes must use the same scale (for example, pixels). Convert normalized
@@ -111,4 +113,77 @@ export function calculateShoulderBalance(
 
   const angle = Math.atan2(Math.abs(dy), Math.abs(dx)) * RADIANS_TO_DEGREES;
   return Math.max(0, Math.min(100, 100 - angle * 10));
+}
+
+/**
+ * Dimensionless EAR = (|P2-P6| + |P3-P5|) / (2 * |P1-P4|).
+ * Supply exactly six P1..P6 points in pixels (or equal-scale image axes),
+ * never raw width/height-normalized coordinates. Ignores z intentionally.
+ * Returns null for missing/non-finite points, near-zero width or overflow.
+ * Soukupova & Cech (2016): https://vision.fe.uni-lj.si/cvww2016/proceedings/papers/05.pdf
+ */
+export function calculateEAR(eyeLandmarks: readonly Point2D[] | null | undefined): number | null {
+  if (!eyeLandmarks || eyeLandmarks.length !== 6 ||
+    !Array.from(eyeLandmarks).every(point => point && isFinitePoint(point))) return null;
+
+  const distance = (a: Point2D, b: Point2D) => Math.hypot(a.x - b.x, a.y - b.y);
+  const width = distance(eyeLandmarks[0], eyeLandmarks[3]);
+  if (!Number.isFinite(width) || width <= MIN_OCULAR_SPAN_PX) return null;
+
+  const ear = (distance(eyeLandmarks[1], eyeLandmarks[5]) / width +
+    distance(eyeLandmarks[2], eyeLandmarks[4]) / width) / 2;
+  return Number.isFinite(ear) ? ear : null;
+}
+
+/** Mean dimensionless EAR, using the available eye if the other is invalid. */
+export function calculateMeanEAR(
+  leftEye: readonly Point2D[] | null | undefined,
+  rightEye: readonly Point2D[] | null | undefined,
+): number | null {
+  const left = calculateEAR(leftEye);
+  const right = calculateEAR(rightEye);
+  return left === null ? right : right === null ? left : left / 2 + right / 2;
+}
+
+/**
+ * Raw pinhole estimate in cm: baselineDistanceCm * baselineEyeDistancePx / IPDpx.
+ * Reuses persisted calibration field names. Both IPDs must use the same frame
+ * resolution, optics and method (iris or eye-corner proxy). Requires a roughly
+ * frontal face; yaw/pitch foreshortening overestimates distance. No clamp/EMA.
+ * Returns null for absent/invalid calibration, nonpositive IPD or overflow.
+ */
+export function estimateScreenDistance(
+  interpupillaryDistancePx: number,
+  baseline: ScreenDistanceBaseline | null | undefined,
+): number | null {
+  if (!baseline || ![interpupillaryDistancePx, baseline.baselineEyeDistancePx, baseline.baselineDistanceCm]
+    .every(value => Number.isFinite(value) && value > 0)) return null;
+  const distance = baseline.baselineDistanceCm * (baseline.baselineEyeDistancePx / interpupillaryDistancePx);
+  return Number.isFinite(distance) && distance > 0 ? distance : null;
+}
+
+/** Optional display clamp in cm; invalid distances/ranges return null. */
+export function clampScreenDistance(
+  distanceCm: number,
+  minCm: number = DEFAULT_DISTANCE_CONFIG.minCm,
+  maxCm: number = DEFAULT_DISTANCE_CONFIG.maxCm,
+): number | null {
+  if (![distanceCm, minCm, maxCm].every(value => Number.isFinite(value) && value > 0) || minCm > maxCm) return null;
+  return Math.max(minCm, Math.min(maxCm, distanceCm));
+}
+
+/**
+ * Pure EMA in cm: alpha * current + (1-alpha) * previous, alpha in [0,1].
+ * A null previous value starts/resets the filter at the current measurement.
+ * Returns null for invalid input. No clamping and no hidden temporal state.
+ */
+export function smoothScreenDistance(
+  distanceCm: number,
+  previousCm: number | null,
+  alpha: number = DEFAULT_DISTANCE_CONFIG.alpha,
+): number | null {
+  if (!Number.isFinite(distanceCm) || distanceCm <= 0 || !Number.isFinite(alpha) || alpha < 0 || alpha > 1 ||
+    (previousCm !== null && (!Number.isFinite(previousCm) || previousCm <= 0))) return null;
+  const smoothed = previousCm === null ? distanceCm : alpha * distanceCm + (1 - alpha) * previousCm;
+  return Number.isFinite(smoothed) && smoothed > 0 ? smoothed : null;
 }

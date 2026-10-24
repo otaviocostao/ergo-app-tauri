@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  calculateEAR,
+  calculateMeanEAR,
+  estimateScreenDistance,
+  clampScreenDistance,
+  smoothScreenDistance,
   calculateNeckAngle,
   calculateShoulderBalance,
   type Point2D,
@@ -168,4 +173,117 @@ it("does not mutate input landmarks", () => {
 
   expect(calculateNeckAngle(frozenNose, frozenEar, frozenCenter)).toBe(0);
   expect(calculateShoulderBalance(frozenLeft, frozenRight)).toBe(100);
+});
+
+const openEye: readonly Point2D[] = Object.freeze([
+  { x: 0, y: 0 }, { x: 3, y: -1.5 }, { x: 7, y: -1.5 },
+  { x: 10, y: 0 }, { x: 7, y: 1.5 }, { x: 3, y: 1.5 },
+].map(point => Object.freeze(point)));
+
+describe("calculateMeanEAR", () => {
+  it("averages both eyes without mutating their frozen points", () => {
+    const smallerEye = openEye.map(point => ({ ...point, y: point.y / 2 }));
+    expect(calculateMeanEAR(openEye, smallerEye)).toBeCloseTo(0.225, 10);
+  });
+
+  it("uses either available eye and preserves a valid zero EAR", () => {
+    expect(calculateMeanEAR(null, openEye)).toBeCloseTo(0.30, 10);
+    expect(calculateMeanEAR(openEye, [])).toBeCloseTo(0.30, 10);
+    expect(calculateMeanEAR(openEye.map(point => ({ ...point, y: 0 })), undefined)).toBe(0);
+    expect(calculateMeanEAR(null, [])).toBeNull();
+  });
+});
+
+describe("calculateEAR", () => {
+  it("measures 0.30 for an open eye and zero for a closed eye", () => {
+    expect(calculateEAR(openEye)).toBeCloseTo(0.30, 10);
+    expect(calculateEAR(openEye.map(point => ({ ...point, y: 0 })))).toBe(0);
+  });
+
+  it("combines asymmetric vertical openings", () => {
+    const eye = openEye.map(point => ({ ...point }));
+    eye[1].y = -0.5; eye[5].y = 0.5;
+    expect(calculateEAR(eye)).toBeCloseTo(0.20, 10);
+  });
+
+  it.each([0.01, 1, 1000])("preserves EAR under uniform scale %s and translation", scale => {
+    expect(calculateEAR(openEye.map(point => transform(point, scale, { x: 320, y: 240 }))))
+      .toBeCloseTo(0.30, 9);
+  });
+
+  it("rejects missing points, wrong counts, coincident or near-coincident corners", () => {
+    for (const points of [null, undefined, [], openEye.slice(1), [...openEye, origin], Array<Point2D>(6)]) {
+      expect(calculateEAR(points)).toBeNull();
+    }
+    expect(calculateEAR(openEye.map((point, i) => i === 3 ? openEye[0] : point))).toBeNull();
+    expect(calculateEAR(openEye.map(point => transform(point, 1e-12, origin)))).toBeNull();
+  });
+
+  it.each([NaN, Infinity, -Infinity])("rejects every non-finite coordinate %s", invalid => {
+    for (let index = 0; index < 6; index++) {
+      for (const axis of ["x", "y"] as const) {
+        expect(calculateEAR(openEye.map((point, i) => i === index ? { ...point, [axis]: invalid } : point)))
+          .toBeNull();
+      }
+    }
+  });
+
+  it("returns null when finite coordinates overflow during geometry", () => {
+    const eye = [...openEye];
+    eye[0] = { x: -Number.MAX_VALUE, y: 0 }; eye[3] = { x: Number.MAX_VALUE, y: 0 };
+    expect(calculateEAR(eye)).toBeNull();
+  });
+});
+
+describe("estimateScreenDistance", () => {
+  const baseline = Object.freeze({ baselineEyeDistancePx: 100, baselineDistanceCm: 60 });
+
+  it.each([[100, 60], [50, 120], [200, 30], [10, 600]])("maps IPD %s px to %s cm without clamping", (ipd, cm) => {
+    expect(estimateScreenDistance(ipd, baseline)).toBe(cm);
+  });
+
+  it.each([0, -1, NaN, Infinity, -Infinity])("rejects invalid IPD or baseline values %s", invalid => {
+    expect(estimateScreenDistance(invalid, baseline)).toBeNull();
+    expect(estimateScreenDistance(100, { ...baseline, baselineEyeDistancePx: invalid })).toBeNull();
+    expect(estimateScreenDistance(100, { ...baseline, baselineDistanceCm: invalid })).toBeNull();
+  });
+
+  it("rejects missing calibration, overflow and numerical underflow", () => {
+    expect(estimateScreenDistance(100, null)).toBeNull();
+    expect(estimateScreenDistance(100, undefined)).toBeNull();
+    expect(estimateScreenDistance(Number.MIN_VALUE, baseline)).toBeNull();
+    expect(estimateScreenDistance(Number.MAX_VALUE, { baselineEyeDistancePx: Number.MIN_VALUE, baselineDistanceCm: 1 })).toBeNull();
+  });
+});
+
+describe("screen distance display filters", () => {
+  it.each([[10, 20], [20, 20], [60, 60], [150, 150], [300, 150]])("clamps %s cm to %s cm", (value, expected) => {
+    expect(clampScreenDistance(value)).toBe(expected);
+  });
+
+  it("supports configurable ranges independently of the raw estimate", () => {
+    expect(clampScreenDistance(30, 40, 100)).toBe(40);
+    expect(clampScreenDistance(110, 40, 100)).toBe(100);
+    expect(clampScreenDistance(60, 80, 40)).toBeNull();
+  });
+
+  it("starts at the current value and applies a fractional EMA without rounding", () => {
+    expect(smoothScreenDistance(60, null)).toBe(60);
+    expect(smoothScreenDistance(60, 50, 0.3)).toBeCloseTo(53, 10);
+    expect(smoothScreenDistance(60, 50, 0)).toBe(50);
+    expect(smoothScreenDistance(60, 50, 1)).toBe(60);
+    expect(smoothScreenDistance(600, null)).toBe(600);
+  });
+
+  it.each([0, -1, NaN, Infinity, -Infinity])("rejects invalid distances/ranges %s", invalid => {
+    expect(clampScreenDistance(invalid)).toBeNull();
+    expect(clampScreenDistance(60, invalid, 100)).toBeNull();
+    expect(clampScreenDistance(60, 20, invalid)).toBeNull();
+    expect(smoothScreenDistance(invalid, 60)).toBeNull();
+    expect(smoothScreenDistance(60, invalid)).toBeNull();
+  });
+
+  it.each([-0.1, 1.1, NaN, Infinity])("rejects invalid EMA alpha %s", alpha => {
+    expect(smoothScreenDistance(60, 50, alpha)).toBeNull();
+  });
 });

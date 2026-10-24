@@ -14,7 +14,7 @@ O sistema opera através de um pipeline híbrido que combina visão computaciona
          ▼
 [PoseDetectorService (MediaPipe)] ──> Extrai 33 Landmarks Corporais + 468/478 Faciais
          │
-         ▼ (Próximas Tasks: Ângulos, EAR, Score)
+         ▼ (Ângulos e EAR implementados; agregação/alertas pendentes)
 [Pipeline de Métricas & Alertas]
          │
          ▼ (Tauri IPC Invoke)
@@ -46,7 +46,9 @@ O sistema opera através de um pipeline híbrido que combina visão computaciona
 | **Task 2.6** | Tipagens e Serviços IPC no Frontend | `src/types/posture*.ts`, `src/services/postureService.ts` | **Concluída** |
 | **Task 3.1** | Inicializador dos Detectores do MediaPipe | `src/services/vision/poseDetector.ts`, `src/types/vision.ts` | **Concluída** |
 | **Task 3.2** | Gerenciamento do Feed de Câmera e Concorrência de Dispositivo | `src/components/monitoring/WebcamFeed.tsx` | **Concluída** |
-| **Task 3.3+**| Extração de Ângulos, Score e Pipeline | `src/services/vision/` | *Próxima etapa* |
+| **Task 3.3** | Geometria de Pescoço/Ombros e Orientação Vertical | `biomechanics.ts`, `poseAngles.ts`, testes e integração no feed | **Concluída** |
+| **Task 3.4** | EAR, Piscadas e Distância Calibrada | `biomechanics.ts`, `ocularLandmarks.ts`, `blinkDetector.ts`, `blinkRate.ts`, `ocularMetrics.ts` | **Algoritmos e integração concluídos; coleta do baseline na UI pendente** |
+| **Próximas** | Calibração, Agregação, Score e Alertas Persistentes | Pipeline frontend e integração com serviços existentes | *Pendente* |
 
 ---
 
@@ -248,9 +250,10 @@ if (poseDetector.isReady()) {
 
 4. **Constantes de Índices Anatômicos Exportadas**:
    - `POSE_LANDMARK_INDEX`: Índices essenciais dos 33 landmarks corporais (nariz: 0, orelhas: 7/8, ombros: 11/12, cotovelos: 13/14, pulsos: 15/16).
-   - `FACE_LANDMARK_INDEX`: Índices da malha facial (468 pontos) com definições completas para os 6 pontos de cada olho para o cálculo futuro de **EAR (Eye Aspect Ratio)**:
+   - `FACE_LANDMARK_INDEX`: Índices legados da malha facial, preservados para compatibilidade. Seus arrays `ALL` não estão na ordem P1..P6 do EAR:
      - `LEFT_EYE`: `{ OUTER: 33, INNER: 133, TOP_1: 160, TOP_2: 158, BOTTOM_1: 144, BOTTOM_2: 153 }`
      - `RIGHT_EYE`: `{ OUTER: 362, INNER: 263, TOP_1: 385, TOP_2: 387, BOTTOM_1: 373, BOTTOM_2: 380 }`
+   - `FACE_EAR_INDEX`: ordem canônica dos olhos anatômicos do sujeito: direito `[33,160,158,133,153,144]` e esquerdo `[362,385,387,263,373,380]`. Centros das íris: 468/473.
 
 5. **Gerenciamento de Recursos**:
    - Método `close()` que fecha explicitamente as instâncias do WebAssembly e WebGL, liberando memória e threads quando a câmera é desativada.
@@ -299,4 +302,14 @@ O feed já consome `poseAngles.ts`, que adapta os landmarks e chama as funções
 
 A inferência continua limitada a aproximadamente 11 FPS, e a suavização EMA mantém valores decimais até a publicação na interface. Capturas que terminam depois de uma pausa, troca de dispositivo ou desmontagem liberam os tracks imediatamente. Os testes do componente usam DOM, captura e detector simulados; a câmera física e a precisão da inferência MediaPipe exigem validação manual no aplicativo.
 
-EAR, calibração neutra, histerese temporal e buffer de agregação para persistência no SQLite permanecem como integrações futuras em módulos especializados (`blinkDetector.ts`, `temporalFilter.ts`).
+### 6.3 Algoritmos oculares e integração da Task 3.4
+
+`calculateEAR` e `estimateScreenDistance` estendem `biomechanics.ts` sem alterar as funções geométricas anteriores. A malha facial é convertida para pixels reais por `ocularLandmarks.ts`; a IPD prefere íris e informa quando usa o fallback pelos pontos médios dos cantos. O estimador reutiliza os campos de `PostureCalibrationDTO`. Clamp e EMA são opcionais e separados da estimativa bruta.
+
+`blinkDetector.ts` usa timestamps, histerese e duração para distinguir piscadas normais, ruído e fechamento prolongado. `blinkRate.ts` mantém uma janela deslizante de 60 s, desconta interrupções e exige 30 s válidos antes de classificar a frequência. Os limiares experimentais ficam em `ocularConfig.ts`.
+
+`ocularMetrics.ts` compõe essas APIs sem React e invalida a distância por pitch/yaw excessivos ou por método/resolução incompatíveis com a referência. O feed compartilha os landmarks e o timestamp da inferência existente por `onOcularUpdate`; pausa, mute, troca de câmera e falhas de hardware reiniciam o estado. A página mostra a taxa real de piscadas; sem baseline, a distância é indisponível, substituindo a heurística pelos ombros. `onPostureUpdate.distanceCm` aceita `null`.
+
+O modal ainda salva configuração do ambiente, sem coletar baseline ocular. O DTO persistido também não registra método/resolução/câmera, necessários para reutilizar a referência com segurança. Permanecem pendentes a coleta/invalidação dessa calibração, a avaliação do EAR com sequências anotadas, a histerese de alertas sustentados e o buffer de agregação para persistência no SQLite. A amostragem de aproximadamente 11 FPS pode perder piscadas curtas; testes sintéticos não validam a precisão da webcam.
+
+Contratos, fontes e roteiro de verificação: [algoritmos oculares](../algoritmos-oculares.md).

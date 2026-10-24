@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import type { UserPresenceState } from "../types/vision";
+import type { OcularMetrics } from "../services/vision/ocularMetrics";
 
 export default function Monitoring() {
   const [isMonitoring, setIsMonitoring] = useState(true);
@@ -24,7 +25,8 @@ export default function Monitoring() {
   const [soundAlerts, setSoundAlerts] = useState(true);
   const [neckAngle, setNeckAngle] = useState(12);
   const [shoulderBalance, setShoulderBalance] = useState(96);
-  const [distanceCm, setDistanceCm] = useState(62);
+  const [ocularMetrics, setOcularMetrics] = useState<OcularMetrics | null>(null);
+  const distanceCm = ocularMetrics?.distanceCm ?? null;
   const [postureStatus, setPostureStatus] = useState<"good" | "warning" | "danger">("good");
   const [statusText, setStatusText] = useState("Postura Excelente");
   const [userPresence, setUserPresence] = useState<UserPresenceState>("PARTIALLY_OCCLUDED");
@@ -57,7 +59,7 @@ export default function Monitoring() {
   const handlePostureUpdate = (metrics: {
     neckAngle: number;
     shoulderBalance: number;
-    distanceCm: number;
+    distanceCm: number | null;
     status: "good" | "warning" | "danger";
     statusLabel: string;
     presence?: UserPresenceState;
@@ -67,7 +69,6 @@ export default function Monitoring() {
     }
     setNeckAngle(metrics.neckAngle);
     setShoulderBalance(metrics.shoulderBalance);
-    setDistanceCm(metrics.distanceCm);
     setPostureStatus(metrics.status);
     setStatusText(metrics.statusLabel);
   };
@@ -128,12 +129,15 @@ export default function Monitoring() {
         100 -
         (neckAngle > 15 ? (neckAngle - 15) * 2.5 : 0) -
         (100 - shoulderBalance) * 1.5 -
-        (distanceCm < 50 ? (50 - distanceCm) * 2 : 0)
+        (distanceCm !== null && distanceCm < 50 ? (50 - distanceCm) * 2 : 0)
       )
     )
   );
 
   const isPaused = !isMonitoring || isCalibrationOpen || userPresence !== "ACTIVE";
+  const ocularPaused = !isMonitoring || isCalibrationOpen || !ocularMetrics?.available;
+  const blinkRate = ocularMetrics?.blinkRate.blinksPerMinute ?? null;
+  const visualFatigue = ocularMetrics?.visualFatigue ?? null;
 
   return (
     <div className="w-full h-full flex flex-col gap-6 pb-8">
@@ -166,6 +170,7 @@ export default function Monitoring() {
             onPresenceChange={handlePresenceChange}
             onHardwareBusyChange={handleHardwareBusyChange}
             onStreamChange={setCameraStream}
+            onOcularUpdate={setOcularMetrics}
           />
 
           <KeyboardMonitorCard
@@ -293,19 +298,33 @@ export default function Monitoring() {
 
             <ErgoMetricsCard
               title="Distância da Tela"
-              value={distanceCm}
-              unit="cm"
-              status={distanceCm >= 50 && distanceCm <= 75 ? "good" : "warning"}
+              value={distanceCm === null ? "Aguardando calibração" : Math.round(distanceCm)}
+              unit={distanceCm === null ? undefined : "cm"}
+              status={distanceCm === null ? "info" : distanceCm >= 50 && distanceCm <= 75 ? "good" : "warning"}
               icon={Eye}
-              progress={Math.min(100, (distanceCm / 80) * 100)}
+              progress={distanceCm === null ? undefined : Math.min(100, (distanceCm / 80) * 100)}
               idealRange="50 - 70 cm"
               trend="stable"
-              description="Distância aproximada entre seus olhos e o monitor."
+              description="Estimativa pela distância entre os olhos, dependente de calibração e rosto frontal."
               details={[
                 { label: "Recomendado:", value: "50-70 cm" },
-                { label: "Fadiga Visual:", value: distanceCm < 50 ? "Alta" : "Baixa" },
+                { label: "Medição:", value: distanceCm === null ? "Indisponível" : "Calibrada" },
               ]}
               isPaused={isPaused}
+            />
+
+            <ErgoMetricsCard
+              title="Taxa de Piscadas"
+              value={blinkRate === null ? "Aguardando dados" : blinkRate.toFixed(1)}
+              unit={blinkRate === null ? undefined : "piscadas/min"}
+              status={visualFatigue === null ? "info" : visualFatigue === "normal" ? "good" : visualFatigue === "attention" ? "warning" : "danger"}
+              icon={Eye}
+              description="Indicador experimental de frequência de piscadas. Não constitui diagnóstico de fadiga ou olho seco."
+              details={[
+                { label: "Observação:", value: `${Math.floor((ocularMetrics?.blinkRate.observedMs ?? 0) / 1000)} s válidos` },
+                { label: "Frequência:", value: visualFatigue === null ? "Coletando dados" : visualFatigue === "normal" ? "Faixa de referência" : visualFatigue === "attention" ? "Reduzida" : "Muito baixa" },
+              ]}
+              isPaused={ocularPaused}
             />
 
             <ErgoMetricsCard
