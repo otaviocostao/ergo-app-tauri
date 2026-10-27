@@ -14,6 +14,7 @@ import Select from "../Select";
 import { poseDetector, type LandmarkPoint, POSE_LANDMARK_INDEX } from "../../services/vision";
 import { calculatePoseAngles, type PoseAngles } from "../../services/vision/poseAngles";
 import { calculateHeadPitch, type Point2D } from "../../services/vision/biomechanics";
+import { TemporalPostureFilter } from "../../services/vision/temporalPostureFilter";
 import { createOcularMetricsState, updateOcularMetrics, type OcularMetrics, type ScreenDistanceReference } from "../../services/vision/ocularMetrics";
 import type { UserPresenceState } from "../../types/vision";
 
@@ -62,11 +63,6 @@ interface PoseOverlay {
  */
 const ABSENCE_THRESHOLD_MS = 5000;
 
-/**
- * Fator de suavização temporal (Filtro Exponencial EMA) para estabilizar oscilações angulares.
- */
-const EMA_ALPHA = 0.3;
-
 export default function WebcamFeed({
   isMonitoring,
   onToggleMonitoring,
@@ -84,7 +80,7 @@ export default function WebcamFeed({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const cameraRequestRef = useRef(0);
-  const hasMeasuredFrameRef = useRef(false);
+  const postureFilterRef = useRef(new TemporalPostureFilter());
   const lastOverlayRef = useRef<PoseOverlay | null>(null);
   const ocularStateRef = useRef(createOcularMetricsState());
   const onOcularUpdateRef = useRef(onOcularUpdate);
@@ -234,7 +230,7 @@ export default function WebcamFeed({
   const stopCurrentStream = useCallback(() => {
     resetOcularTracking();
     cameraRequestRef.current += 1;
-    hasMeasuredFrameRef.current = false;
+    postureFilterRef.current.reset();
     lastOverlayRef.current = null;
     isCameraMutedRef.current = false;
     setIsCameraMuted(false);
@@ -323,7 +319,7 @@ export default function WebcamFeed({
           resetOcularTracking();
           isCameraMutedRef.current = muted;
           setIsCameraMuted(muted);
-          hasMeasuredFrameRef.current = false;
+          postureFilterRef.current.reset();
           lastOverlayRef.current = null;
           lastLandmarksDetectedTimeRef.current = Date.now();
           // Keep metrics paused after unmute until a fresh valid frame arrives.
@@ -460,6 +456,7 @@ export default function WebcamFeed({
       let rightShoulderPt: LandmarkPoint | null = null;
       let poseAngles: PoseAngles | null = null;
       let headPitch: number | null = null;
+      let detectionTimestampMs: number | null = null;
 
       if (shouldRunInference) {
         lastInferenceTimeRef.current = currentTime - (elapsedSinceLastInference % INFERENCE_INTERVAL_MS);
@@ -468,6 +465,7 @@ export default function WebcamFeed({
           // Inferência real através do MediaPipe WebGL / WebAssembly
           try {
             const detection = poseDetector.detectFrame(video, currentTime);
+            detectionTimestampMs = detection.timestamp;
             const ocular = updateOcularMetrics(ocularStateRef.current, detection,
               video.videoWidth, video.videoHeight, distanceReferenceRef.current);
             if (ocular) {
@@ -543,12 +541,12 @@ export default function WebcamFeed({
         }
 
         // Paused tracking must not blend pre-gap posture into the first new measurement.
-        if (presenceRef.current !== "ACTIVE") hasMeasuredFrameRef.current = false;
+        if (presenceRef.current !== "ACTIVE") postureFilterRef.current.reset();
 
         // -------------------------------------------------------------
         // 3. EXTRAÇÃO DE ÂNGULOS BIOMECÂNICOS & ATUALIZAÇÃO DE MÉTRICAS
         // -------------------------------------------------------------
-        if (currentPoseDetected && poseAngles && headPitch !== null && leftShoulderPt && rightShoulderPt) {
+        if (currentPoseDetected && poseAngles && headPitch !== null && detectionTimestampMs !== null && leftShoulderPt && rightShoulderPt) {
           lastOverlayRef.current = {
             head: { ...poseAngles.headCenter },
             leftShoulder: { x: leftShoulderPt.x, y: leftShoulderPt.y },
@@ -556,52 +554,54 @@ export default function WebcamFeed({
             detectedAt: currentTime,
           };
           // Keep both upward and downward deviations; opposite signs must not
-          // cancel in the EMA, nor hide behind a centered image-plane vector.
+          // cancel in the filter, nor hide behind a centered image-plane vector.
           const rawNeckAngle = Math.max(poseAngles.neckAngle, Math.abs(headPitch));
-          const rawShoulderBalance = poseAngles.shoulderBalance;
+          const filtered = postureFilterRef.current.filter({
+            neckAngle: rawNeckAngle,
+            shoulderAngle: poseAngles.shoulderAngle,
+          }, detectionTimestampMs);
 
-          // Ocular geometry already applies its own independent distance EMA.
-          const smoothedDist = ocularStateRef.current.previousDistanceCm;
+          if (filtered !== null) {
+            // Ocular geometry already applies its own independent distance EMA.
+            const smoothedDist = ocularStateRef.current.previousDistanceCm;
 
-          // Suavização temporal (EMA) para estabilizar oscilações
-          // Keep fractional values in the filter; round only when publishing to UI.
-          const alpha = hasMeasuredFrameRef.current ? EMA_ALPHA : 1;
-          const smoothedNeck = alpha * rawNeckAngle + (1 - alpha) * smoothedMetricsRef.current.neckAngle;
-          const smoothedShoulder = alpha * rawShoulderBalance + (1 - alpha) * smoothedMetricsRef.current.shoulderBalance;
-          hasMeasuredFrameRef.current = true;
+            // Filter degrees before converting/clamping shoulders; round only for UI.
+            const smoothedNeck = filtered.neckAngle;
+            const smoothedShoulder = Math.max(0, Math.min(100, 100 - filtered.shoulderAngle * 10));
 
-          smoothedMetricsRef.current = {
-            neckAngle: smoothedNeck,
-            shoulderBalance: smoothedShoulder,
-          };
+            smoothedMetricsRef.current = {
+              neckAngle: smoothedNeck,
+              shoulderBalance: smoothedShoulder,
+            };
 
-          // Classificação de risco ergonômico
-          let postureStatus: "good" | "warning" | "danger" = "good";
-          let postureLabel = "Postura Excelente";
+            // Classificação de risco ergonômico
+            let postureStatus: "good" | "warning" | "danger" = "good";
+            let postureLabel = "Postura Excelente";
 
-          if (smoothedNeck > 20 || smoothedShoulder < 85 || (smoothedDist !== null && smoothedDist < 45)) {
-            postureStatus = "danger";
-            postureLabel =
-              smoothedNeck > 20
-                ? "Atenção: Pescoço Muito Inclinado!"
-                : smoothedDist !== null && smoothedDist < 45
-                  ? "Muito Próximo da Tela"
-                  : "Ombros Desalinhados";
-          } else if (smoothedNeck > 14 || smoothedShoulder < 92) {
-            postureStatus = "warning";
-            postureLabel = smoothedNeck > 14
-              ? "Atenção à Inclinação do Pescoço"
-              : "Atenção ao Alinhamento dos Ombros";
+            if (smoothedNeck > 20 || smoothedShoulder < 85 || (smoothedDist !== null && smoothedDist < 45)) {
+              postureStatus = "danger";
+              postureLabel =
+                smoothedNeck > 20
+                  ? "Atenção: Pescoço Muito Inclinado!"
+                  : smoothedDist !== null && smoothedDist < 45
+                    ? "Muito Próximo da Tela"
+                    : "Ombros Desalinhados";
+            } else if (smoothedNeck > 14 || smoothedShoulder < 92) {
+              postureStatus = "warning";
+              postureLabel = smoothedNeck > 14
+                ? "Atenção à Inclinação do Pescoço"
+                : "Atenção ao Alinhamento dos Ombros";
+            }
+
+            onPostureUpdateRef.current?.({
+              neckAngle: Math.round(smoothedNeck),
+              shoulderBalance: Math.round(smoothedShoulder),
+              distanceCm: smoothedDist === null ? null : Math.round(smoothedDist),
+              status: postureStatus,
+              statusLabel: postureLabel,
+              presence: "ACTIVE",
+            });
           }
-
-          onPostureUpdateRef.current?.({
-            neckAngle: Math.round(smoothedNeck),
-            shoulderBalance: Math.round(smoothedShoulder),
-            distanceCm: smoothedDist === null ? null : Math.round(smoothedDist),
-            status: postureStatus,
-            statusLabel: postureLabel,
-            presence: "ACTIVE",
-          });
         }
       }
 
