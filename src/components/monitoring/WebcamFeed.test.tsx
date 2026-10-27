@@ -8,7 +8,7 @@ import * as biomechanics from "../../services/vision/biomechanics";
 import WorkspaceCalibrationModal from "./WorkspaceCalibrationModal";
 import Monitoring from "../../pages/Monitoring";
 import { workspaceService } from "../../services/workspaceService";
-import { FACE_EAR_INDEX, type OcularMetrics, type ScreenDistanceReference } from "../../services/vision";
+import { FACE_EAR_INDEX, TemporalPostureFilter, type OcularMetrics, type ScreenDistanceReference } from "../../services/vision";
 
 function faceMatrix(pitch: number) {
   const radians = pitch * Math.PI / 180;
@@ -142,7 +142,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
       faceLandmarks, faceTransformationMatrix, worldLandmarks: null, timestamp: performance.now(),
     }));
     vi.spyOn(biomechanics, "calculateNeckAngle");
-    vi.spyOn(biomechanics, "calculateShoulderBalance");
+    vi.spyOn(biomechanics, "calculateShoulderAngle");
     vi.spyOn(workspaceService, "getAll").mockResolvedValue([]);
     container = document.createElement("div"); document.body.append(container);
     root = createRoot(container); mounted = false;
@@ -156,7 +156,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   it("passes video landmarks through both pure algorithms without demo values on the first frame", async () => {
     await render(); await advance(200);
     expect(biomechanics.calculateNeckAngle).toHaveBeenCalled();
-    expect(biomechanics.calculateShoulderBalance).toHaveBeenCalled();
+    expect(biomechanics.calculateShoulderAngle).toHaveBeenCalled();
     expect(update.mock.calls[0][0]).toMatchObject({ neckAngle: 0, shoulderBalance: 100, presence: "ACTIVE" });
   });
 
@@ -276,6 +276,54 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     expect(poseDetector.detectFrame).toHaveBeenCalledTimes(11);
   });
 
+  it("filters once per valid inference with the detection timestamp, without filtering render-only frames", async () => {
+    const detect = vi.mocked(poseDetector.detectFrame).getMockImplementation()!;
+    vi.mocked(poseDetector.detectFrame).mockImplementation((...args) => {
+      const detection = detect(...args);
+      return { ...detection, timestamp: detection.timestamp + 1234 };
+    });
+    const filter = vi.spyOn(TemporalPostureFilter.prototype, "filter");
+    await render(); await advance(200);
+    const detections = vi.mocked(poseDetector.detectFrame).mock.results;
+    expect(filter).toHaveBeenCalledTimes(detections.length);
+    detections.forEach((result, index) => {
+      expect(filter.mock.calls[index]).toEqual([
+        { neckAngle: 0, shoulderAngle: 0 }, result.value.timestamp,
+      ]);
+    });
+    const calls = filter.mock.calls.length;
+    await advance(48);
+    expect(filter).toHaveBeenCalledTimes(calls);
+  });
+
+  it("filters shoulder degrees above ten before converting to the clamped percentage", async () => {
+    const dy = Math.tan(30 * Math.PI / 180) * 0.4 * 1280 / 720;
+    landmarks![INDEX.LEFT_SHOULDER].y -= dy / 2;
+    landmarks![INDEX.RIGHT_SHOULDER].y += dy / 2;
+    await render(); await advance(200);
+    expect(update.mock.lastCall?.[0].shoulderBalance).toBe(0);
+    landmarks = upright(); update.mockClear(); await advance(100);
+    // The filtered angle is still above ten. Filtering the percentage instead
+    // would incorrectly show a positive balance on this very first sample.
+    expect(update.mock.calls[0][0].shoulderBalance).toBe(0);
+    await advance(1000);
+    expect(update.mock.lastCall?.[0].shoulderBalance).toBeGreaterThan(95);
+  });
+
+  it("preserves angular history over a brief missed detection without adding fake samples", async () => {
+    const filter = vi.spyOn(TemporalPostureFilter.prototype, "filter");
+    faceTransformationMatrix = faceMatrix(40);
+    await render(); await advance(200);
+    const calls = filter.mock.calls.length;
+    landmarks = null; await advance(300);
+    expect(filter).toHaveBeenCalledTimes(calls);
+    landmarks = upright(); faceTransformationMatrix = faceMatrix(0);
+    update.mockClear(); await advance(100);
+    expect(update.mock.calls[0][0].neckAngle).toBeGreaterThan(0);
+    expect(update.mock.calls[0][0].neckAngle).toBeLessThan(40);
+    expect(presence.mock.lastCall?.[0]).toBe("ACTIVE");
+  });
+
   it("keeps overlay lines visible between inference frames without rerunning the detector", async () => {
     await render(); await advance(100);
     expect(drawnFrames[drawnFrames.length - 1]?.points).toBe(4);
@@ -349,7 +397,8 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     expect(update.mock.calls[0][0]).toMatchObject({ neckAngle: 0, presence: "ACTIVE" });
     faceTransformationMatrix = faceMatrix(20);
     update.mockClear(); await advance(100);
-    expect(update.mock.calls[0][0].neckAngle).toBe(6);
+    expect(update.mock.calls[0][0].neckAngle).toBeGreaterThan(0);
+    expect(update.mock.calls[0][0].neckAngle).toBeLessThan(20);
   });
 
   it.each<[number, number, string]>([
@@ -440,15 +489,52 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   });
 
   it("releases all camera tracks and stops inference while paused, then resumes", async () => {
+    faceTransformationMatrix = faceMatrix(40);
     await render(); await advance(200); await render(false);
     expect(streams.length).toBeGreaterThan(0);
     for (const item of streams) expect(item.track.stop).toHaveBeenCalledOnce();
     const count = vi.mocked(poseDetector.detectFrame).mock.calls.length;
     await advance(500);
     expect(poseDetector.detectFrame).toHaveBeenCalledTimes(count);
+    faceTransformationMatrix = faceMatrix(0);
     await render(true); await advance(200);
     expect(vi.mocked(poseDetector.detectFrame).mock.calls.length).toBeGreaterThan(count);
     expect(update.mock.lastCall?.[0]).toMatchObject({ neckAngle: 0, shoulderBalance: 100 });
+  });
+
+  it("starts the replacement camera with fresh angular measurements", async () => {
+    vi.mocked(navigator.mediaDevices.enumerateDevices).mockResolvedValue([
+      { kind: "videoinput", deviceId: "camera-1", label: "First camera" },
+      { kind: "videoinput", deviceId: "camera-2", label: "Second camera" },
+    ] as MediaDeviceInfo[]);
+    faceTransformationMatrix = faceMatrix(40);
+    await render(); await advance(200);
+    const oldTrack = streams[streams.length - 1].track;
+    const select = container.querySelector("select")!;
+    faceTransformationMatrix = faceMatrix(0);
+    update.mockClear();
+    await act(async () => {
+      select.value = "camera-2";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await advance(100);
+    expect(oldTrack.stop).toHaveBeenCalledOnce();
+    expect(select.value).toBe("camera-2");
+    expect(update.mock.calls[0][0]).toMatchObject({ neckAngle: 0, shoulderBalance: 100 });
+  });
+
+  it("resets angular history after the hardware ends a previously active stream", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    faceTransformationMatrix = faceMatrix(40);
+    await render(); await advance(200);
+    const track = streams[streams.length - 1].track;
+    await act(async () => track.onended?.call(track as unknown as MediaStreamTrack, new Event("ended")));
+    expect(hardware).toHaveBeenCalledWith(true);
+    faceTransformationMatrix = faceMatrix(0);
+    update.mockClear();
+    await clickButton("Retomar Monitoramento");
+    await advance(100);
+    expect(update.mock.calls[0][0]).toMatchObject({ neckAngle: 0, shoulderBalance: 100 });
   });
 
   it("stops requests that resolve after unmount rather than leaking the camera", async () => {
