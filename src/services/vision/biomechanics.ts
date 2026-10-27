@@ -90,13 +90,12 @@ export function calculateHeadPitch(matrix: FaceTransformationMatrix | null | und
 }
 
 /**
- * Shoulder leveling percentage [0, 100]: 100 for a horizontal shoulder line,
- * decreasing by 10 percentage points per degree and reaching 0 at 10 degrees.
- * The angle is the acute inclination to the horizontal [0, 90], independent
- * of landmark order or camera mirroring.
+ * Acute shoulder inclination to the horizontal in degrees [0, 90], independent
+ * of landmark order or camera mirroring. Preserves angles above 10 degrees,
+ * even when the display balance has already reached zero.
  * Returns null for non-finite coordinates or coincident shoulders.
  */
-export function calculateShoulderBalance(
+export function calculateShoulderAngle(
   leftShoulder: Point2D,
   rightShoulder: Point2D,
 ): number | null {
@@ -111,8 +110,16 @@ export function calculateShoulderBalance(
     return null;
   }
 
-  const angle = Math.atan2(Math.abs(dy), Math.abs(dx)) * RADIANS_TO_DEGREES;
-  return Math.max(0, Math.min(100, 100 - angle * 10));
+  return Math.atan2(Math.abs(dy), Math.abs(dx)) * RADIANS_TO_DEGREES;
+}
+
+/** Shoulder leveling percentage [0, 100], decreasing by 10 points per degree. */
+export function calculateShoulderBalance(
+  leftShoulder: Point2D,
+  rightShoulder: Point2D,
+): number | null {
+  const angle = calculateShoulderAngle(leftShoulder, rightShoulder);
+  return angle === null ? null : Math.max(0, Math.min(100, 100 - angle * 10));
 }
 
 /**
