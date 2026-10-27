@@ -16,6 +16,7 @@ describe("MediaPipe pose angle integration", () => {
     const result = calculatePoseAngles(upright(), 1280, 720)!;
     expect(result.neckAngle).toBeCloseTo(0, 10);
     expect(result.shoulderBalance).toBe(100);
+    expect(result.shoulderAngle).toBe(0);
     expect(result.headCenter).toEqual({ x: 0.5, y: 0.25 });
   });
 
@@ -40,6 +41,17 @@ describe("MediaPipe pose angle integration", () => {
     landmarks[INDEX.LEFT_SHOULDER].y -= slope / 2;
     landmarks[INDEX.RIGHT_SHOULDER].y += slope / 2;
     expect(calculatePoseAngles(landmarks, 1280, 720)?.shoulderBalance).toBeCloseTo(50, 10);
+    expect(calculatePoseAngles(landmarks, 1280, 720)?.shoulderAngle).toBeCloseTo(5, 10);
+  });
+
+  it.each([15, 30, 45])("keeps the raw %s degree shoulder angle after the percentage reaches zero", angle => {
+    const landmarks = upright();
+    const slope = Math.tan(angle * Math.PI / 180) * 0.4 * 1280 / 720;
+    landmarks[INDEX.LEFT_SHOULDER].y -= slope / 2;
+    landmarks[INDEX.RIGHT_SHOULDER].y += slope / 2;
+    const result = calculatePoseAngles(landmarks, 1280, 720)!;
+    expect(result.shoulderAngle).toBeCloseTo(angle, 10);
+    expect(result.shoulderBalance).toBe(0);
   });
 
   it("preserves measurements under mirroring and swapping the shoulder order", () => {
@@ -51,6 +63,7 @@ describe("MediaPipe pose angle integration", () => {
     const actual = calculatePoseAngles(mirrored, 1280, 720)!;
     expect(actual.neckAngle).toBeCloseTo(expected.neckAngle, 10);
     expect(actual.shoulderBalance).toBeCloseTo(expected.shoulderBalance, 10);
+    expect(actual.shoulderAngle).toBeCloseTo(expected.shoulderAngle, 10);
   });
 
   it.each([INDEX.NOSE, INDEX.LEFT_SHOULDER, INDEX.RIGHT_SHOULDER])("rejects an occluded required landmark %s", (index) => {
