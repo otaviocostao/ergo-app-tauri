@@ -6,6 +6,7 @@ import {
   clampScreenDistance,
   smoothScreenDistance,
   calculateNeckAngle,
+  calculateShoulderAngle,
   calculateShoulderBalance,
   type Point2D,
 } from "./biomechanics";
@@ -92,6 +93,25 @@ describe("calculateNeckAngle", () => {
       { x: Number.MAX_VALUE, y: -2 },
       { x: -Number.MAX_VALUE, y: 0 },
     )).toBeNull();
+  });
+});
+
+describe("calculateShoulderAngle", () => {
+  it.each([-90, -45, -15, -10, -6, -3, 0, 3, 6, 10, 15, 45, 90])(
+    "preserves a %s degree inclination before percentage clamping", degrees => {
+      const right = rotate({ x: 2, y: 0 }, degrees);
+      expect(calculateShoulderAngle(origin, right)).toBeCloseTo(Math.abs(degrees), 10);
+      expect(calculateShoulderAngle(right, origin)).toBeCloseTo(Math.abs(degrees), 10);
+      expect(calculateShoulderAngle(origin, { x: -right.x, y: right.y }))
+        .toBeCloseTo(Math.abs(degrees), 10);
+    },
+  );
+
+  it("rejects coincident points, non-finite coordinates and subtraction overflow", () => {
+    expect(calculateShoulderAngle(origin, origin)).toBeNull();
+    expect(calculateShoulderAngle(origin, { x: NaN, y: 1 })).toBeNull();
+    expect(calculateShoulderAngle({ x: Infinity, y: 0 }, origin)).toBeNull();
+    expect(calculateShoulderAngle({ x: -Number.MAX_VALUE, y: 0 }, { x: Number.MAX_VALUE, y: 0 })).toBeNull();
   });
 });
 
