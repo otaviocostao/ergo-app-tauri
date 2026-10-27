@@ -16,17 +16,26 @@ import monitorDistanceStill from "../../assets/calibration/monitor-distance-stil
 import webcamPositionGif from "../../assets/calibration/webcam-position.gif";
 import webcamPositionStill from "../../assets/calibration/webcam-position-still.png";
 import { workspaceService, type CreateWorkspacePayload } from "../../services/workspaceService";
+import { postureService } from "../../services/postureService";
+import type { PostureCalibrationDTO, SaveCalibrationPayload } from "../../types/postureCalibration";
 import {
   CheckCircle2,
   Image as ImageIcon,
   Laptop,
   Monitor,
+  Play,
+  RotateCcw,
+  Timer,
+  AlertTriangle,
 } from "lucide-react";
+
+export const DEFAULT_REFERENCE_DISTANCE_CM = 60;
+export const CALIBRATION_DURATION_SECONDS = 5;
 
 export interface WorkspaceCalibrationModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCalibrateSubmit: () => void;
+  onCalibrateSubmit: (calibration?: PostureCalibrationDTO | null) => void;
   activeStream?: MediaStream | null;
   isNotebookUser?: boolean;
   onPostureUpdate?: WebcamFeedProps["onPostureUpdate"];
@@ -40,6 +49,20 @@ export interface SetupStep {
   imageSrc?: string;
   imageStillSrc?: string;
   imageAlt?: string;
+}
+
+export interface CalibratedBaseline {
+  baselineNeckAngle: number;
+  baselineShoulderBalance: number;
+  baselineDistanceCm: number;
+  baselineEyeDistancePx: number;
+}
+
+interface CalibrationSample {
+  neckAngle: number;
+  shoulderBalance: number;
+  distanceCm: number;
+  ipdPx: number;
 }
 
 export default function WorkspaceCalibrationModal({
@@ -68,6 +91,28 @@ export default function WorkspaceCalibrationModal({
   const savingRef = useRef(false);
 
   const [liveMetrics, setLiveMetrics] = useState<{ neckAngle: number; shoulderBalance: number } | null>(null);
+
+  // Estados de Calibração da Postura Neutra (Baseline)
+  const [calibrationStatus, setCalibrationStatus] = useState<"idle" | "countdown" | "completed">("idle");
+  const [countdownRemaining, setCountdownRemaining] = useState<number>(CALIBRATION_DURATION_SECONDS);
+  const [calibratedBaseline, setCalibratedBaseline] = useState<CalibratedBaseline | null>(null);
+  const [calibrationError, setCalibrationError] = useState<string | null>(null);
+
+  const samplesRef = useRef<CalibrationSample[]>([]);
+  const isCalibratingRef = useRef(false);
+  const autoSaveOnCompleteRef = useRef(false);
+  const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const latestPostureRef = useRef<{
+    neckAngle: number;
+    shoulderBalance: number;
+    distanceCm: number | null;
+  } | null>(null);
+
+  const latestOcularRef = useRef<{
+    ipdPx: number | null;
+    distanceCm: number | null;
+  } | null>(null);
 
   const baseSteps: SetupStep[] = [
     {
@@ -147,10 +192,164 @@ export default function WorkspaceCalibrationModal({
   const isFormStep = currentStepIndex === 0;
   const isFinalWebcamStep = currentStepIndex === totalInformativeSteps + 1;
 
+  const cancelCalibration = () => {
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+    }
+    isCalibratingRef.current = false;
+    autoSaveOnCompleteRef.current = false;
+    setCalibrationStatus("idle");
+    setCalibrationError(null);
+  };
+
+  const handleSave = async (baselineToPersist?: CalibratedBaseline | null) => {
+    if (savingRef.current || isLoadingWorkspace || loadError || !isFinalWebcamStep) return;
+
+    const baseline = baselineToPersist ?? calibratedBaseline;
+
+    if (!baseline) {
+      if (liveMetrics) {
+        startCalibration(true);
+        return;
+      } else {
+        setCalibrationError("Aguardando detecção confiável da câmera para calibrar.");
+        return;
+      }
+    }
+
+    savingRef.current = true;
+    setIsSaving(true);
+    setSaveError(null);
+
+    const payload: Required<CreateWorkspacePayload> = {
+      deviceType,
+      isWebcamFront,
+      hasExternalKeyboard,
+      hasExternalMouse,
+      adjustableDesk,
+      adjustableChair,
+      adjustableMonitor,
+    };
+
+    try {
+      const workspace = workspaceId
+        ? await workspaceService.update({ id: workspaceId, ...payload })
+        : await workspaceService.create(payload);
+      setWorkspaceId(workspace.id);
+
+      const calibrationPayload: SaveCalibrationPayload = {
+        baselineNeckAngle: baseline.baselineNeckAngle,
+        baselineShoulderBalance: baseline.baselineShoulderBalance,
+        baselineDistanceCm: baseline.baselineDistanceCm,
+        baselineEyeDistancePx: baseline.baselineEyeDistancePx,
+        isActive: true,
+      };
+
+      const savedCalibration = await postureService.saveCalibration(calibrationPayload);
+      onCalibrateSubmit(savedCalibration);
+      onClose();
+    } catch (error) {
+      console.error("Failed to save workspace configuration or posture calibration:", error);
+      setSaveError("Não foi possível salvar seu ambiente de trabalho ou a calibração de postura. Tente novamente.");
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
+  };
+
+  const finishCalibration = () => {
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+    }
+    isCalibratingRef.current = false;
+    const samples = samplesRef.current;
+
+    if (samples.length === 0 && latestPostureRef.current) {
+      samples.push({
+        neckAngle: latestPostureRef.current.neckAngle,
+        shoulderBalance: latestPostureRef.current.shoulderBalance,
+        distanceCm: latestPostureRef.current.distanceCm ?? DEFAULT_REFERENCE_DISTANCE_CM,
+        ipdPx: latestOcularRef.current?.ipdPx ?? 60.0,
+      });
+    }
+
+    if (samples.length === 0) {
+      setCalibrationError(
+        "Nenhuma postura estável detectada durante o intervalo. Certifique-se de que a câmera esteja enquadrando seu rosto e ombros."
+      );
+      setCalibrationStatus("idle");
+      autoSaveOnCompleteRef.current = false;
+      return;
+    }
+
+    const count = samples.length;
+    const avgNeck = Number((samples.reduce((acc, s) => acc + s.neckAngle, 0) / count).toFixed(1));
+    const avgShoulder = Number((samples.reduce((acc, s) => acc + s.shoulderBalance, 0) / count).toFixed(1));
+    const avgDist = Number((samples.reduce((acc, s) => acc + s.distanceCm, 0) / count).toFixed(1));
+    const avgIpd = Number((samples.reduce((acc, s) => acc + s.ipdPx, 0) / count).toFixed(1));
+
+    const baseline: CalibratedBaseline = {
+      baselineNeckAngle: avgNeck,
+      baselineShoulderBalance: avgShoulder,
+      baselineDistanceCm: avgDist,
+      baselineEyeDistancePx: avgIpd,
+    };
+
+    setCalibratedBaseline(baseline);
+    setCalibrationStatus("completed");
+    setCalibrationError(null);
+
+    if (autoSaveOnCompleteRef.current) {
+      autoSaveOnCompleteRef.current = false;
+      void handleSave(baseline);
+    }
+  };
+
+  const startCalibration = (autoSave = false) => {
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+    }
+
+    setCalibrationError(null);
+    samplesRef.current = [];
+    isCalibratingRef.current = true;
+    autoSaveOnCompleteRef.current = autoSave;
+    setCountdownRemaining(CALIBRATION_DURATION_SECONDS);
+    setCalibrationStatus("countdown");
+
+    countdownTimerRef.current = setInterval(() => {
+      setCountdownRemaining((prev) => {
+        if (prev <= 1) {
+          if (countdownTimerRef.current) {
+            clearInterval(countdownTimerRef.current);
+            countdownTimerRef.current = null;
+          }
+          finishCalibration();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (countdownTimerRef.current) {
+        clearInterval(countdownTimerRef.current);
+        countdownTimerRef.current = null;
+      }
+    };
+  }, []);
+
   useEffect(() => {
     if (!isOpen) {
       setCurrentStepIndex(0);
       setLiveMetrics(null);
+      cancelCalibration();
+      setCalibratedBaseline(null);
       return;
     }
 
@@ -161,6 +360,8 @@ export default function WorkspaceCalibrationModal({
     setSaveError(null);
     setWorkspaceId(null);
     setLiveMetrics(null);
+    cancelCalibration();
+    setCalibratedBaseline(null);
 
     async function loadWorkspace() {
       try {
@@ -189,15 +390,17 @@ export default function WorkspaceCalibrationModal({
   }, [isOpen, loadAttempt]);
 
   const handleNext = () => {
-    if (isLoadingWorkspace || loadError || savingRef.current) return;
+    if (isLoadingWorkspace || loadError || savingRef.current || isCalibratingRef.current) return;
     if (currentStepIndex <= totalInformativeSteps) {
       setCurrentStepIndex((prev) => prev + 1);
     }
   };
 
   const handlePrev = () => {
-    if (savingRef.current) return;
+    if (savingRef.current || isCalibratingRef.current) return;
+    cancelCalibration();
     setSaveError(null);
+    setCalibrationError(null);
     setLiveMetrics(null);
     if (currentStepIndex > 0) {
       setCurrentStepIndex((prev) => prev - 1);
@@ -205,42 +408,10 @@ export default function WorkspaceCalibrationModal({
   };
 
   const handleClose = () => {
-    if (!savingRef.current) onClose();
-  };
-
-  const handleSave = async () => {
-    if (savingRef.current || isLoadingWorkspace || loadError || !isFinalWebcamStep) return;
-
-    savingRef.current = true;
-    setIsSaving(true);
-    setSaveError(null);
-
-    const payload: Required<CreateWorkspacePayload> = {
-      deviceType,
-      isWebcamFront,
-      hasExternalKeyboard,
-      hasExternalMouse,
-      adjustableDesk,
-      adjustableChair,
-      adjustableMonitor,
-    };
-
-    try {
-      const workspace = workspaceId
-        ? await workspaceService.update({ id: workspaceId, ...payload })
-        : await workspaceService.create(payload);
-      setWorkspaceId(workspace.id);
-    } catch (error) {
-      console.error("Failed to save workspace configuration:", error);
-      setSaveError("Não foi possível salvar seu ambiente de trabalho. Tente novamente.");
-      return;
-    } finally {
-      savingRef.current = false;
-      setIsSaving(false);
+    if (!savingRef.current && !isCalibratingRef.current) {
+      cancelCalibration();
+      onClose();
     }
-
-    onCalibrateSubmit();
-    onClose();
   };
 
   const currentStep = !isFormStep && !isFinalWebcamStep ? steps[currentStepIndex - 1] : null;
@@ -480,14 +651,182 @@ export default function WorkspaceCalibrationModal({
             <WebcamFeed
               isMonitoring={isOpen}
               onPostureUpdate={(metrics) => {
-                setLiveMetrics(metrics.presence === "ACTIVE" ? metrics : null);
+                const isReliable = metrics.presence === "ACTIVE";
+                setLiveMetrics(isReliable ? metrics : null);
+                if (isReliable) {
+                  latestPostureRef.current = metrics;
+                  if (isCalibratingRef.current) {
+                    samplesRef.current.push({
+                      neckAngle: metrics.neckAngle,
+                      shoulderBalance: metrics.shoulderBalance,
+                      distanceCm: metrics.distanceCm ?? DEFAULT_REFERENCE_DISTANCE_CM,
+                      ipdPx: latestOcularRef.current?.ipdPx ?? 60.0,
+                    });
+                  }
+                } else {
+                  latestPostureRef.current = null;
+                }
                 onPostureUpdate?.(metrics);
               }}
               onPresenceChange={(presence) => {
-                if (presence !== "ACTIVE") setLiveMetrics(null);
+                if (presence !== "ACTIVE") {
+                  setLiveMetrics(null);
+                  latestPostureRef.current = null;
+                }
                 onPresenceChange?.(presence);
               }}
+              onOcularUpdate={(ocular) => {
+                if (ocular?.available && ocular.ipd) {
+                  latestOcularRef.current = {
+                    ipdPx: ocular.ipd.distancePx,
+                    distanceCm: ocular.distanceCm,
+                  };
+                } else {
+                  latestOcularRef.current = null;
+                }
+              }}
             />
+
+            {/* Caixa de Calibração da Postura Neutra (Baseline) */}
+            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 shadow-sm space-y-3">
+              {calibrationStatus === "idle" && (
+                <div className="space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                        Calibração da Postura
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        Mantenha-se na postura ideal a um braço de distância (aproximadamente 60 cm) e inicie a contagem de 5 segundos para registrar seu baseline.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Mantenha-se enquadrado e com ombros nivelados.
+                    </span>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => startCalibration(false)}
+                      disabled={!liveMetrics}
+                      className="flex items-center gap-1.5"
+                    >
+                      <Play size={13} className="fill-current" />
+                      Iniciar Calibração (5s)
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {calibrationStatus === "countdown" && (
+                <div className="py-2 flex flex-col items-center justify-center space-y-3 text-center animate-in fade-in">
+                  <div className="flex items-center gap-2 text-primary-600 dark:text-primary-400">
+                    <Timer size={18} className="animate-pulse" />
+                    <span className="text-xs font-semibold tracking-wider uppercase">
+                      Gravando postura de referência
+                    </span>
+                  </div>
+
+                  <div className="relative flex items-center justify-center w-16 h-16 rounded-full bg-primary-50 dark:bg-primary-950/60 border-2 border-primary-500 shadow-inner">
+                    <span className="text-3xl font-extrabold text-primary-600 dark:text-primary-300 animate-in zoom-in-75 duration-200">
+                      {countdownRemaining}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-slate-800 dark:text-slate-200">
+                      Mantenha sua postura ereta e olhe para o centro da tela
+                    </p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Amostras capturadas: {samplesRef.current.length} leituras
+                    </p>
+                  </div>
+
+                  <div className="w-full max-w-xs bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
+                    <div
+                      className="bg-primary-500 h-full transition-all duration-1000 ease-linear rounded-full"
+                      style={{
+                        width: `${Math.max(5, Math.round(((CALIBRATION_DURATION_SECONDS - countdownRemaining) / CALIBRATION_DURATION_SECONDS) * 100))}%`,
+                      }}
+                    />
+                  </div>
+
+                  <Button variant="secondary" size="sm" onClick={cancelCalibration}>
+                    Cancelar
+                  </Button>
+                </div>
+              )}
+
+              {calibrationStatus === "completed" && calibratedBaseline && (
+                <div className="space-y-3 animate-in fade-in">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+                      <CheckCircle2 size={16} />
+                      <span className="text-xs font-bold uppercase tracking-wider">
+                        Postura Neutra (Baseline) Calibrada
+                      </span>
+                    </div>
+
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => startCalibration(false)}
+                      className="flex items-center gap-1 text-xs"
+                    >
+                      <RotateCcw size={12} />
+                      Recalibrar
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                    <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                        Pescoço (θ_neck)
+                      </div>
+                      <div className="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">
+                        {calibratedBaseline.baselineNeckAngle}°
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                        Ombros (Balance)
+                      </div>
+                      <div className="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">
+                        {calibratedBaseline.baselineShoulderBalance}%
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                        Distância (Base)
+                      </div>
+                      <div className="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">
+                        {calibratedBaseline.baselineDistanceCm} cm
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                        IPD (Pupilas)
+                      </div>
+                      <div className="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">
+                        {calibratedBaseline.baselineEyeDistancePx} px
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {calibrationError && (
+                <div className="p-2 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 flex items-center gap-2 text-rose-700 dark:text-rose-300 text-xs">
+                  <AlertTriangle size={14} className="shrink-0" />
+                  <span>{calibrationError}</span>
+                </div>
+              )}
+            </div>
 
             <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 text-xs flex justify-between items-center">
               <span className="text-slate-500 dark:text-slate-400 font-medium">
@@ -501,14 +840,20 @@ export default function WorkspaceCalibrationModal({
             </div>
 
             <div className="flex items-center justify-end gap-3 pt-2">
-              <Button variant="secondary" size="md" onClick={handlePrev} disabled={isSaving}>
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={handlePrev}
+                disabled={isSaving || calibrationStatus === "countdown"}
+              >
                 Voltar
               </Button>
               <Button
                 variant="primary"
                 size="md"
-                onClick={handleSave}
+                onClick={() => handleSave()}
                 isLoading={isSaving}
+                disabled={calibrationStatus === "countdown"}
                 className="flex items-center gap-1.5"
               >
                 {!isSaving && <CheckCircle2 size={16} />}
