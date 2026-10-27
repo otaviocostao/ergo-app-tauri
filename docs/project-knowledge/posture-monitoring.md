@@ -269,7 +269,7 @@ Implementado e refatorado no componente `src/components/monitoring/WebcamFeed.ts
 2. **Limitação do Ciclo de Inferência (10-12 FPS)**:
    - Throttling configurado em `INFERENCE_INTERVAL_MS = 90` (~11.1 FPS) no loop de `requestAnimationFrame`.
    - As inferências neurais pesadas do MediaPipe (`detectFrame`) são disparadas exclusivamente a cada ~90ms, reduzindo em mais de 65% o consumo de CPU/GPU em relação a loops não controlados de 30/60 FPS.
-   - Suavização dos ângulos calculados via Filtro Exponencial EMA ($\alpha = 0.3$) para eliminar micro-oscilações visuais.
+   - Suavização dos ângulos calculados via One Euro (`temporalPostureFilter.ts`), com corte adaptativo à velocidade e intervalo real entre inferências.
 
 3. **Tratamento do Bloqueio Exclusivo do Windows (*Exclusive Lock*)**:
    - Interceptação de `NotReadableError`, `TrackStartError`, `AbortError` e `"device in use"` durante `getUserMedia`.
@@ -300,7 +300,7 @@ O resultado retornado por `poseDetector.detectFrame(videoElement)` fornece:
 
 O feed já consome `poseAngles.ts`, que adapta os landmarks e chama as funções puras de `biomechanics.ts`. A conversão usa `video.videoWidth` e `video.videoHeight`, preservando a geometria quando a prévia muda de tamanho. O referencial da cabeça usa nariz e a média das orelhas visíveis; os ângulos brutos não aplicam uma calibração neutra.
 
-A inferência continua limitada a aproximadamente 11 FPS, e a suavização EMA mantém valores decimais até a publicação na interface. Capturas que terminam depois de uma pausa, troca de dispositivo ou desmontagem liberam os tracks imediatamente. Os testes do componente usam DOM, captura e detector simulados; a câmera física e a precisão da inferência MediaPipe exigem validação manual no aplicativo.
+A inferência continua limitada a aproximadamente 11 FPS, e a suavização One Euro mantém valores decimais até a publicação na interface. Os ombros são filtrados em graus antes da conversão em porcentagem; pescoço e ombros mantêm históricos independentes. Pausa, troca de câmera, mute, perda de hardware, presença parcial/ausência e gaps maiores que um segundo reiniciam o filtro. Capturas que terminam depois de uma pausa, troca de dispositivo ou desmontagem liberam os tracks imediatamente. Os testes do componente usam DOM, captura e detector simulados; a câmera física e a precisão da inferência MediaPipe exigem validação manual no aplicativo. Contrato, parâmetros e critérios sintéticos: [Task 4.2 — filtro temporal](../filtro-temporal-postura.md).
 
 ### 6.3 Algoritmos oculares e integração da Task 3.4
 
