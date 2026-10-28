@@ -57,7 +57,7 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
   let landmarks: LandmarkPoint[] | null;
   let faceTransformationMatrix: ReturnType<typeof faceMatrix> | null;
   let faceLandmarks: LandmarkPoint[] | null;
-  let streams: Array<{ track: { stop: ReturnType<typeof vi.fn> }; stream: MediaStream }>;
+  let streams: ReturnType<typeof makeStream>[];
   const onCalibrateSubmit = vi.fn();
   const onClose = vi.fn();
 
@@ -375,6 +375,77 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
 
     expect(dialog?.textContent).toContain("Postura Confirmada:");
     expect(dialog?.textContent).toContain("faixa ideal (60 cm de distância do monitor)");
+  });
+
+  it("requires measured eye landmarks before starting or auto-saving", async () => {
+    faceLandmarks = Array.from({ length: 478 }, () => ({ x: 0, y: 0, z: 0, visibility: 0, presence: 0 }));
+    await renderModal(); await reachCalibrationCamera(); await advance(200);
+    const start = [...document.querySelectorAll("button")].find(b => b.textContent?.includes("Iniciar Calibração"));
+    expect(start?.disabled).toBe(true);
+    await clickButton("Salvar"); await advance(5100);
+    expect(document.body.textContent).toContain("Aguardando leitura válida");
+    expect(document.body.textContent).not.toContain("Postura Calibrada");
+    expect(postureService.saveCalibration).not.toHaveBeenCalled();
+  });
+
+  it("does not substitute 60px when eye measurements disappear during the countdown", async () => {
+    await renderModal(); await reachCalibrationCamera(); await advance(200);
+    await clickButton("Salvar");
+    faceLandmarks = Array.from({ length: 478 }, () => ({ x: 0, y: 0, z: 0, visibility: 0, presence: 0 }));
+    await advance(5100);
+    expect(document.body.textContent).toContain("Não houve leituras válidas suficientes");
+    expect(document.body.textContent).not.toContain("Postura Calibrada");
+    expect(postureService.saveCalibration).not.toHaveBeenCalled();
+  });
+
+  it("rejects a short initial fragment followed by user absence", async () => {
+    await renderModal(); await reachCalibrationCamera(); await advance(200);
+    await clickButton("Salvar"); await advance(100);
+    landmarks = null; faceLandmarks = null; await advance(5000);
+    expect(document.body.textContent).toContain("Não houve leituras válidas suficientes");
+    expect(postureService.saveCalibration).not.toHaveBeenCalled();
+  });
+
+  it("rejects head movement even though the angles pass through the temporal filter", async () => {
+    await renderModal(); await reachCalibrationCamera(); await advance(200);
+    await clickButton("Salvar"); await advance(2500);
+    faceTransformationMatrix = faceMatrix(10); await advance(2600);
+    expect(document.body.textContent).toContain("Sua postura variou durante a coleta");
+    expect(postureService.saveCalibration).not.toHaveBeenCalled();
+  });
+
+  it("rejects changing distance instead of saving the mean of two positions", async () => {
+    await renderModal(); await reachCalibrationCamera(); await advance(200);
+    await clickButton("Salvar"); await advance(2500);
+    faceLandmarks = ocularFace(0.3, 300, 550); await advance(2600);
+    expect(document.body.textContent).toContain("A distância entre os olhos variou durante a coleta");
+    expect(postureService.saveCalibration).not.toHaveBeenCalled();
+  });
+
+  it("requires frontal head pose throughout enough of the capture", async () => {
+    await renderModal(); await reachCalibrationCamera(); await advance(200);
+    await clickButton("Salvar"); faceTransformationMatrix = faceMatrix(40);
+    await advance(5100);
+    expect(document.body.textContent).toContain("Não houve leituras válidas suficientes");
+    expect(postureService.saveCalibration).not.toHaveBeenCalled();
+  });
+
+  it("tolerates brief eye tracking loss without inventing samples", async () => {
+    await renderModal(); await reachCalibrationCamera(); await advance(200);
+    await clickButton("Salvar"); await advance(2000);
+    faceLandmarks = null; await advance(200);
+    faceLandmarks = ocularFace(); await advance(2900);
+    expect(postureService.saveCalibration).toHaveBeenCalledWith(expect.objectContaining({ baselineEyeDistancePx: 200 }));
+  });
+
+  it("does not mix two camera resolutions within a calibration", async () => {
+    await renderModal(); await reachCalibrationCamera(); await advance(200);
+    await clickButton("Salvar"); await advance(2500);
+    vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(640);
+    vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(360);
+    await advance(2600);
+    expect(document.body.textContent).toContain("A câmera, a resolução ou a medição dos olhos mudou");
+    expect(postureService.saveCalibration).not.toHaveBeenCalled();
   });
 
   it("includes userId in the payload when provided", async () => {

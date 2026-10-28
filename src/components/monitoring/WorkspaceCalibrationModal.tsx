@@ -18,7 +18,11 @@ import webcamPositionStill from "../../assets/calibration/webcam-position-still.
 import { workspaceService, type CreateWorkspacePayload } from "../../services/workspaceService";
 import { postureService } from "../../services/postureService";
 import { useOptionalAuth } from "../../auth/AuthContext";
-import { validateCalibrationIPD, type IPDCalibrationValidationResult } from "../../services/vision";
+import {
+  DEFAULT_REFERENCE_DISTANCE_CM, POSTURE_CALIBRATION_LIMITS, evaluatePostureCalibration,
+  validateCalibrationIPD, type CalibratedBaseline, type CalibrationFailure,
+  type IPDCalibrationValidationResult, type PostureCalibrationFrame,
+} from "../../services/vision";
 import type { PostureCalibrationDTO, SaveCalibrationPayload } from "../../types/postureCalibration";
 import {
   CheckCircle2,
@@ -30,8 +34,17 @@ import {
   AlertTriangle,
 } from "lucide-react";
 
-export const DEFAULT_REFERENCE_DISTANCE_CM = 60;
-export const CALIBRATION_DURATION_SECONDS = 5;
+export { DEFAULT_REFERENCE_DISTANCE_CM };
+export type { CalibratedBaseline };
+export const CALIBRATION_DURATION_SECONDS = POSTURE_CALIBRATION_LIMITS.durationMs / 1000;
+
+const CALIBRATION_FAILURE_MESSAGES: Record<CalibrationFailure, string> = {
+  "insufficient-data": "Não houve leituras válidas suficientes durante os 5 segundos. Mantenha rosto e ombros enquadrados e tente novamente.",
+  "invalid-frame": "A câmera forneceu uma leitura inválida. Inicie uma nova calibração.",
+  "capture-changed": "A câmera, a resolução ou a medição dos olhos mudou durante a coleta. Inicie uma nova calibração.",
+  "unstable-posture": "Sua postura variou durante a coleta. Mantenha cabeça e ombros parados e tente novamente.",
+  "unstable-ipd": "A distância entre os olhos variou durante a coleta. Mantenha a mesma distância da câmera e tente novamente.",
+};
 
 export interface WorkspaceCalibrationModalProps {
   isOpen: boolean;
@@ -51,20 +64,6 @@ export interface SetupStep {
   imageSrc?: string;
   imageStillSrc?: string;
   imageAlt?: string;
-}
-
-export interface CalibratedBaseline {
-  baselineNeckAngle: number;
-  baselineShoulderBalance: number;
-  baselineDistanceCm: number;
-  baselineEyeDistancePx: number;
-}
-
-interface CalibrationSample {
-  neckAngle: number;
-  shoulderBalance: number;
-  distanceCm: number;
-  ipdPx: number;
 }
 
 export default function WorkspaceCalibrationModal({
@@ -95,7 +94,8 @@ export default function WorkspaceCalibrationModal({
   const [saveError, setSaveError] = useState<string | null>(null);
   const savingRef = useRef(false);
 
-  const [liveMetrics, setLiveMetrics] = useState<{ neckAngle: number; shoulderBalance: number } | null>(null);
+  const [isFrameReady, setIsFrameReady] = useState(false);
+  const [sampleCount, setSampleCount] = useState(0);
 
   // Estados de Calibração da Postura Neutra (Baseline)
   const [calibrationStatus, setCalibrationStatus] = useState<"idle" | "countdown" | "completed">("idle");
@@ -105,22 +105,12 @@ export default function WorkspaceCalibrationModal({
   const [distanceWarning, setDistanceWarning] = useState<IPDCalibrationValidationResult | null>(null);
   const [allowOverrideWarning, setAllowOverrideWarning] = useState<boolean>(false);
 
-  const samplesRef = useRef<CalibrationSample[]>([]);
+  const samplesRef = useRef<PostureCalibrationFrame[]>([]);
+  const startedAtRef = useRef<number | null>(null);
+  const finishCalibrationRef = useRef<() => void>(() => {});
   const isCalibratingRef = useRef(false);
   const autoSaveOnCompleteRef = useRef(false);
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const latestFrameWidthRef = useRef<number>(1280);
-
-  const latestPostureRef = useRef<{
-    neckAngle: number;
-    shoulderBalance: number;
-    distanceCm: number | null;
-  } | null>(null);
-
-  const latestOcularRef = useRef<{
-    ipdPx: number | null;
-    distanceCm: number | null;
-  } | null>(null);
 
   const baseSteps: SetupStep[] = [
     {
@@ -224,11 +214,11 @@ export default function WorkspaceCalibrationModal({
     const baseline = baselineToPersist ?? calibratedBaseline;
 
     if (!baseline) {
-      if (liveMetrics) {
+      if (isFrameReady) {
         startCalibration(true);
         return;
       } else {
-        setCalibrationError("Aguardando detecção confiável da câmera para calibrar.");
+        setCalibrationError("Aguardando leitura válida de rosto, ombros e distância entre os olhos para calibrar.");
         return;
       }
     }
@@ -280,42 +270,20 @@ export default function WorkspaceCalibrationModal({
       countdownTimerRef.current = null;
     }
     isCalibratingRef.current = false;
-    const samples = samplesRef.current;
+    const result = evaluatePostureCalibration(samplesRef.current, startedAtRef.current ?? NaN, performance.now());
 
-    if (samples.length === 0 && latestPostureRef.current) {
-      samples.push({
-        neckAngle: latestPostureRef.current.neckAngle,
-        shoulderBalance: latestPostureRef.current.shoulderBalance,
-        distanceCm: latestPostureRef.current.distanceCm ?? DEFAULT_REFERENCE_DISTANCE_CM,
-        ipdPx: latestOcularRef.current?.ipdPx ?? 60.0,
-      });
-    }
-
-    if (samples.length === 0) {
-      setCalibrationError(
-        "Nenhuma postura estável detectada durante o intervalo. Certifique-se de que a câmera esteja enquadrando seu rosto e ombros."
-      );
+    if (!result.ok) {
+      setCalibratedBaseline(null);
+      setCalibrationError(CALIBRATION_FAILURE_MESSAGES[result.reason]);
       setCalibrationStatus("idle");
       autoSaveOnCompleteRef.current = false;
       return;
     }
 
-    const count = samples.length;
-    const avgNeck = Number((samples.reduce((acc, s) => acc + s.neckAngle, 0) / count).toFixed(1));
-    const avgShoulder = Number((samples.reduce((acc, s) => acc + s.shoulderBalance, 0) / count).toFixed(1));
-    const avgDist = Number((samples.reduce((acc, s) => acc + s.distanceCm, 0) / count).toFixed(1));
-    const avgIpd = Number((samples.reduce((acc, s) => acc + s.ipdPx, 0) / count).toFixed(1));
-
-    const validation = validateCalibrationIPD(avgIpd, latestFrameWidthRef.current);
+    const { baseline } = result;
+    const validation = validateCalibrationIPD(baseline.baselineEyeDistancePx, result.frameWidth);
     setDistanceWarning(validation);
     setAllowOverrideWarning(false);
-
-    const baseline: CalibratedBaseline = {
-      baselineNeckAngle: avgNeck,
-      baselineShoulderBalance: avgShoulder,
-      baselineDistanceCm: avgDist,
-      baselineEyeDistancePx: avgIpd,
-    };
 
     setCalibratedBaseline(baseline);
     setCalibrationStatus("completed");
@@ -329,6 +297,10 @@ export default function WorkspaceCalibrationModal({
     }
   };
 
+  useEffect(() => {
+    finishCalibrationRef.current = finishCalibration;
+  });
+
   const startCalibration = (autoSave = false) => {
     if (countdownTimerRef.current) {
       clearInterval(countdownTimerRef.current);
@@ -339,23 +311,17 @@ export default function WorkspaceCalibrationModal({
     setDistanceWarning(null);
     setAllowOverrideWarning(false);
     samplesRef.current = [];
+    setSampleCount(0);
+    startedAtRef.current = performance.now();
     isCalibratingRef.current = true;
     autoSaveOnCompleteRef.current = autoSave;
     setCountdownRemaining(CALIBRATION_DURATION_SECONDS);
     setCalibrationStatus("countdown");
 
     countdownTimerRef.current = setInterval(() => {
-      setCountdownRemaining((prev) => {
-        if (prev <= 1) {
-          if (countdownTimerRef.current) {
-            clearInterval(countdownTimerRef.current);
-            countdownTimerRef.current = null;
-          }
-          finishCalibration();
-          return 0;
-        }
-        return prev - 1;
-      });
+      const elapsed = performance.now() - startedAtRef.current!;
+      setCountdownRemaining(Math.max(0, Math.ceil((POSTURE_CALIBRATION_LIMITS.durationMs - elapsed) / 1000)));
+      if (elapsed >= POSTURE_CALIBRATION_LIMITS.durationMs) finishCalibrationRef.current();
     }, 1000);
   };
 
@@ -371,7 +337,7 @@ export default function WorkspaceCalibrationModal({
   useEffect(() => {
     if (!isOpen) {
       setCurrentStepIndex(0);
-      setLiveMetrics(null);
+      setIsFrameReady(false);
       cancelCalibration();
       setCalibratedBaseline(null);
       return;
@@ -383,7 +349,7 @@ export default function WorkspaceCalibrationModal({
     setLoadError(null);
     setSaveError(null);
     setWorkspaceId(null);
-    setLiveMetrics(null);
+    setIsFrameReady(false);
     cancelCalibration();
     setCalibratedBaseline(null);
 
@@ -425,7 +391,7 @@ export default function WorkspaceCalibrationModal({
     cancelCalibration();
     setSaveError(null);
     setCalibrationError(null);
-    setLiveMetrics(null);
+    setIsFrameReady(false);
     if (currentStepIndex > 0) {
       setCurrentStepIndex((prev) => prev - 1);
     }
@@ -674,42 +640,15 @@ export default function WorkspaceCalibrationModal({
 
             <WebcamFeed
               isMonitoring={isOpen}
-              onPostureUpdate={(metrics) => {
-                const isReliable = metrics.presence === "ACTIVE";
-                setLiveMetrics(isReliable ? metrics : null);
-                if (isReliable) {
-                  latestPostureRef.current = metrics;
-                  if (isCalibratingRef.current) {
-                    samplesRef.current.push({
-                      neckAngle: metrics.neckAngle,
-                      shoulderBalance: metrics.shoulderBalance,
-                      distanceCm: metrics.distanceCm ?? DEFAULT_REFERENCE_DISTANCE_CM,
-                      ipdPx: latestOcularRef.current?.ipdPx ?? 60.0,
-                    });
-                  }
-                } else {
-                  latestPostureRef.current = null;
-                }
-                onPostureUpdate?.(metrics);
-              }}
-              onPresenceChange={(presence) => {
-                if (presence !== "ACTIVE") {
-                  setLiveMetrics(null);
-                  latestPostureRef.current = null;
-                }
-                onPresenceChange?.(presence);
-              }}
-              onOcularUpdate={(ocular) => {
-                if (ocular?.frameWidth) {
-                  latestFrameWidthRef.current = ocular.frameWidth;
-                }
-                if (ocular?.available && ocular.ipd) {
-                  latestOcularRef.current = {
-                    ipdPx: ocular.ipd.distancePx,
-                    distanceCm: ocular.distanceCm,
-                  };
-                } else {
-                  latestOcularRef.current = null;
+              onPostureUpdate={onPostureUpdate}
+              onPresenceChange={onPresenceChange}
+              onCalibrationFrame={(frame) => {
+                setIsFrameReady(frame !== null);
+                const startedAt = startedAtRef.current;
+                if (frame && isCalibratingRef.current && startedAt !== null &&
+                  frame.timestampMs >= startedAt && frame.timestampMs <= startedAt + POSTURE_CALIBRATION_LIMITS.durationMs) {
+                  samplesRef.current.push(frame);
+                  setSampleCount(samplesRef.current.length);
                 }
               }}
             />
@@ -736,7 +675,7 @@ export default function WorkspaceCalibrationModal({
                       variant="primary"
                       size="sm"
                       onClick={() => startCalibration(false)}
-                      disabled={!liveMetrics}
+                      disabled={!isFrameReady}
                       className="flex items-center gap-1.5"
                     >
                       <Play size={13} className="fill-current" />
@@ -765,7 +704,7 @@ export default function WorkspaceCalibrationModal({
                       Mantenha sua postura ereta e olhe para o centro da tela
                     </p>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      Amostras capturadas: {samplesRef.current.length} leituras
+                      Amostras capturadas: {sampleCount} leituras
                     </p>
                   </div>
 
@@ -810,7 +749,7 @@ export default function WorkspaceCalibrationModal({
                         Ângulo do Pescoço
                       </div>
                       <div className="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">
-                        {calibratedBaseline.baselineNeckAngle}°
+                        {Number(calibratedBaseline.baselineNeckAngle.toFixed(1))}°
                       </div>
                     </div>
 
@@ -819,7 +758,7 @@ export default function WorkspaceCalibrationModal({
                         Balanceamento dos Ombros
                       </div>
                       <div className="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">
-                        {calibratedBaseline.baselineShoulderBalance}%
+                        {Number(calibratedBaseline.baselineShoulderBalance.toFixed(1))}%
                       </div>
                     </div>
 
@@ -837,7 +776,7 @@ export default function WorkspaceCalibrationModal({
                         Distância de Olhos
                       </div>
                       <div className="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">
-                        {calibratedBaseline.baselineEyeDistancePx} px
+                        {Number(calibratedBaseline.baselineEyeDistancePx.toFixed(1))} px
                       </div>
                     </div>
                   </div>

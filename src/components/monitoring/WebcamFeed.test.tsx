@@ -185,6 +185,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     });
 
   it("tracks actual body movement in the calibration step and releases its camera when closed", async () => {
+    faceLandmarks = ocularFace();
     await renderCalibration();
     expect(getUserMedia).not.toHaveBeenCalled();
     await reachCalibrationCamera(); await advance(200);
@@ -203,6 +204,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   });
 
   it("shows no demo joints or captured angles in calibration without a valid detection", async () => {
+    faceLandmarks = ocularFace();
     landmarks = null;
     await renderCalibration(); await reachCalibrationCamera(); await advance(200);
     expect(drawnFrames[drawnFrames.length - 1]?.points).toBe(0);
