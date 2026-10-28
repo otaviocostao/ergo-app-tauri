@@ -1,3 +1,7 @@
+import type { PostureMetric } from "../../types/postureClassification";
+
+export const POSTURE_METRICS: readonly PostureMetric[] = Object.freeze(["neck", "shoulders", "distance", "blink-rate"]);
+
 export interface AngularClassificationThresholds {
   readonly goodMaxDegrees: number;
   readonly warningMaxDegrees: number;
