@@ -37,6 +37,8 @@ Pausa, encerramento ou troca de câmera, mute/unmute, perda do hardware e presen
 
 O monitoramento e a captura de baseline passam pelo mesmo componente e pelo mesmo filtro. Distância, EAR e piscadas mantêm os tratamentos próprios. Esta task não altera limiares, histerese, cooldown, schema ou DTOs persistidos.
 
+A coleta da Task 4.1 usa `onCalibrationFrame`, com os ângulos filtrados sem arredondamento e a IPD da mesma inferência. A estabilidade é avaliada separadamente nos ângulos brutos e na IPD; uma saída suavizada não basta para aprovar a coleta. Critérios e tratamento de dados ausentes estão no [guia de calibração](calibracao-postura.md).
+
 ## Verificação
 
 Executar `npm test` e `npm run build`. A suíte inclui geometria dos ombros, independência dos canais, timestamps irregulares, entradas inválidas, reset e fronteira de 1000 ms, além das regressões da câmera e da calibração.

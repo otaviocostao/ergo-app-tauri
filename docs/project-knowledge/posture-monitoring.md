@@ -295,7 +295,7 @@ Esta seção detalha o funcionamento, as equações matemáticas e os racionais 
 
 ### 6.1 O Desafio da Ambiguidade de Escala em Câmeras 2D (Por que uma Baseline é Necessária)
 
-Uma webcam convencional de notebook ou monitor externo é um sensor **2D monocular** (possui apenas uma lente RGB e não dispõe de sensores físicos de profundidade como LiDAR, câmeras estéreo com múltiplos sensores ópticos ou emissores infravermelhos Time-of-Flight). 
+Uma webcam convencional de notebook ou monitor externo é um sensor **2D monocular** (possui apenas uma lente RGB e não dispõe de sensores físicos de profundidade como LiDAR, câmeras estéreo com múltiplos sensores ópticos ou emissores infravermelhos Time-of-Flight).
 
 Em uma projeção óptica bidimensional, a coordenada física de profundidade ($Z$) é perdida. Isso impõe dois desafios fundamentais da visão computacional:
 
@@ -310,14 +310,14 @@ Para contornar a ausência de hardware especializado e evitar a necessidade de c
 
 O modal de calibração guia o usuário por orientações ergonômicas interativas e finaliza na coleta ativa de sua postura de referência:
 
-1. **Posicionamento de Referência**: O usuário é instruído a sentar-se na postura ereta recomendada a **um braço de distância** da tela (aproximadamente **60 cm**, padrão ergonômico internacional preconizado pelas normas NR-17, ISO 9241-5 e OSHA).
-2. **Contagem Regressiva Ativa (5 segundos)**: Durante `CALIBRATION_DURATION_SECONDS = 5`, o componente captura amostras em alta frequência (`~11 FPS`) contanto que a presença do usuário seja confirmada como ativa e estável (`metrics.presence === "ACTIVE"`).
+1. **Posicionamento de Referência**: O usuário é instruído a sentar-se na postura ereta a aproximadamente **60 cm** da tela. Esta é uma referência assumida pelo posicionamento, não uma distância medida pela câmera.
+2. **Contagem Regressiva Ativa (5 segundos)**: Durante `CALIBRATION_DURATION_SECONDS = 5`, `onCalibrationFrame` fornece ângulos e IPD da mesma inferência, sem arredondamento. A avaliação exige pelo menos 30 amostras, cobertura de 4 segundos, lacunas de até 500 ms e estabilidade dos ângulos brutos e da IPD. Dados ausentes não recebem substitutos. Mudanças de captura, resolução ou método durante a coleta a invalidam. Limites completos e roteiro de validação estão no [guia de calibração](../calibracao-postura.md).
 3. **Métricas Coletadas e Nomenclatura Amigável na UI**:
    - **Ângulo do Pescoço**: Ângulo de flexão cervical em relação à vertical (graus).
    - **Balanceamento dos Ombros**: Nível de alinhamento horizontal dos ombros (0 a 100%).
    - **Distância de Referência**: Ancorado na constante de referência ergonômica (`DEFAULT_REFERENCE_DISTANCE_CM = 60 cm`).
    - **Distância de Olhos**: Distância em pixels entre as pupilas/olhos do usuário capturada pelo sensor naquela resolução de vídeo (`ipdPx`).
-4. **Isolamento de Usuário e Persistência Relacional**:
+4. **Vínculo de Usuário e Persistência Relacional**:
    Ao término dos 5 segundos, as médias aritméticas das amostras são computadas e enviadas ao backend Rust através de `postureService.saveCalibration`, associando o identificador do usuário autenticado (`currentUserId` derivado de `useOptionalAuth` ou passado como prop):
    ```typescript
    const calibrationPayload: SaveCalibrationPayload = {
@@ -329,7 +329,7 @@ O modal de calibração guia o usuário por orientações ergonômicas interativ
      isActive: true,
    };
    ```
-   O backend desativa quaisquer calibrações anteriores daquele usuário específico em uma transação SQLite isolada e marca o novo registro como ativo.
+   O serviço existente desativa baselines anteriores e insere o novo registro ativo. Essas operações ainda não compartilham uma transação SQLite; o backend também recebe `userId` do payload sem derivá-lo da sessão autenticada. O vínculo enviado pelo frontend não garante autorização no backend.
 
 ---
 
@@ -362,15 +362,15 @@ Implementado em `src/services/vision/ocularLandmarks.ts` (`validateCalibrationIP
 3. **Limites de Plausibilidade (`CALIBRATION_IPD_RATIO_LIMITS`)**:
    - `maxRatio: 0.20`: Razões acima de 20% da largura indicam proximidade excessiva da câmera (< 40–45 cm). Resultado: `"too-close"`.
    - `minRatio: 0.04`: Razões abaixo de 4% da largura indicam distância excessiva (> 90 cm). Resultado: `"too-far"`.
-   - `optimalMin: 0.06` a `optimalMax: 0.16`: Faixa anatômica esperada para a postura neutra ergonômica a ~60 cm. Resultado: `"valid"`.
+   - `"valid"` corresponde ao intervalo inclusivo de 0,04 a 0,20. `optimalMin`/`optimalMax` não são utilizados pelo validador. Esses limites são heurísticos e não comprovam uma distância física de 60 cm.
 4. **Propagação Dinâmica de Resolução (`OcularMetrics.frameWidth`)**:
-   A interface `OcularMetrics` carrega `frameWidth` e `frameHeight` extraídos diretamente do elemento `<video>` em cada ciclo de `updateOcularMetrics`. No modal, `latestFrameWidthRef.current` é atualizado em tempo real, garantindo precisão milimétrica mesmo em mudanças de dispositivo ou aspect ratio.
+   `onCalibrationFrame` fornece as dimensões originais do vídeo junto com cada amostra. A coleta exige contexto uniforme e mantém a largura do resultado para revalidar a razão IPD/largura ao salvar. Não há garantia de precisão milimétrica.
 5. **Fluxo de Proteção e Respeito à Autonomia do Usuário**:
    - **Bloqueio de Auto-Save**: Se a calibração for concluída mas o resultado for `"too-close"` ou `"too-far"`, o salvamento automático imediato é suspenso e o botão "Salvar" permanece desabilitado.
    - **Cards de Orientação Contextual**: Apresenta instruções claras de reposicionamento ("Afaste-se para a distância de mais ou menos 60cm" ou "Aproxime-se para a distância de mais ou menos 60cm").
-   - **Ação "Recalibrar (5s)"**: Reinicia o cronômetro para uma nova amostragem limpa.
+   - **Ação "Recalibrar (5s)"**: Descarta o resultado e a confirmação anteriores e inicia outra amostragem. Cancelar também descarta os dados em memória e a intenção de salvar automaticamente.
    - **Ação "Desejo manter assim mesmo" (Override Manual)**: Caso o usuário tenha necessidades ergonômicas especiais ou utilize lentes grande-angulares atípicas, ele pode confirmar conscientemente que deseja manter a leitura, liberando o botão "Salvar".
-   - **Confirmação Visual**: Exibe o card verde "Postura Confirmada" quando validado ou após override.
+   - **Confirmação Visual**: Informa que as leituras foram registradas e que 60 cm é a referência assumida; após override, informa a preferência manual do usuário.
 
 ---
 
@@ -379,8 +379,9 @@ Implementado em `src/services/vision/ocularLandmarks.ts` (`validateCalibrationIP
 Implementado em `src/services/vision/biomechanics.ts` (`estimateScreenDistance`) e orquestrado por `src/services/vision/ocularMetrics.ts`:
 
 1. **Reconstituição Dinâmica de Resolução (`ScreenDistanceReference`)**:
-   - O banco de dados armazena valores invariantes (`baselineDistanceCm` e `baselineEyeDistancePx`).
+   - O banco de dados armazena `baselineDistanceCm` e `baselineEyeDistancePx`. A IPD em pixels depende da resolução, óptica e método usados na coleta.
    - Em tempo de execução, o `WebcamFeed.tsx` combina a calibração com a resolução ativa do stream da câmera (`video.videoWidth` e `video.videoHeight`) e com a fonte de IPD disponível (`iris` ou `eye-corners`).
+   - O DTO ainda não preserva esse contexto. Sua compatibilidade ao reutilizar uma baseline persistida permanece pendente; a rejeição de mudanças durante a coleta não resolve essa limitação.
 2. **Equação do Modelo de Câmera Pinhole**:
    A distância da tela é inversamente proporcional à distância dos olhos projetada no sensor:
    $$\text{Distância Atual (cm)} = \frac{\text{baselineDistanceCm} \times \text{baselineEyeDistancePx}}{\text{currentEyeDistancePx}}$$
@@ -400,8 +401,8 @@ Implementado em `src/services/vision/biomechanics.ts` (`estimateScreenDistance`)
 
 | Decisão de Projeto | Justificativa Técnica / Ergonômica |
 | :--- | :--- |
-| **Fixação de 60 cm como distância de calibração** | Elimina a necessidade de fitas métricas ou réguas físicas no posto de trabalho. O comprimento médio do braço humano esticado corresponde à faixa de 50 a 70 cm preconizada pelas normas de ergonomia visual (NR-17 / ISO 9241). |
-| **Validação de proporção IPD/frameWidth (4% a 20%)** | Protege o modelo pinhole contra baselines aberrantes registradas muito perto (< 40 cm) ou muito longe (> 90 cm), sem depender de resoluções de câmera rígidas. Permite override manual para flexibilidade e inclusão ergonômica. |
+| **Fixação de 60 cm como distância de calibração** | Define a referência assumida pelo posicionamento do usuário. Um erro nessa distância inicial afeta proporcionalmente as estimativas posteriores; o aplicativo não mede nem confirma esses 60 cm. |
+| **Validação de proporção IPD/frameWidth (4% a 20%)** | Sinaliza proporções extremas como heurística de plausibilidade. Não determina uma distância física sem conhecer a óptica da câmera. Permite confirmação manual para o resultado atual. |
 | **Classificação por faixas ergonômicas em vez de precisão milimétrica** | O monitoramento postural não requer exatidão cirúrgica ($59.8\text{ cm}$ vs $60.2\text{ cm}$). O propósito essencial é distinguir a **Zona Saudável** (50 a 70 cm) da **Zona de Alerta** (< 45 cm, onde ocorre fadiga de acomodação do cristalino e projeção anterior da coluna). |
 | **Janela de aquecimento de 30s para Taxa de Piscadas** | Extrapolar `piscadas/min` com apenas 5 ou 10 segundos de observação geraria taxas matemáticas erráticas (ex.: 1 piscada em 3s viraria 20/min). A janela mínima de 30s de rosto presente estabiliza a inferência antes de alertar sobre ressecamento ocular. |
 | **Separação entre ausência do posto e má postura** | Se o usuário sai da mesa (pausa para café ou almoço), o sistema não deve penalizar o score nem registrar alertas de postura incorreta; ele simplesmente transita para `ABSENT` e congela as medições. |
