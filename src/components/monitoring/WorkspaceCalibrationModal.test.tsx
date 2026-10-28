@@ -238,8 +238,8 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     expect(dialog?.textContent).toContain("60 cm");
     expect(dialog?.textContent).toContain("200 px");
 
-    // Click "Salvar Calibração"
-    await clickButton("Salvar Calibração");
+    // Click "Salvar"
+    await clickButton("Salvar");
     await advance(100);
 
     expect(postureService.saveCalibration).toHaveBeenCalledWith(
@@ -293,8 +293,8 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     await reachCalibrationCamera();
     await advance(200);
 
-    // Direct click on Salvar Calibração while idle
-    await clickButton("Salvar Calibração");
+    // Direct click on Salvar while idle
+    await clickButton("Salvar");
     const dialog = document.querySelector('[role="dialog"]');
     expect(dialog?.textContent).toContain("Gravando postura de referência");
 
@@ -330,9 +330,9 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     expect(dialog?.textContent).toContain("Recalibrar (5s)");
     expect(dialog?.textContent).toContain("Desejo manter assim mesmo");
 
-    // "Salvar Calibração" button is disabled until override is acknowledged
+    // "Salvar" button is disabled until override is acknowledged
     const saveButton = [...document.querySelectorAll("button")].find((b) =>
-      b.textContent?.trim().includes("Salvar Calibração")
+      b.textContent?.trim() === "Salvar"
     );
     expect(saveButton).toBeDefined();
     expect(saveButton?.disabled).toBe(true);
@@ -342,7 +342,7 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     expect(saveButton?.disabled).toBe(false);
 
     // Now clicking save succeeds
-    await clickButton("Salvar Calibração");
+    await clickButton("Salvar");
     await advance(100);
 
     expect(postureService.saveCalibration).toHaveBeenCalledWith(
@@ -373,8 +373,8 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     await clickButton("Recalibrar (5s)");
     await advance(5100);
 
-    expect(dialog?.textContent).toContain("Distância Óptica Confirmada:");
-    expect(dialog?.textContent).toContain("faixa ideal (60 cm)");
+    expect(dialog?.textContent).toContain("Postura Confirmada:");
+    expect(dialog?.textContent).toContain("faixa ideal (60 cm de distância do monitor)");
   });
 
   it("includes userId in the payload when provided", async () => {
@@ -395,7 +395,7 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     await clickButton("Iniciar Calibração (5s)");
     await advance(5100);
 
-    await clickButton("Salvar Calibração");
+    await clickButton("Salvar");
     await advance(100);
 
     expect(postureService.saveCalibration).toHaveBeenCalledWith(
