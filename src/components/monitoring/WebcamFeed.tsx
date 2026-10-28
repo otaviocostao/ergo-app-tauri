@@ -104,8 +104,7 @@ export default function WebcamFeed({
   const [isHardwareBusy, setIsHardwareBusy] = useState<boolean>(false);
   const [hardwareErrorMessage, setHardwareErrorMessage] = useState<string | null>(null);
 
-  // Estados de IA e Presença
-  const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
+  // Estados de Presença
   const [presenceState, setPresenceState] = useState<UserPresenceState>("PARTIALLY_OCCLUDED");
   const [showOverlay] = useState<boolean>(true);
 
@@ -173,7 +172,6 @@ export default function WebcamFeed({
         return;
       }
 
-      setIsAiLoading(true);
       try {
         await poseDetector.initialize();
         if (!isCancelled) {
@@ -181,10 +179,6 @@ export default function WebcamFeed({
         }
       } catch (err) {
         console.warn("[WebcamFeed] Não foi possível carregar o detector MediaPipe; operando em modo de contingência:", err);
-      } finally {
-        if (!isCancelled) {
-          setIsAiLoading(false);
-        }
       }
     }
 
@@ -767,11 +761,6 @@ export default function WebcamFeed({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-semibold text-white">Feed da Câmera</h3>
-              {isAiLoading && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                  <RefreshCw size={10} className="animate-spin" /> Carregando IA...
-                </span>
-              )}
             </div>
 
             <div className="flex items-center gap-2 mt-1.5">
