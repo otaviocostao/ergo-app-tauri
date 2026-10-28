@@ -176,4 +176,16 @@ describe("Monitoring classification and temporal alerts", () => {
     });
     expect(alerts()).toEqual([]);
   });
+
+  it("displays 100% shoulder balance when matching calibrated baseline with non-zero angle, and lowers on deviation", async () => {
+    // baselineShoulderBalance: 80 corresponds to (100 - 80) / 10 = 2 degrees
+    await render();
+    await publish(0, 500, { shoulderAngle: 2 });
+    expect(container.textContent).toContain("Alinhamento Ombros");
+    expect(container.textContent).toContain("100%");
+
+    // Deviating by 2 degrees (shoulderAngle: 4) lowers balance by 20% to 80%
+    await publish(600, 1000, { shoulderAngle: 4 });
+    expect(container.textContent).toContain("80%");
+  });
 });

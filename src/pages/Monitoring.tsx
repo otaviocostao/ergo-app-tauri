@@ -13,6 +13,7 @@ import { PostureStatus, POSTURE_STATUS_LABELS } from "../enums/postureStatus";
 import {
   DEFAULT_POSTURE_CLASSIFICATION_CONFIG as classificationConfig,
   getPostureStatusLabel, PostureAlertCooldown, PostureHysteresis,
+  POSTURE_MEASUREMENT_LIMITS,
 } from "../services/vision";
 
 import {
@@ -34,6 +35,34 @@ const ALERT_MESSAGES: Record<PostureMetric, string> = {
   "blink-rate": "Frequência de piscadas reduzida",
 };
 
+function getShoulderBalance(deviation: number | null): number | null {
+  if (deviation === null) {
+    return null
+  };
+
+  const points = deviation * POSTURE_MEASUREMENT_LIMITS.shoulderBalancePointsPerDegree;
+  return Math.max(0, Math.min(100, Math.round(100 - points)));
+}
+
+function getShoulderCardValue(
+  balance: number | null,
+  calibration: PostureCalibrationDTO | null
+): string | number {
+  if (balance !== null) {
+    return balance;
+  }
+
+  if (!calibration) {
+    return "Aguardando calibração"
+  };
+
+  if (calibration.baselineShoulderBalance === 0) {
+    return "Recalibre a postura base"
+  };
+
+  return "Aguardando leitura";
+}
+
 export default function Monitoring() {
   const auth = useOptionalAuth();
   const userId = auth?.session.kind === "authenticated" ? auth.session.user.id : null;
@@ -44,7 +73,6 @@ export default function Monitoring() {
   const [sessionBlinkCount, setSessionBlinkCount] = useState(0);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [soundAlerts, setSoundAlerts] = useState(true);
-  const [shoulderBalance, setShoulderBalance] = useState(96);
   const [ocularMetrics, setOcularMetrics] = useState<OcularMetrics | null>(null);
   const distanceCm = ocularMetrics?.distanceCm ?? null;
   const [classification, setClassification] = useState<PostureClassification | null>(null);
@@ -93,21 +121,28 @@ export default function Monitoring() {
     if (metrics.presence) {
       setUserPresence(metrics.presence);
     }
-    setShoulderBalance(metrics.shoulderBalance);
   };
 
   const handleClassificationUpdate = (current: PostureClassification | null) => {
     const context = monitoringContextRef.current;
-    if (context.userId !== userId) return;
+    if (context.userId !== userId) {
+      return;
+    }
+
     setClassification(context.enabled ? current : null);
+
     if (!current || !context.enabled) {
       alertState.hysteresis.resetContinuity();
       return;
     }
+
     const temporal = alertState.hysteresis.update(current);
     const alerts = alertState.cooldown.ready(temporal.sustained, current.timestampMs);
-    if (alerts.length === 0) return;
-    // Reuse the existing session history; no new notification UI or persistence.
+
+    if (alerts.length === 0) {
+      return;
+    }
+
     const events: LogEvent[] = alerts.map(alert => ({
       id: `posture:${current.timestampMs}:${alert.metric}:${alert.level}`,
       timestamp: new Date().toLocaleTimeString(),
@@ -115,6 +150,7 @@ export default function Monitoring() {
       message: ALERT_MESSAGES[alert.metric],
       detail: `${POSTURE_STATUS_LABELS[alert.level]}. Condição mantida por ${Math.floor(alert.durationMs / 1000)} s.`,
     }));
+
     setLogs(previous => [...events, ...previous]);
     alertState.cooldown.markNotified(alerts, current.timestampMs);
   };
@@ -122,11 +158,16 @@ export default function Monitoring() {
   useEffect(() => {
     const enabled = isMonitoring && !isCalibrationOpen;
     monitoringContextRef.current = { enabled, userId };
-    if (!enabled) alertState.hysteresis.resetContinuity();
+
+    if (!enabled) {
+      alertState.hysteresis.resetContinuity();
+    }
+
   }, [isMonitoring, isCalibrationOpen, userId]);
 
   const handlePresenceChange = (presence: UserPresenceState) => {
     setUserPresence(presence);
+
     if (presence === "ABSENT") {
       const newLog: LogEvent = {
         id: Date.now().toString(),
@@ -189,7 +230,9 @@ export default function Monitoring() {
       postureService
         .getActiveCalibration(userId)
         .then((cal) => {
-          if (cal) setCalibration(cal);
+          if (cal) {
+            setCalibration(cal);
+          }
         })
         .catch(console.error);
     }
@@ -205,6 +248,7 @@ export default function Monitoring() {
 
   const handleOcularUpdate = (metrics: OcularMetrics | null) => {
     setOcularMetrics(metrics);
+
     if (metrics?.blinkEvent === "blink") {
       setSessionBlinkCount((prev) => prev + 1);
     }
@@ -218,6 +262,7 @@ export default function Monitoring() {
   const blink = classification?.metrics["blink-rate"];
   const neckDeviation = neck?.value ?? null;
   const shoulderDeviation = shoulders?.value ?? null;
+  const calibratedShoulderBalance = getShoulderBalance(shoulderDeviation);
 
   return (
     <div className="w-full h-full flex flex-col gap-6 pb-8">
@@ -294,10 +339,10 @@ export default function Monitoring() {
                         : postureStatus === null
                           ? "Aguardando dados"
                           : postureStatus === PostureStatus.GOOD
-                          ? "Excelente"
-                          : postureStatus === PostureStatus.WARNING
-                            ? "Atenção"
-                            : "Crítico"}
+                            ? "Excelente"
+                            : postureStatus === PostureStatus.WARNING
+                              ? "Atenção"
+                              : "Crítico"}
                 </span>
               </div>
             </div>
@@ -368,19 +413,21 @@ export default function Monitoring() {
 
             <ErgoMetricsCard
               title="Alinhamento Ombros"
-              value={shoulderBalance}
-              unit="%"
+              value={getShoulderCardValue(calibratedShoulderBalance, calibration)}
+              unit={calibratedShoulderBalance === null ? undefined : "%"}
               status={shoulders?.status ?? "info"}
               icon={Sliders}
-              progress={shoulderBalance}
+              progress={calibratedShoulderBalance ?? undefined}
               idealRange={`Desvio ≤ ${classificationConfig.shoulders.goodMaxDegrees}°`}
               trend={shoulders?.status === PostureStatus.GOOD ? "stable" : "worsening"}
-              description="Nivelamento horizontal entre ombro esquerdo e direito."
+              description="Alinhamento dos ombros em relação à sua postura neutra calibrada."
               details={[
                 { label: "Desvio da referência:", value: shoulderDeviation === null ? "Indisponível" : `${shoulderDeviation.toFixed(1)}°` },
-                { label: "Balanço:", value: shoulders?.status == null
-                  ? calibration?.baselineShoulderBalance === 0 ? "Recalibre a postura base" : "Indisponível"
-                  : shoulders.status === PostureStatus.GOOD ? "Simétrico" : "Inclinado" },
+                {
+                  label: "Balanço:", value: shoulders?.status == null
+                    ? calibration?.baselineShoulderBalance === 0 ? "Recalibre a postura base" : "Indisponível"
+                    : shoulders.status === PostureStatus.GOOD ? "Simétrico" : "Inclinado"
+                },
               ]}
               isPaused={isPaused}
             />
