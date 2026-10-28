@@ -754,9 +754,9 @@ export default function WebcamFeed({
   return (
     <div
       ref={containerRef}
-      className={`relative flex flex-col bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-xl ${className}`}
+      className={`relative flex flex-col bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 ${className}`}
     >
-      <div className="flex items-center justify-between p-3.5 bg-slate-900/95 backdrop-blur-md z-20 border-b border-slate-800/80">
+      <div className="flex items-center justify-between rounded-2xl p-3.5 bg-slate-900/95 backdrop-blur-md z-20 border-b border-slate-800/80">
         <div className="flex items-center gap-2.5">
           <div>
             <div className="flex items-center gap-2">

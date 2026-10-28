@@ -27,7 +27,6 @@ import {
   Monitor,
   Play,
   RotateCcw,
-  Timer,
   AlertTriangle,
 } from "lucide-react";
 
@@ -609,7 +608,7 @@ export default function WorkspaceCalibrationModal({
                 {currentStep.description}
               </p>
 
-              <div className={`w-full flex-1 min-h-[300px] max-h-[350px] ${currentStep.imageSrc ? "bg-[#f5faf9]" : "bg-slate-200 dark:bg-slate-800"} rounded-xl border border-slate-300/70 dark:border-slate-700 flex flex-col items-center justify-center relative overflow-hidden group shadow-inner`}>
+              <div className={`w-full flex-1 min-h-[300px] max-h-[350px] ${currentStep.imageSrc ? "bg-[#f5faf9]" : "bg-slate-200 dark:bg-slate-800"} rounded-xl border border-slate-300/70 dark:border-slate-700 flex flex-col items-center justify-center relative overflow-hidden group`}>
                 {currentStep.imageSrc ? (
                   <picture className="absolute inset-0 block">
                     {currentStep.imageStillSrc && (
@@ -715,7 +714,7 @@ export default function WorkspaceCalibrationModal({
               }}
             />
 
-            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 shadow-sm space-y-3">
+            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 space-y-3">
               {calibrationStatus === "idle" && (
                 <div className="space-y-3">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -749,14 +748,13 @@ export default function WorkspaceCalibrationModal({
 
               {calibrationStatus === "countdown" && (
                 <div className="py-2 flex flex-col items-center justify-center space-y-3 text-center animate-in fade-in">
-                  <div className="flex items-center gap-2 text-primary-600 dark:text-primary-400">
-                    <Timer size={18} className="animate-pulse" />
-                    <span className="text-xs font-semibold tracking-wider uppercase">
+                  <div className="flex items-center text-primary-600 dark:text-primary-400">
+                    <span className="text-sm font-semibold uppercase">
                       Gravando postura de referência
                     </span>
                   </div>
 
-                  <div className="relative flex items-center justify-center w-16 h-16 rounded-full bg-primary-50 dark:bg-primary-950/60 border-2 border-primary-500 shadow-inner">
+                  <div className="relative flex items-center justify-center w-16 h-16 rounded-full bg-primary-50 dark:bg-primary-950/60 border-2 border-primary-500">
                     <span className="text-3xl font-extrabold text-primary-600 dark:text-primary-300 animate-in zoom-in-75 duration-200">
                       {countdownRemaining}
                     </span>
@@ -869,7 +867,7 @@ export default function WorkspaceCalibrationModal({
                           variant="primary"
                           size="sm"
                           onClick={() => startCalibration(false)}
-                          className="flex items-center gap-1.5 text-xs shadow-sm"
+                          className="flex items-center gap-1.5 text-xs"
                         >
                           <RotateCcw size={12} />
                           Recalibrar (5s)
@@ -903,7 +901,7 @@ export default function WorkspaceCalibrationModal({
                           variant="primary"
                           size="sm"
                           onClick={() => startCalibration(false)}
-                          className="flex items-center gap-1.5 text-xs shadow-sm"
+                          className="flex items-center gap-1.5 text-xs"
                         >
                           <RotateCcw size={12} />
                           Recalibrar (5s)
@@ -918,12 +916,12 @@ export default function WorkspaceCalibrationModal({
                         <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
                         <div>
                           <span className="font-semibold block text-emerald-900 dark:text-emerald-100">
-                            Distância Óptica Confirmada:
+                            Postura Confirmada:
                           </span>
                           <span className="text-emerald-700 dark:text-emerald-300">
                             {allowOverrideWarning
-                              ? "Distância mantida conforme sua preferência manual."
-                              : "Referência pupilar calibrada dentro da faixa ideal (60 cm)."}
+                              ? "Postura mantida conforme sua preferência manual."
+                              : "Postura calibrada dentro da faixa ideal (60 cm de distância do monitor)."}
                           </span>
                         </div>
                       </div>
@@ -960,8 +958,7 @@ export default function WorkspaceCalibrationModal({
                 }
                 className="flex items-center gap-1.5"
               >
-                {!isSaving && <CheckCircle2 size={16} />}
-                {isSaving ? "Salvando..." : "Salvar Calibração"}
+                {isSaving ? "Salvando..." : "Salvar"}
               </Button>
             </div>
           </div>
