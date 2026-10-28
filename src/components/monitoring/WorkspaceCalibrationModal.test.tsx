@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WorkspaceCalibrationModal from "./WorkspaceCalibrationModal";
@@ -446,6 +446,66 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     await advance(2600);
     expect(document.body.textContent).toContain("A câmera, a resolução ou a medição dos olhos mudou");
     expect(postureService.saveCalibration).not.toHaveBeenCalled();
+  });
+
+  it("cannot bypass a distance warning by recalibrating and cancelling", async () => {
+    faceLandmarks = ocularFace(0.3, 200, 560);
+    await renderModal(); await reachCalibrationCamera(); await advance(200);
+    await clickButton("Iniciar Calibração"); await advance(5100);
+    const save = () => [...document.querySelectorAll("button")].find(b => b.textContent?.trim() === "Salvar")!;
+    expect(save().disabled).toBe(true);
+    await clickButton("Recalibrar"); await advance(100); await clickButton("Cancelar");
+    await clickButton("Salvar");
+    expect(document.body.textContent).toContain("Gravando postura de referência");
+    expect(postureService.saveCalibration).not.toHaveBeenCalled();
+    await advance(5100);
+    expect(save().disabled).toBe(true);
+    expect(postureService.saveCalibration).not.toHaveBeenCalled();
+    await clickButton("Desejo manter assim mesmo"); await clickButton("Salvar");
+    expect(postureService.saveCalibration).toHaveBeenCalledWith(expect.objectContaining({ baselineEyeDistancePx: 360 }));
+  });
+
+  it("discards the previous completed result when recalibration fails", async () => {
+    await renderModal(); await reachCalibrationCamera(); await advance(200);
+    await clickButton("Iniciar Calibração"); await advance(5100);
+    await clickButton("Recalibrar"); faceLandmarks = null; await advance(5100);
+    expect(document.body.textContent).not.toContain("Postura Calibrada");
+    await clickButton("Salvar");
+    expect(postureService.saveCalibration).not.toHaveBeenCalled();
+  });
+
+  it("does not carry manual distance confirmation into a new calibration", async () => {
+    faceLandmarks = ocularFace(0.3, 200, 560);
+    await renderModal(); await reachCalibrationCamera(); await advance(200);
+    await clickButton("Iniciar Calibração"); await advance(5100);
+    await clickButton("Desejo manter assim mesmo");
+    await clickButton("Recalibrar"); await advance(5100);
+    const save = [...document.querySelectorAll("button")].find(b => b.textContent?.trim() === "Salvar");
+    expect(save?.disabled).toBe(true);
+    expect(document.body.textContent).toContain("Desejo manter assim mesmo");
+    expect(postureService.saveCalibration).not.toHaveBeenCalled();
+  });
+
+  it("stops automatic saving when its countdown is cancelled", async () => {
+    await renderModal(); await reachCalibrationCamera(); await advance(200);
+    await clickButton("Salvar"); await advance(2500); await clickButton("Cancelar");
+    await advance(5100);
+    expect(document.body.textContent).not.toContain("Postura Calibrada");
+    expect(postureService.saveCalibration).not.toHaveBeenCalled();
+    await clickButton("Salvar"); await advance(5100);
+    expect(postureService.saveCalibration).toHaveBeenCalledOnce();
+  });
+
+  it("saves exactly once in StrictMode after the complete countdown", async () => {
+    await act(async () => root.render(<StrictMode><WorkspaceCalibrationModal isOpen onClose={onClose} onCalibrateSubmit={onCalibrateSubmit} /></StrictMode>));
+    mounted = true;
+    await reachCalibrationCamera(); await advance(200);
+    await clickButton("Salvar"); await advance(4900);
+    expect(postureService.saveCalibration).not.toHaveBeenCalled();
+    await advance(200);
+    expect(postureService.saveCalibration).toHaveBeenCalledOnce();
+    expect(onCalibrateSubmit).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it("includes userId in the payload when provided", async () => {

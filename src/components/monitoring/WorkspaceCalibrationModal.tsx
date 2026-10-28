@@ -20,7 +20,7 @@ import { postureService } from "../../services/postureService";
 import { useOptionalAuth } from "../../auth/AuthContext";
 import {
   DEFAULT_REFERENCE_DISTANCE_CM, POSTURE_CALIBRATION_LIMITS, evaluatePostureCalibration,
-  validateCalibrationIPD, type CalibratedBaseline, type CalibrationFailure,
+  validateCalibrationIPD, type CalibrationEvaluation, type CalibrationFailure,
   type IPDCalibrationValidationResult, type PostureCalibrationFrame,
 } from "../../services/vision";
 import type { PostureCalibrationDTO, SaveCalibrationPayload } from "../../types/postureCalibration";
@@ -35,7 +35,7 @@ import {
 } from "lucide-react";
 
 export { DEFAULT_REFERENCE_DISTANCE_CM };
-export type { CalibratedBaseline };
+export type { CalibratedBaseline } from "../../services/vision";
 export const CALIBRATION_DURATION_SECONDS = POSTURE_CALIBRATION_LIMITS.durationMs / 1000;
 
 const CALIBRATION_FAILURE_MESSAGES: Record<CalibrationFailure, string> = {
@@ -45,6 +45,8 @@ const CALIBRATION_FAILURE_MESSAGES: Record<CalibrationFailure, string> = {
   "unstable-posture": "Sua postura variou durante a coleta. Mantenha cabeça e ombros parados e tente novamente.",
   "unstable-ipd": "A distância entre os olhos variou durante a coleta. Mantenha a mesma distância da câmera e tente novamente.",
 };
+
+type CompletedCalibration = Extract<CalibrationEvaluation, { ok: true }>;
 
 export interface WorkspaceCalibrationModalProps {
   isOpen: boolean;
@@ -100,7 +102,8 @@ export default function WorkspaceCalibrationModal({
   // Estados de Calibração da Postura Neutra (Baseline)
   const [calibrationStatus, setCalibrationStatus] = useState<"idle" | "countdown" | "completed">("idle");
   const [countdownRemaining, setCountdownRemaining] = useState<number>(CALIBRATION_DURATION_SECONDS);
-  const [calibratedBaseline, setCalibratedBaseline] = useState<CalibratedBaseline | null>(null);
+  const [completedCalibration, setCompletedCalibration] = useState<CompletedCalibration | null>(null);
+  const calibratedBaseline = completedCalibration?.baseline ?? null;
   const [calibrationError, setCalibrationError] = useState<string | null>(null);
   const [distanceWarning, setDistanceWarning] = useState<IPDCalibrationValidationResult | null>(null);
   const [allowOverrideWarning, setAllowOverrideWarning] = useState<boolean>(false);
@@ -197,23 +200,22 @@ export default function WorkspaceCalibrationModal({
     }
     isCalibratingRef.current = false;
     autoSaveOnCompleteRef.current = false;
+    samplesRef.current = [];
+    startedAtRef.current = null;
+    setSampleCount(0);
+    setCompletedCalibration(null);
     setCalibrationStatus("idle");
     setCalibrationError(null);
     setDistanceWarning(null);
     setAllowOverrideWarning(false);
   };
 
-  const handleSave = async (baselineToPersist?: CalibratedBaseline | null) => {
-    if (savingRef.current || isLoadingWorkspace || loadError || !isFinalWebcamStep) return;
+  const handleSave = async (resultToPersist?: CompletedCalibration | null) => {
+    if (savingRef.current || isCalibratingRef.current || isLoadingWorkspace || loadError || !isFinalWebcamStep) return;
 
-    if (distanceWarning && distanceWarning !== "valid" && !allowOverrideWarning) {
-      setCalibrationError("Ajuste a distância para a faixa ideal ou confirme que deseja manter assim mesmo.");
-      return;
-    }
+    const result = resultToPersist ?? completedCalibration;
 
-    const baseline = baselineToPersist ?? calibratedBaseline;
-
-    if (!baseline) {
+    if (!result) {
       if (isFrameReady) {
         startCalibration(true);
         return;
@@ -221,6 +223,14 @@ export default function WorkspaceCalibrationModal({
         setCalibrationError("Aguardando leitura válida de rosto, ombros e distância entre os olhos para calibrar.");
         return;
       }
+    }
+
+    const { baseline } = result;
+    const validation = validateCalibrationIPD(baseline.baselineEyeDistancePx, result.frameWidth);
+    if (validation !== "valid" && !allowOverrideWarning) {
+      setDistanceWarning(validation);
+      setCalibrationError("Ajuste a distância para a faixa ideal ou confirme que deseja manter assim mesmo.");
+      return;
     }
 
     savingRef.current = true;
@@ -273,7 +283,7 @@ export default function WorkspaceCalibrationModal({
     const result = evaluatePostureCalibration(samplesRef.current, startedAtRef.current ?? NaN, performance.now());
 
     if (!result.ok) {
-      setCalibratedBaseline(null);
+      setCompletedCalibration(null);
       setCalibrationError(CALIBRATION_FAILURE_MESSAGES[result.reason]);
       setCalibrationStatus("idle");
       autoSaveOnCompleteRef.current = false;
@@ -285,14 +295,14 @@ export default function WorkspaceCalibrationModal({
     setDistanceWarning(validation);
     setAllowOverrideWarning(false);
 
-    setCalibratedBaseline(baseline);
+    setCompletedCalibration(result);
     setCalibrationStatus("completed");
     setCalibrationError(null);
 
     if (autoSaveOnCompleteRef.current) {
       autoSaveOnCompleteRef.current = false;
       if (validation === "valid") {
-        void handleSave(baseline);
+        void handleSave(result);
       }
     }
   };
@@ -302,6 +312,7 @@ export default function WorkspaceCalibrationModal({
   });
 
   const startCalibration = (autoSave = false) => {
+    if (savingRef.current || isCalibratingRef.current) return;
     if (countdownTimerRef.current) {
       clearInterval(countdownTimerRef.current);
       countdownTimerRef.current = null;
@@ -310,6 +321,7 @@ export default function WorkspaceCalibrationModal({
     setCalibrationError(null);
     setDistanceWarning(null);
     setAllowOverrideWarning(false);
+    setCompletedCalibration(null);
     samplesRef.current = [];
     setSampleCount(0);
     startedAtRef.current = performance.now();
@@ -339,7 +351,6 @@ export default function WorkspaceCalibrationModal({
       setCurrentStepIndex(0);
       setIsFrameReady(false);
       cancelCalibration();
-      setCalibratedBaseline(null);
       return;
     }
 
@@ -351,7 +362,6 @@ export default function WorkspaceCalibrationModal({
     setWorkspaceId(null);
     setIsFrameReady(false);
     cancelCalibration();
-    setCalibratedBaseline(null);
 
     async function loadWorkspace() {
       try {
@@ -675,7 +685,7 @@ export default function WorkspaceCalibrationModal({
                       variant="primary"
                       size="sm"
                       onClick={() => startCalibration(false)}
-                      disabled={!isFrameReady}
+                      disabled={isSaving || !isFrameReady}
                       className="flex items-center gap-1.5"
                     >
                       <Play size={13} className="fill-current" />
@@ -736,6 +746,7 @@ export default function WorkspaceCalibrationModal({
                       variant="secondary"
                       size="sm"
                       onClick={() => startCalibration(false)}
+                      disabled={isSaving || !isFrameReady}
                       className="flex items-center gap-1 text-xs"
                     >
                       <RotateCcw size={12} />
@@ -806,6 +817,7 @@ export default function WorkspaceCalibrationModal({
                           variant="primary"
                           size="sm"
                           onClick={() => startCalibration(false)}
+                          disabled={isSaving || !isFrameReady}
                           className="flex items-center gap-1.5 text-xs"
                         >
                           <RotateCcw size={12} />
@@ -840,6 +852,7 @@ export default function WorkspaceCalibrationModal({
                           variant="primary"
                           size="sm"
                           onClick={() => startCalibration(false)}
+                          disabled={isSaving || !isFrameReady}
                           className="flex items-center gap-1.5 text-xs"
                         >
                           <RotateCcw size={12} />
