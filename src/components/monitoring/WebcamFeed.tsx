@@ -15,7 +15,8 @@ import { poseDetector, type LandmarkPoint, POSE_LANDMARK_INDEX } from "../../ser
 import { calculatePoseAngles, type PoseAngles } from "../../services/vision/poseAngles";
 import { calculateHeadPitch, type Point2D } from "../../services/vision/biomechanics";
 import { TemporalPostureFilter } from "../../services/vision/temporalPostureFilter";
-import { createOcularMetricsState, updateOcularMetrics, type OcularMetrics, type ScreenDistanceReference } from "../../services/vision/ocularMetrics";
+import { createOcularMetricsState, isScreenDistancePoseUsable, updateOcularMetrics, type OcularMetrics, type ScreenDistanceReference } from "../../services/vision/ocularMetrics";
+import type { PostureCalibrationFrame } from "../../services/vision/postureCalibration";
 import type { PostureCalibrationDTO } from "../../types/postureCalibration";
 import type { UserPresenceState } from "../../types/vision";
 
@@ -38,6 +39,8 @@ export interface WebcamFeedProps {
   onStreamChange?: (stream: MediaStream | null) => void;
   /** Per-inference ocular values; null on camera pause/mute/error. */
   onOcularUpdate?: (metrics: OcularMetrics | null) => void;
+  /** Synchronized posture/IPD from a frontal face; null on an unusable frame or capture reset. */
+  onCalibrationFrame?: (frame: PostureCalibrationFrame | null) => void;
   /** Explicit calibration context; absent until the distance calibration flow exists. */
   distanceReference?: ScreenDistanceReference | null;
   /** Saved posture calibration containing distance baseline. Used to derive distanceReference dynamically when video dimensions are known. */
@@ -75,6 +78,7 @@ export default function WebcamFeed({
   onHardwareBusyChange,
   onStreamChange,
   onOcularUpdate,
+  onCalibrationFrame,
   distanceReference = null,
   calibration = null,
   className = "",
@@ -88,6 +92,7 @@ export default function WebcamFeed({
   const lastOverlayRef = useRef<PoseOverlay | null>(null);
   const ocularStateRef = useRef(createOcularMetricsState());
   const onOcularUpdateRef = useRef(onOcularUpdate);
+  const onCalibrationFrameRef = useRef(onCalibrationFrame);
   const distanceReferenceRef = useRef(distanceReference);
   const calibrationRef = useRef(calibration);
   const derivedDistanceRef = useRef<ScreenDistanceReference | null>(null);
@@ -152,13 +157,15 @@ export default function WebcamFeed({
 
   useEffect(() => {
     onOcularUpdateRef.current = onOcularUpdate;
+    onCalibrationFrameRef.current = onCalibrationFrame;
     distanceReferenceRef.current = distanceReference;
     calibrationRef.current = calibration;
-  }, [onOcularUpdate, distanceReference, calibration]);
+  }, [onOcularUpdate, onCalibrationFrame, distanceReference, calibration]);
 
   const resetOcularTracking = useCallback(() => {
     ocularStateRef.current = createOcularMetricsState();
     onOcularUpdateRef.current?.(null);
+    onCalibrationFrameRef.current?.(null);
   }, []);
 
   /**
@@ -458,6 +465,9 @@ export default function WebcamFeed({
       let poseAngles: PoseAngles | null = null;
       let headPitch: number | null = null;
       let detectionTimestampMs: number | null = null;
+      let calibrationFrame: PostureCalibrationFrame | null = null;
+      let frameOcular: OcularMetrics | null = null;
+      let isCalibrationPoseUsable = false;
 
       if (shouldRunInference) {
         lastInferenceTimeRef.current = currentTime - (elapsedSinceLastInference % INFERENCE_INTERVAL_MS);
@@ -467,6 +477,7 @@ export default function WebcamFeed({
           try {
             const detection = poseDetector.detectFrame(video, currentTime);
             detectionTimestampMs = detection.timestamp;
+            isCalibrationPoseUsable = isScreenDistancePoseUsable(detection.faceTransformationMatrix);
             let refToUse = distanceReferenceRef.current;
             if (!refToUse && calibrationRef.current && video.videoWidth > 0 && video.videoHeight > 0) {
               const cal = calibrationRef.current;
@@ -507,6 +518,7 @@ export default function WebcamFeed({
             const ocular = updateOcularMetrics(ocularStateRef.current, detection,
               video.videoWidth, video.videoHeight, refToUse);
             if (ocular) {
+              frameOcular = ocular.metrics;
               ocularStateRef.current = ocular.state;
               onOcularUpdateRef.current?.(ocular.metrics);
             } else {
@@ -607,6 +619,18 @@ export default function WebcamFeed({
             const smoothedNeck = filtered.neckAngle;
             const smoothedShoulder = Math.max(0, Math.min(100, 100 - filtered.shoulderAngle * 10));
 
+            if (isCalibrationPoseUsable && frameOcular?.ipd && video) {
+              calibrationFrame = {
+                timestampMs: detectionTimestampMs,
+                captureId: cameraRequestRef.current,
+                frameWidth: video.videoWidth,
+                frameHeight: video.videoHeight,
+                ipd: frameOcular.ipd,
+                rawAngles: { neckAngle: rawNeckAngle, shoulderAngle: poseAngles.shoulderAngle },
+                filteredAngles: filtered,
+              };
+            }
+
             smoothedMetricsRef.current = {
               neckAngle: smoothedNeck,
               shoulderBalance: smoothedShoulder,
@@ -641,6 +665,7 @@ export default function WebcamFeed({
             });
           }
         }
+        onCalibrationFrameRef.current?.(calibrationFrame);
       }
 
       // -------------------------------------------------------------

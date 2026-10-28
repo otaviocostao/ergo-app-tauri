@@ -8,7 +8,7 @@ import * as biomechanics from "../../services/vision/biomechanics";
 import WorkspaceCalibrationModal from "./WorkspaceCalibrationModal";
 import Monitoring from "../../pages/Monitoring";
 import { workspaceService } from "../../services/workspaceService";
-import { FACE_EAR_INDEX, TemporalPostureFilter, type OcularMetrics, type ScreenDistanceReference } from "../../services/vision";
+import { FACE_EAR_INDEX, TemporalPostureFilter, type OcularMetrics, type PostureCalibrationFrame, type ScreenDistanceReference } from "../../services/vision";
 
 function faceMatrix(pitch: number) {
   const radians = pitch * Math.PI / 180;
@@ -41,6 +41,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   const presence = vi.fn();
   const hardware = vi.fn();
   const ocularUpdate = vi.fn<(metrics: OcularMetrics | null) => void>();
+  const calibrationUpdate = vi.fn<(frame: PostureCalibrationFrame | null) => void>();
   const getUserMedia = vi.fn<() => Promise<MediaStream>>();
 
   function makeStream(muted = false) {
@@ -66,7 +67,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     await act(async () => {
       root.render(<WebcamFeed isMonitoring={monitoring} onToggleMonitoring={vi.fn()} onCalibrate={vi.fn()}
         onPostureUpdate={update} onPresenceChange={presence} onHardwareBusyChange={hardware}
-        onOcularUpdate={ocularUpdate} distanceReference={distanceReference} />);
+        onOcularUpdate={ocularUpdate} onCalibrationFrame={calibrationUpdate} distanceReference={distanceReference} />);
     });
     mounted = true;
   }
@@ -104,6 +105,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     faceTransformationMatrix = faceMatrix(0);
     faceLandmarks = null;
     ocularUpdate.mockReset();
+    calibrationUpdate.mockReset();
     previewWidth = 800;
     previewHeight = 450;
     drawnFrames = [];
@@ -697,6 +699,54 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     mounted = true;
     await advance(200);
     expect(ocularUpdate.mock.lastCall?.[0]).toMatchObject({ available: true, ear: 0.3, distanceCm: 60 });
+  });
+
+  it("publishes synchronized calibration data without display rounding", async () => {
+    faceLandmarks = ocularFace();
+    faceTransformationMatrix = faceMatrix(1.25);
+    await render(); await advance(200);
+    const first = calibrationUpdate.mock.lastCall?.[0];
+    const detections = vi.mocked(poseDetector.detectFrame).mock.results;
+    expect(first).toMatchObject({
+      timestampMs: detections[detections.length - 1].value.timestamp,
+      frameWidth: 1280, frameHeight: 720,
+      ipd: { source: "iris", distancePx: 200 },
+      rawAngles: { shoulderAngle: 0 },
+      filteredAngles: { shoulderAngle: 0 },
+    });
+    expect(first?.rawAngles.neckAngle).toBeCloseTo(1.25, 10);
+    expect(first?.filteredAngles.neckAngle).toBeCloseTo(1.25, 10);
+    faceLandmarks[473].x = 550 / 1280;
+    await advance(100);
+    expect(calibrationUpdate.mock.lastCall?.[0]?.ipd.distancePx).toBeCloseTo(250);
+    expect(calibrationUpdate.mock.lastCall?.[0]?.timestampMs).toBeGreaterThan(first!.timestampMs);
+  });
+
+  it("invalidates calibration frames instead of reusing old IPD or body measurements", async () => {
+    faceLandmarks = ocularFace();
+    await render(); await advance(200);
+    expect(calibrationUpdate.mock.lastCall?.[0]).not.toBeNull();
+    faceLandmarks = null; await advance(100);
+    expect(calibrationUpdate.mock.lastCall?.[0]).toBeNull();
+    faceLandmarks = ocularFace(); landmarks = null; await advance(100);
+    expect(calibrationUpdate.mock.lastCall?.[0]).toBeNull();
+  });
+
+  it.each([-40, 40])("rejects calibration frames with a %s degree head rotation", async pitch => {
+    faceLandmarks = ocularFace(); faceTransformationMatrix = faceMatrix(pitch);
+    await render(); await advance(200);
+    expect(update).toHaveBeenCalled();
+    expect(calibrationUpdate.mock.calls.every(([frame]) => frame === null)).toBe(true);
+  });
+
+  it("invalidates calibration readiness on mute and marks a replacement capture", async () => {
+    faceLandmarks = ocularFace();
+    await render(); await advance(200);
+    const captureId = calibrationUpdate.mock.lastCall![0]!.captureId;
+    await setTrackMuted(streams[streams.length - 1].track, true);
+    expect(calibrationUpdate.mock.lastCall?.[0]).toBeNull();
+    await render(false); await render(true); await advance(200);
+    expect(calibrationUpdate.mock.lastCall![0]!.captureId).not.toBe(captureId);
   });
 
   it("displays session blink counts and window counts in Monitoring cards", async () => {
