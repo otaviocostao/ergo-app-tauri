@@ -934,17 +934,6 @@ export default function WorkspaceCalibrationModal({
               )}
             </div>
 
-            <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 text-xs flex justify-between items-center">
-              <span className="text-slate-500 dark:text-slate-400 font-medium">
-                Métricas ao vivo:
-              </span>
-              <span className="font-bold text-slate-900 dark:text-white">
-                {liveMetrics
-                  ? `Pescoço: ${liveMetrics.neckAngle}° | Ombros: ${liveMetrics.shoulderBalance}%`
-                  : "Aguardando detecção confiável"}
-              </span>
-            </div>
-
             <div className="flex items-center justify-end gap-3 pt-2">
               <Button
                 variant="secondary"
