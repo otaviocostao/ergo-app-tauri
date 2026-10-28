@@ -14,7 +14,11 @@ import Select from "../Select";
 import { poseDetector, type LandmarkPoint, POSE_LANDMARK_INDEX } from "../../services/vision";
 import { calculatePoseAngles, type PoseAngles } from "../../services/vision/poseAngles";
 import { calculateHeadPitch, type Point2D } from "../../services/vision/biomechanics";
-import { TemporalPostureFilter } from "../../services/vision/temporalPostureFilter";
+import { TemporalPostureFilter, type PostureAngles } from "../../services/vision/temporalPostureFilter";
+import { classifyPosture, getPostureStatusLabel } from "../../services/vision/postureClassifier";
+import { DEFAULT_POSTURE_CLASSIFICATION_CONFIG, type PostureClassificationConfig } from "../../services/vision/postureClassificationConfig";
+import { PostureStatus } from "../../enums/postureStatus";
+import type { PostureClassification } from "../../types/postureClassification";
 import { createOcularMetricsState, isScreenDistancePoseUsable, updateOcularMetrics, type OcularMetrics, type ScreenDistanceReference } from "../../services/vision/ocularMetrics";
 import type { PostureCalibrationFrame } from "../../services/vision/postureCalibration";
 import type { PostureCalibrationDTO } from "../../types/postureCalibration";
@@ -30,7 +34,7 @@ export interface WebcamFeedProps {
     neckAngle: number;
     shoulderBalance: number;
     distanceCm: number | null;
-    status: "good" | "warning" | "danger";
+    status: PostureStatus | null;
     statusLabel: string;
     presence?: UserPresenceState;
   }) => void;
@@ -41,6 +45,9 @@ export interface WebcamFeedProps {
   onOcularUpdate?: (metrics: OcularMetrics | null) => void;
   /** Synchronized posture/IPD from a frontal face; null on an unusable frame or capture reset. */
   onCalibrationFrame?: (frame: PostureCalibrationFrame | null) => void;
+  /** Per-inference classification, including unavailable metrics. Null on capture reset. */
+  onClassificationUpdate?: (classification: PostureClassification | null) => void;
+  classificationConfig?: PostureClassificationConfig;
   /** Explicit calibration context; absent until the distance calibration flow exists. */
   distanceReference?: ScreenDistanceReference | null;
   /** Saved posture calibration containing distance baseline. Used to derive distanceReference dynamically when video dimensions are known. */
@@ -69,6 +76,13 @@ interface PoseOverlay {
  */
 const ABSENCE_THRESHOLD_MS = 5000;
 
+const STATUS_COLORS: Record<PostureStatus, string> = {
+  [PostureStatus.GOOD]: "rgba(16, 185, 129, 0.85)",
+  [PostureStatus.WARNING]: "rgba(245, 158, 11, 0.85)",
+  [PostureStatus.DANGER]: "rgba(239, 68, 68, 0.85)",
+};
+const metricColor = (status: PostureStatus | null | undefined) => status ? STATUS_COLORS[status] : "rgba(148, 163, 184, 0.85)";
+
 export default function WebcamFeed({
   isMonitoring,
   onToggleMonitoring,
@@ -79,6 +93,8 @@ export default function WebcamFeed({
   onStreamChange,
   onOcularUpdate,
   onCalibrationFrame,
+  onClassificationUpdate,
+  classificationConfig = DEFAULT_POSTURE_CLASSIFICATION_CONFIG,
   distanceReference = null,
   calibration = null,
   className = "",
@@ -93,6 +109,9 @@ export default function WebcamFeed({
   const ocularStateRef = useRef(createOcularMetricsState());
   const onOcularUpdateRef = useRef(onOcularUpdate);
   const onCalibrationFrameRef = useRef(onCalibrationFrame);
+  const onClassificationUpdateRef = useRef(onClassificationUpdate);
+  const classificationConfigRef = useRef(classificationConfig);
+  const lastClassificationRef = useRef<PostureClassification | null>(null);
   const distanceReferenceRef = useRef(distanceReference);
   const calibrationRef = useRef(calibration);
   const derivedDistanceRef = useRef<ScreenDistanceReference | null>(null);
@@ -158,14 +177,18 @@ export default function WebcamFeed({
   useEffect(() => {
     onOcularUpdateRef.current = onOcularUpdate;
     onCalibrationFrameRef.current = onCalibrationFrame;
+    onClassificationUpdateRef.current = onClassificationUpdate;
+    classificationConfigRef.current = classificationConfig;
     distanceReferenceRef.current = distanceReference;
     calibrationRef.current = calibration;
-  }, [onOcularUpdate, onCalibrationFrame, distanceReference, calibration]);
+  }, [onOcularUpdate, onCalibrationFrame, onClassificationUpdate, classificationConfig, distanceReference, calibration]);
 
   const resetOcularTracking = useCallback(() => {
     ocularStateRef.current = createOcularMetricsState();
     onOcularUpdateRef.current?.(null);
     onCalibrationFrameRef.current?.(null);
+    lastClassificationRef.current = null;
+    onClassificationUpdateRef.current?.(null);
   }, []);
 
   /**
@@ -468,6 +491,7 @@ export default function WebcamFeed({
       let calibrationFrame: PostureCalibrationFrame | null = null;
       let frameOcular: OcularMetrics | null = null;
       let isCalibrationPoseUsable = false;
+      let filteredAngles: PostureAngles | null = null;
 
       if (shouldRunInference) {
         lastInferenceTimeRef.current = currentTime - (elapsedSinceLastInference % INFERENCE_INTERVAL_MS);
@@ -577,7 +601,7 @@ export default function WebcamFeed({
                 neckAngle: Math.round(smoothedMetricsRef.current.neckAngle),
                 shoulderBalance: Math.round(smoothedMetricsRef.current.shoulderBalance),
                 distanceCm: null,
-                status: "good",
+                status: null,
                 statusLabel: "Usuário Ausente (Pausado)",
                 presence: "ABSENT",
               });
@@ -612,8 +636,7 @@ export default function WebcamFeed({
           }, detectionTimestampMs);
 
           if (filtered !== null) {
-            // Ocular geometry already applies its own independent distance EMA.
-            const smoothedDist = ocularStateRef.current.previousDistanceCm;
+            filteredAngles = filtered;
 
             // Filter degrees before converting/clamping shoulders; round only for UI.
             const smoothedNeck = filtered.neckAngle;
@@ -636,34 +659,28 @@ export default function WebcamFeed({
               shoulderBalance: smoothedShoulder,
             };
 
-            // Classificação de risco ergonômico
-            let postureStatus: "good" | "warning" | "danger" = "good";
-            let postureLabel = "Postura Excelente";
-
-            if (smoothedNeck > 20 || smoothedShoulder < 85 || (smoothedDist !== null && smoothedDist < 45)) {
-              postureStatus = "danger";
-              postureLabel =
-                smoothedNeck > 20
-                  ? "Atenção: Pescoço Muito Inclinado!"
-                  : smoothedDist !== null && smoothedDist < 45
-                    ? "Muito Próximo da Tela"
-                    : "Ombros Desalinhados";
-            } else if (smoothedNeck > 14 || smoothedShoulder < 92) {
-              postureStatus = "warning";
-              postureLabel = smoothedNeck > 14
-                ? "Atenção à Inclinação do Pescoço"
-                : "Atenção ao Alinhamento dos Ombros";
-            }
-
-            onPostureUpdateRef.current?.({
-              neckAngle: Math.round(smoothedNeck),
-              shoulderBalance: Math.round(smoothedShoulder),
-              distanceCm: smoothedDist === null ? null : Math.round(smoothedDist),
-              status: postureStatus,
-              statusLabel: postureLabel,
-              presence: "ACTIVE",
-            });
           }
+        }
+        const classification = classifyPosture({
+          timestampMs: detectionTimestampMs ?? currentTime,
+          captureId: cameraRequestRef.current,
+          neckAngle: filteredAngles?.neckAngle ?? null,
+          shoulderAngle: filteredAngles?.shoulderAngle ?? null,
+          distanceCm: frameOcular?.distanceCm ?? null,
+          blinkRate: frameOcular?.available ? frameOcular.blinkRate : null,
+        }, calibrationRef.current, classificationConfigRef.current);
+        lastClassificationRef.current = classification;
+        onClassificationUpdateRef.current?.(classification);
+        if (filteredAngles) {
+          const distanceCm = frameOcular?.distanceCm ?? null;
+          onPostureUpdateRef.current?.({
+            neckAngle: Math.round(filteredAngles.neckAngle),
+            shoulderBalance: Math.round(smoothedMetricsRef.current.shoulderBalance),
+            distanceCm: distanceCm === null ? null : Math.round(distanceCm),
+            status: classification.postureStatus,
+            statusLabel: getPostureStatusLabel(classification, classificationConfigRef.current),
+            presence: "ACTIVE",
+          });
         }
         onCalibrationFrameRef.current?.(calibrationFrame);
       }
@@ -702,22 +719,14 @@ export default function WebcamFeed({
 
           // Linha Biacromial dos Ombros
           ctx.beginPath();
-          ctx.strokeStyle =
-            smoothedMetricsRef.current.shoulderBalance >= 90
-              ? "rgba(16, 185, 129, 0.85)"
-              : "rgba(245, 158, 11, 0.85)";
+          ctx.strokeStyle = metricColor(lastClassificationRef.current?.metrics.shoulders.status);
           ctx.moveTo(leftShoulderCanvasX, leftShoulderCanvasY);
           ctx.lineTo(rightShoulderCanvasX, rightShoulderCanvasY);
           ctx.stroke();
 
           // Vetor Cervical (Pescoço -> Cabeça)
           ctx.beginPath();
-          ctx.strokeStyle =
-            smoothedMetricsRef.current.neckAngle <= 14
-              ? "rgba(16, 185, 129, 0.85)"
-              : smoothedMetricsRef.current.neckAngle <= 20
-                ? "rgba(245, 158, 11, 0.85)"
-                : "rgba(239, 68, 68, 0.85)";
+          ctx.strokeStyle = metricColor(lastClassificationRef.current?.metrics.neck.status);
           ctx.moveTo(neckCanvasX, neckCanvasY);
           ctx.lineTo(headCanvasX, headCanvasY);
           ctx.stroke();

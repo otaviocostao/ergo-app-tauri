@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Header from "../components/Header";
 import WebcamFeed from "../components/monitoring/WebcamFeed";
 import ErgoMetricsCard from "../components/monitoring/ErgoMetricsCard";
@@ -8,6 +8,12 @@ import WorkspaceCalibrationModal from "../components/monitoring/WorkspaceCalibra
 import { postureService } from "../services/postureService";
 import { useOptionalAuth } from "../auth/AuthContext";
 import type { PostureCalibrationDTO } from "../types/postureCalibration";
+import type { PostureClassification, PostureMetric } from "../types/postureClassification";
+import { PostureStatus, POSTURE_STATUS_LABELS } from "../enums/postureStatus";
+import {
+  DEFAULT_POSTURE_CLASSIFICATION_CONFIG as classificationConfig,
+  getPostureStatusLabel, PostureAlertCooldown, PostureHysteresis,
+} from "../services/vision";
 
 import {
   Compass,
@@ -21,6 +27,13 @@ import {
 import type { UserPresenceState } from "../types/vision";
 import type { OcularMetrics } from "../services/vision/ocularMetrics";
 
+const ALERT_MESSAGES: Record<PostureMetric, string> = {
+  neck: "Ajuste a posição do pescoço",
+  shoulders: "Ajuste o alinhamento dos ombros",
+  distance: "Ajuste a distância da tela",
+  "blink-rate": "Frequência de piscadas reduzida",
+};
+
 export default function Monitoring() {
   const auth = useOptionalAuth();
   const userId = auth?.session.kind === "authenticated" ? auth.session.user.id : null;
@@ -30,12 +43,17 @@ export default function Monitoring() {
   const [sessionBlinkCount, setSessionBlinkCount] = useState(0);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [soundAlerts, setSoundAlerts] = useState(true);
-  const [neckAngle, setNeckAngle] = useState(12);
   const [shoulderBalance, setShoulderBalance] = useState(96);
   const [ocularMetrics, setOcularMetrics] = useState<OcularMetrics | null>(null);
   const distanceCm = ocularMetrics?.distanceCm ?? null;
-  const [postureStatus, setPostureStatus] = useState<"good" | "warning" | "danger">("good");
-  const [statusText, setStatusText] = useState("Postura Excelente");
+  const [classification, setClassification] = useState<PostureClassification | null>(null);
+  const alertStateRef = useRef<{ hysteresis: PostureHysteresis; cooldown: PostureAlertCooldown } | null>(null);
+  const alertState = alertStateRef.current ?? (alertStateRef.current = {
+    hysteresis: new PostureHysteresis(classificationConfig),
+    cooldown: new PostureAlertCooldown(classificationConfig),
+  });
+  const postureStatus = classification?.postureStatus ?? null;
+  const statusText = classification ? getPostureStatusLabel(classification, classificationConfig) : "Aguardando calibração ou leituras válidas";
   const [userPresence, setUserPresence] = useState<UserPresenceState>("PARTIALLY_OCCLUDED");
 
   // Session logs list
@@ -67,18 +85,40 @@ export default function Monitoring() {
     neckAngle: number;
     shoulderBalance: number;
     distanceCm: number | null;
-    status: "good" | "warning" | "danger";
+    status: PostureStatus | null;
     statusLabel: string;
     presence?: UserPresenceState;
   }) => {
     if (metrics.presence) {
       setUserPresence(metrics.presence);
     }
-    setNeckAngle(metrics.neckAngle);
     setShoulderBalance(metrics.shoulderBalance);
-    setPostureStatus(metrics.status);
-    setStatusText(metrics.statusLabel);
   };
+
+  const handleClassificationUpdate = (current: PostureClassification | null) => {
+    setClassification(current);
+    if (!current || !isMonitoring || isCalibrationOpen) {
+      alertState.hysteresis.resetContinuity();
+      return;
+    }
+    const temporal = alertState.hysteresis.update(current);
+    const alerts = alertState.cooldown.ready(temporal.sustained, current.timestampMs);
+    if (alerts.length === 0) return;
+    // Reuse the existing session history; no new notification UI or persistence.
+    const events: LogEvent[] = alerts.map(alert => ({
+      id: `posture:${current.timestampMs}:${alert.metric}:${alert.level}`,
+      timestamp: new Date().toLocaleTimeString(),
+      type: alert.level === PostureStatus.DANGER ? "error" : "warning",
+      message: ALERT_MESSAGES[alert.metric],
+      detail: `${POSTURE_STATUS_LABELS[alert.level]}. Condição mantida por ${Math.floor(alert.durationMs / 1000)} s.`,
+    }));
+    setLogs(previous => [...events, ...previous]);
+    alertState.cooldown.markNotified(alerts, current.timestampMs);
+  };
+
+  useEffect(() => {
+    if (!isMonitoring || isCalibrationOpen) alertState.hysteresis.resetContinuity();
+  }, [isMonitoring, isCalibrationOpen]);
 
   const handlePresenceChange = (presence: UserPresenceState) => {
     setUserPresence(presence);
@@ -118,6 +158,10 @@ export default function Monitoring() {
 
   useEffect(() => {
     let isMounted = true;
+    setCalibration(null);
+    setClassification(null);
+    alertState.hysteresis.resetContinuity();
+    alertState.cooldown.reset();
     postureService
       .getActiveCalibration(userId)
       .then((activeCal) => {
@@ -161,23 +205,14 @@ export default function Monitoring() {
     }
   };
 
-  // Calculate live health score (0 - 100)
-  const healthScore = Math.max(
-    0,
-    Math.min(
-      100,
-      Math.round(
-        100 -
-        (neckAngle > 15 ? (neckAngle - 15) * 2.5 : 0) -
-        (100 - shoulderBalance) * 1.5 -
-        (distanceCm !== null && distanceCm < 50 ? (50 - distanceCm) * 2 : 0)
-      )
-    )
-  );
-
   const isPaused = !isMonitoring || isCalibrationOpen || userPresence !== "ACTIVE";
   const blinkRate = ocularMetrics?.blinkRate.blinksPerMinute ?? null;
-  const visualFatigue = ocularMetrics?.visualFatigue ?? null;
+  const neck = classification?.metrics.neck;
+  const shoulders = classification?.metrics.shoulders;
+  const distance = classification?.metrics.distance;
+  const blink = classification?.metrics["blink-rate"];
+  const neckDeviation = neck?.value ?? null;
+  const shoulderDeviation = shoulders?.value ?? null;
 
   return (
     <div className="w-full h-full flex flex-col gap-6 pb-8">
@@ -205,6 +240,8 @@ export default function Monitoring() {
           <WebcamFeed
             isMonitoring={isMonitoring && !isCalibrationOpen}
             calibration={calibration}
+            classificationConfig={classificationConfig}
+            onClassificationUpdate={handleClassificationUpdate}
             onToggleMonitoring={() => setIsMonitoring(!isMonitoring)}
             onCalibrate={() => setIsCalibrationOpen(true)}
             onPostureUpdate={handlePostureUpdate}
@@ -234,11 +271,11 @@ export default function Monitoring() {
               <div className="flex gap-2">
                 <h2 className="text-base font-bold text-white">Resumo da sua ergonomia</h2>
                 <span
-                  className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${isPaused
+                  className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${isPaused || postureStatus === null
                     ? "bg-slate-800 text-slate-400 border border-slate-700"
-                    : healthScore >= 85
+                    : postureStatus === PostureStatus.GOOD
                       ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                      : healthScore >= 70
+                      : postureStatus === PostureStatus.WARNING
                         ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
                         : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
                     }`}
@@ -249,9 +286,11 @@ export default function Monitoring() {
                       ? "Ausente (Pausado)"
                       : userPresence === "PARTIALLY_OCCLUDED"
                         ? "Ajuste o enquadramento"
-                        : healthScore >= 85
+                        : postureStatus === null
+                          ? "Aguardando dados"
+                          : postureStatus === PostureStatus.GOOD
                           ? "Excelente"
-                          : healthScore >= 70
+                          : postureStatus === PostureStatus.WARNING
                             ? "Atenção"
                             : "Crítico"}
                 </span>
@@ -265,16 +304,18 @@ export default function Monitoring() {
                     ? "Nenhum usuário detectado há mais de 5 segundos. O cálculo de métricas e gráficos está pausado até o seu retorno."
                     : userPresence === "PARTIALLY_OCCLUDED"
                       ? "Aguardando pontos confiáveis da cabeça e dos ombros. Ajuste o enquadramento para retomar as métricas."
-                      : healthScore >= 85
-                        ? "Sua coluna e pescoço estão alinhados dentro das diretrizes ideais."
-                        : "Ajuste sua inclinação do pescoço ou altura da tela para melhorar sua postura."}
+                      : postureStatus === null
+                        ? "Calibre a postura base e aguarde leituras válidas para classificar sua postura."
+                        : postureStatus === PostureStatus.GOOD
+                          ? "Sua coluna e pescoço estão alinhados dentro das diretrizes ideais."
+                          : "Ajuste sua inclinação do pescoço ou altura da tela para melhorar sua postura."}
               </p>
 
               <div className="flex items-center gap-6 text-xs text-slate-300 shrink-0 border-t sm:border-t-0 sm:border-l border-slate-700/60 pt-3 sm:pt-0 sm:pl-6 w-full sm:w-auto justify-between sm:justify-start">
                 <div className="flex flex-col">
                   <span className="text-slate-400">Status Geral:</span>
                   <span
-                    className={`font-semibold ${isPaused
+                    className={`font-semibold ${isPaused || postureStatus === null
                       ? "text-slate-400"
                       : postureStatus === "good"
                         ? "text-emerald-400"
@@ -305,17 +346,17 @@ export default function Monitoring() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <ErgoMetricsCard
               title="Inclinação do Pescoço"
-              value={neckAngle}
-              unit="°"
-              status={neckAngle <= 14 ? "good" : neckAngle <= 20 ? "warning" : "danger"}
+              value={neckDeviation === null ? (calibration ? "Aguardando leitura" : "Aguardando calibração") : Number(neckDeviation.toFixed(1))}
+              unit={neckDeviation === null ? undefined : "°"}
+              status={neck?.status ?? "info"}
               icon={Compass}
-              progress={Math.min(100, (neckAngle / 30) * 100)}
-              idealRange="≤ 14°"
-              trend={neckAngle <= 14 ? "improving" : "worsening"}
-              description="Maior desvio entre inclinação lateral e orientação vertical da cabeça em relação à câmera."
+              progress={neckDeviation === null ? undefined : Math.min(100, (neckDeviation / classificationConfig.neck.warningMaxDegrees) * 100)}
+              idealRange={`Desvio ≤ ${classificationConfig.neck.goodMaxDegrees}°`}
+              trend={neck?.status === PostureStatus.GOOD ? "improving" : "stable"}
+              description="Variação do ângulo do pescoço em relação à sua postura neutra calibrada."
               details={[
-                { label: "Orientação:", value: neckAngle <= 14 ? "Neutra" : "Inclinada" },
-                { label: "Limite Alerta:", value: "20°" },
+                { label: "Orientação:", value: neck?.status == null ? "Indisponível" : neck.status === PostureStatus.GOOD ? "Neutra" : "Inclinada" },
+                { label: "Limite Alerta:", value: `${classificationConfig.neck.warningMaxDegrees}°` },
               ]}
               isPaused={isPaused}
             />
@@ -324,15 +365,17 @@ export default function Monitoring() {
               title="Alinhamento Ombros"
               value={shoulderBalance}
               unit="%"
-              status={shoulderBalance > 90 ? "good" : shoulderBalance > 80 ? "warning" : "danger"}
+              status={shoulders?.status ?? "info"}
               icon={Sliders}
               progress={shoulderBalance}
-              idealRange="> 95%"
-              trend={shoulderBalance > 90 ? "stable" : "worsening"}
+              idealRange={`Desvio ≤ ${classificationConfig.shoulders.goodMaxDegrees}°`}
+              trend={shoulders?.status === PostureStatus.GOOD ? "stable" : "worsening"}
               description="Nivelamento horizontal entre ombro esquerdo e direito."
               details={[
-                { label: "Inclinação:", value: `${shoulderBalance === 0 ? "≥10" : ((100 - shoulderBalance) / 10).toFixed(1)}°` },
-                { label: "Balanço:", value: shoulderBalance > 90 ? "Simétrico" : "Inclinado" },
+                { label: "Desvio da referência:", value: shoulderDeviation === null ? "Indisponível" : `${shoulderDeviation.toFixed(1)}°` },
+                { label: "Balanço:", value: shoulders?.status == null
+                  ? calibration?.baselineShoulderBalance === 0 ? "Recalibre a postura base" : "Indisponível"
+                  : shoulders.status === PostureStatus.GOOD ? "Simétrico" : "Inclinado" },
               ]}
               isPaused={isPaused}
             />
@@ -341,14 +384,14 @@ export default function Monitoring() {
               title="Distância da Tela"
               value={distanceCm === null ? (calibration ? "Aguardando detecção facial" : "Aguardando calibração") : Math.round(distanceCm)}
               unit={distanceCm === null ? undefined : "cm"}
-              status={distanceCm === null ? "info" : distanceCm >= 50 && distanceCm <= 75 ? "good" : "warning"}
+              status={distance?.status ?? "info"}
               icon={Eye}
               progress={distanceCm === null ? undefined : Math.min(100, Math.max(0, (distanceCm / 80) * 100))}
-              idealRange="50 - 70 cm"
+              idealRange={`${classificationConfig.distance.goodMinCm} - ${classificationConfig.distance.goodMaxCm} cm`}
               trend="stable"
               description="Estimativa pela distância entre os olhos, dependente de calibração e rosto frontal."
               details={[
-                { label: "Recomendado:", value: "50-70 cm" },
+                { label: "Recomendado:", value: `${classificationConfig.distance.goodMinCm}-${classificationConfig.distance.goodMaxCm} cm` },
                 { label: "Medição:", value: distanceCm === null ? (calibration ? "Aguardando detecção facial" : "Não calibrada") : "Calibrada" },
                 ...(calibration ? [{ label: "Ref. Base:", value: `${Math.round(calibration.baselineDistanceCm)} cm` }] : []),
               ]}
@@ -359,22 +402,22 @@ export default function Monitoring() {
               title="Taxa de Piscadas"
               value={blinkRate === null ? "Aguardando dados" : blinkRate.toFixed(1)}
               unit={blinkRate === null ? undefined : "piscadas/min"}
-              status={visualFatigue === null ? "info" : visualFatigue === "normal" ? "good" : visualFatigue === "attention" ? "warning" : "danger"}
+              status={blink?.status ?? "info"}
               icon={Eye}
               description="Indicador experimental de frequência de piscadas. Não constitui diagnóstico de fadiga ou olho seco."
               details={[
                 { label: "Piscadas na janela:", value: `${ocularMetrics?.blinkRate.blinkCount ?? 0}` },
                 { label: "Total da sessão:", value: `${sessionBlinkCount}` },
                 { label: "Observação:", value: `${Math.floor((ocularMetrics?.blinkRate.observedMs ?? 0) / 1000)} s válidos` },
-                { label: "Frequência:", value: visualFatigue === null ? "Coletando dados" : visualFatigue === "normal" ? "Faixa de referência" : visualFatigue === "attention" ? "Reduzida" : "Muito baixa" },
+                { label: "Frequência:", value: blink?.status == null ? "Coletando dados" : blink.status === PostureStatus.GOOD ? "Faixa de referência" : "Reduzida" },
               ]}
               isPaused={isPaused}
             />
 
             <ErgoMetricsCard
               title="Postura da Coluna"
-              value={postureStatus === "good" ? "Ereta" : "Curvada"}
-              status={postureStatus}
+              value={postureStatus === null ? "Aguardando dados" : postureStatus === "good" ? "Ereta" : "Curvada"}
+              status={postureStatus ?? "info"}
               icon={UserCheck}
               progress={postureStatus === "good" ? 92 : 60}
               idealRange="Neutra"

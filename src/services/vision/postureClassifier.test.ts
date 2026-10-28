@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { PostureStatus } from "../../enums/postureStatus";
-import { classifyBlinkFrequency, classifyNeckDeviation, classifyScreenDistance, classifyShoulderDeviation } from "./postureClassifier";
+import { classifyBlinkFrequency, classifyNeckDeviation, classifyPosture, classifyScreenDistance, classifyShoulderDeviation, getPostureStatusLabel } from "./postureClassifier";
 import { createPostureClassificationConfig } from "./postureClassificationConfig";
 import { createBlinkRateState, updateBlinkRate, type BlinkRateMeasurement } from "./blinkRate";
+import type { PostureObservation } from "../../types/postureClassification";
 
 describe("neck deviation classification", () => {
   it.each([
@@ -120,5 +121,62 @@ describe("blink frequency classification", () => {
     const config = createPostureClassificationConfig({ blinkRate: { lowBelowPerMinute: 10 } });
     expect(classifyBlinkFrequency(measured(9), config)).toBe(PostureStatus.WARNING);
     expect(classifyBlinkFrequency(measured(9))).toBe(PostureStatus.GOOD);
+  });
+});
+
+describe("per-frame calibrated posture classification", () => {
+  const baseline = Object.freeze({ id: "base", isActive: true, baselineNeckAngle: 10, baselineShoulderBalance: 80,
+    baselineDistanceCm: 60, baselineEyeDistancePx: 200 });
+  const sample: PostureObservation = Object.freeze({ timestampMs: 100, captureId: 1,
+    neckAngle: 22, shoulderAngle: 5, distanceCm: 60, blinkRate: null });
+
+  it("classifies deviations using the active baseline without mutating observations", () => {
+    const result = classifyPosture(sample, baseline);
+    expect(result).toMatchObject({ baselineId: "base", timestampMs: 100, captureId: 1, postureStatus: PostureStatus.GOOD,
+      metrics: { neck: { value: 12, status: "good" }, shoulders: { value: 3, status: "good" } } });
+    expect(classifyPosture(sample, baseline)).toEqual(result);
+    expect(sample.neckAngle).toBe(22);
+    expect(baseline.baselineNeckAngle).toBe(10);
+  });
+
+  it("uses absolute deviations and preserves fractional values before classification", () => {
+    expect(classifyPosture({ ...sample, neckAngle: 0 }, baseline).metrics.neck.value).toBe(10);
+    expect(classifyPosture({ ...sample, neckAngle: 22.001 }, baseline).metrics.neck.status).toBe(PostureStatus.WARNING);
+    expect(classifyPosture({ ...sample, shoulderAngle: 5.001 }, baseline).metrics.shoulders.status).toBe(PostureStatus.WARNING);
+    expect(classifyPosture({ ...sample, shoulderAngle: 15 }, baseline).metrics.shoulders.value).toBe(13);
+  });
+
+  it("does not invent neutral angles without a usable baseline", () => {
+    for (const invalid of [null, { ...baseline, isActive: false }, { ...baseline, id: "" }]) {
+      const result = classifyPosture({ ...sample, distanceCm: null }, invalid);
+      expect(result.metrics.neck.status).toBeNull();
+      expect(result.metrics.shoulders.status).toBeNull();
+      expect(result.postureStatus).toBeNull();
+    }
+    expect(classifyPosture(sample, { ...baseline, baselineShoulderBalance: 0 }).metrics.shoulders.status).toBeNull();
+    expect(classifyPosture(sample, { ...baseline, baselineNeckAngle: NaN }).metrics.neck.status).toBeNull();
+  });
+
+  it("keeps invalid measurements unavailable per metric", () => {
+    const result = classifyPosture({ ...sample, neckAngle: NaN, shoulderAngle: -1 }, baseline);
+    expect(result.metrics.neck).toEqual({ value: null, status: null });
+    expect(result.metrics.shoulders).toEqual({ value: null, status: null });
+    expect(result.metrics.distance.status).toBe(PostureStatus.GOOD);
+    expect(result.postureStatus).toBe(PostureStatus.GOOD);
+  });
+
+  it("does not turn low blink frequency into poor spinal posture", () => {
+    const blinkRate = { blinkCount: 0, observedMs: 30_000, blinksPerMinute: 0, isWarmingUp: false };
+    const result = classifyPosture({ ...sample, blinkRate }, baseline);
+    expect(result.metrics["blink-rate"].status).toBe(PostureStatus.WARNING);
+    expect(result.postureStatus).toBe(PostureStatus.GOOD);
+  });
+
+  it("uses the worst valid postural level and consistent labels", () => {
+    const result = classifyPosture({ ...sample, neckAngle: 23, distanceCm: 90 }, baseline);
+    expect(result.postureStatus).toBe(PostureStatus.DANGER);
+    expect(getPostureStatusLabel(result)).toBe("Muito Distante da Tela");
+    expect(getPostureStatusLabel(classifyPosture({ ...sample, distanceCm: 30 }, baseline))).toBe("Muito Próximo da Tela");
+    expect(getPostureStatusLabel(classifyPosture({ ...sample, distanceCm: null }, null))).toContain("Aguardando calibração");
   });
 });

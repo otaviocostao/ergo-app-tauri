@@ -2,6 +2,14 @@ import type { PostureMetric } from "../../types/postureClassification";
 
 export const POSTURE_METRICS: readonly PostureMetric[] = Object.freeze(["neck", "shoulders", "distance", "blink-rate"]);
 
+/** Geometry/display conversion already used by biomechanics and calibration. */
+export const POSTURE_MEASUREMENT_LIMITS = Object.freeze({
+  maxNeckDegrees: 180,
+  maxShoulderDegrees: 90,
+  maxShoulderBalance: 100,
+  shoulderBalancePointsPerDegree: 10,
+});
+
 export interface AngularClassificationThresholds {
   readonly goodMaxDegrees: number;
   readonly warningMaxDegrees: number;
