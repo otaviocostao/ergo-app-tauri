@@ -433,7 +433,7 @@ export class PoseDetectorService {
       const firstFace = rawFaceResult.faceLandmarks[0];
       if (firstFace && firstFace.length > 0) {
         hasFace = true;
-        faceLandmarks = this.mapLandmarks(firstFace);
+        faceLandmarks = this.mapFaceLandmarks(firstFace);
       }
     }
 
@@ -468,6 +468,33 @@ export class PoseDetectorService {
       y: lm.y,
       z: lm.z,
       visibility: typeof lm.visibility === "number" ? lm.visibility : 1.0,
+      presence: typeof lm.presence === "number" ? lm.presence : 1.0,
+    }));
+  }
+
+  /**
+   * Mapeamento de landmarks faciais. No runtime MediaPipe WebAssembly FaceLandmarker,
+   * a propriedade visibility não é calculada por vértice e vem sempre como 0.
+   * Portanto, a confiança real do ponto facial é provida por presence (ou 1.0).
+   */
+  private mapFaceLandmarks(
+    landmarks: Array<{
+      x: number;
+      y: number;
+      z: number;
+      visibility?: number;
+      presence?: number;
+    }>
+  ): LandmarkPoint[] {
+    const isWasmZeroVisibility = landmarks.length > 0 && landmarks.every((lm) => lm.visibility === 0);
+
+    return landmarks.map((lm) => ({
+      x: lm.x,
+      y: lm.y,
+      z: lm.z,
+      visibility: isWasmZeroVisibility
+        ? (typeof lm.presence === "number" && lm.presence > 0 ? lm.presence : 1.0)
+        : (typeof lm.visibility === "number" ? lm.visibility : 1.0),
       presence: typeof lm.presence === "number" ? lm.presence : 1.0,
     }));
   }
