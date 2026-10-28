@@ -677,6 +677,12 @@ export default function WorkspaceCalibrationModal({
                     </div>
                   </div>
 
+                  {!isFrameReady && (
+                    <p role="status" className="text-xs text-amber-700 dark:text-amber-300">
+                      Aguardando leitura válida de rosto, ombros e distância entre os olhos. Olhe de frente para a câmera.
+                    </p>
+                  )}
+
                   <div className="flex items-center justify-between pt-1">
                     <span className="text-xs text-slate-500 dark:text-slate-400">
                       Mantenha-se enquadrado e com ombros nivelados.
@@ -714,11 +720,23 @@ export default function WorkspaceCalibrationModal({
                       Mantenha sua postura ereta e olhe para o centro da tela
                     </p>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      Amostras capturadas: {sampleCount} leituras
+                      Amostras válidas capturadas: {sampleCount} leituras
                     </p>
+                    {!isFrameReady && (
+                      <p role="status" className="text-xs text-amber-700 dark:text-amber-300">
+                        Leitura interrompida. Reenquadre rosto e ombros e olhe de frente para a câmera.
+                      </p>
+                    )}
                   </div>
 
-                  <div className="w-full max-w-xs bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
+                  <div
+                    role="progressbar"
+                    aria-label="Progresso da calibração"
+                    aria-valuemin={0}
+                    aria-valuemax={CALIBRATION_DURATION_SECONDS}
+                    aria-valuenow={CALIBRATION_DURATION_SECONDS - countdownRemaining}
+                    className="w-full max-w-xs bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden"
+                  >
                     <div
                       className="bg-primary-500 h-full transition-all duration-1000 ease-linear rounded-full"
                       style={{
@@ -873,7 +891,7 @@ export default function WorkspaceCalibrationModal({
                           <span className="text-emerald-700 dark:text-emerald-300">
                             {allowOverrideWarning
                               ? "Postura mantida conforme sua preferência manual."
-                              : "Postura calibrada dentro da faixa ideal (60 cm de distância do monitor)."}
+                              : `Leituras estáveis registradas. Distância de referência assumida: ${DEFAULT_REFERENCE_DISTANCE_CM} cm.`}
                           </span>
                         </div>
                       </div>
@@ -883,7 +901,7 @@ export default function WorkspaceCalibrationModal({
               )}
 
               {calibrationError && (
-                <div className="p-2 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 flex items-center gap-2 text-rose-700 dark:text-rose-300 text-xs">
+                <div role="alert" className="p-2 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 flex items-center gap-2 text-rose-700 dark:text-rose-300 text-xs">
                   <AlertTriangle size={14} className="shrink-0" />
                   <span>{calibrationError}</span>
                 </div>

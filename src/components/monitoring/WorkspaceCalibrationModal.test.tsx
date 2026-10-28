@@ -374,7 +374,7 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     await advance(5100);
 
     expect(dialog?.textContent).toContain("Postura Confirmada:");
-    expect(dialog?.textContent).toContain("faixa ideal (60 cm de distância do monitor)");
+    expect(dialog?.textContent).toContain("Distância de referência assumida: 60 cm");
   });
 
   it("requires measured eye landmarks before starting or auto-saving", async () => {
@@ -382,6 +382,7 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     await renderModal(); await reachCalibrationCamera(); await advance(200);
     const start = [...document.querySelectorAll("button")].find(b => b.textContent?.includes("Iniciar Calibração"));
     expect(start?.disabled).toBe(true);
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("Olhe de frente para a câmera");
     await clickButton("Salvar"); await advance(5100);
     expect(document.body.textContent).toContain("Aguardando leitura válida");
     expect(document.body.textContent).not.toContain("Postura Calibrada");
@@ -396,6 +397,21 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     expect(document.body.textContent).toContain("Não houve leituras válidas suficientes");
     expect(document.body.textContent).not.toContain("Postura Calibrada");
     expect(postureService.saveCalibration).not.toHaveBeenCalled();
+  });
+
+  it("counts only measured frames and indicates interrupted tracking during the countdown", async () => {
+    await renderModal(); await reachCalibrationCamera(); await advance(200);
+    await clickButton("Iniciar Calibração"); await advance(1000);
+    const count = () => Number(document.body.textContent?.match(/Amostras válidas capturadas: (\d+)/)?.[1]);
+    const captured = count();
+    expect(captured).toBeGreaterThan(0);
+    expect(document.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("1");
+    faceLandmarks = null; await advance(200);
+    expect(count()).toBe(captured);
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("Leitura interrompida");
+    faceLandmarks = ocularFace(); await advance(200);
+    expect(count()).toBeGreaterThan(captured);
+    expect(document.body.textContent).not.toContain("Leitura interrompida");
   });
 
   it("rejects a short initial fragment followed by user absence", async () => {
