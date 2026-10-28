@@ -19,6 +19,19 @@ export const postureCalibrationService = {
   async saveCalibration(
     payload: SaveCalibrationPayload,
   ): Promise<PostureCalibrationDTO> {
+    if (!isTauri()) {
+      return {
+        id: "mock-calibration-id",
+        userId: payload.userId ?? null,
+        baselineNeckAngle: payload.baselineNeckAngle,
+        baselineShoulderBalance: payload.baselineShoulderBalance,
+        baselineDistanceCm: payload.baselineDistanceCm,
+        baselineEyeDistancePx: payload.baselineEyeDistancePx,
+        isActive: payload.isActive ?? true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+    }
     return await invoke<PostureCalibrationDTO>("save_posture_calibration", {
       payload,
     });
@@ -32,6 +45,9 @@ export const postureCalibrationService = {
   },
 
   async deleteCalibration(id: string): Promise<boolean> {
+    if (!isTauri()) {
+      return true;
+    }
     return await invoke<boolean>("delete_posture_calibration", { id });
   },
 };

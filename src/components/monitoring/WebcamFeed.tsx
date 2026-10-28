@@ -14,7 +14,10 @@ import Select from "../Select";
 import { poseDetector, type LandmarkPoint, POSE_LANDMARK_INDEX } from "../../services/vision";
 import { calculatePoseAngles, type PoseAngles } from "../../services/vision/poseAngles";
 import { calculateHeadPitch, type Point2D } from "../../services/vision/biomechanics";
-import { createOcularMetricsState, updateOcularMetrics, type OcularMetrics, type ScreenDistanceReference } from "../../services/vision/ocularMetrics";
+import { TemporalPostureFilter } from "../../services/vision/temporalPostureFilter";
+import { createOcularMetricsState, isScreenDistancePoseUsable, updateOcularMetrics, type OcularMetrics, type ScreenDistanceReference } from "../../services/vision/ocularMetrics";
+import type { PostureCalibrationFrame } from "../../services/vision/postureCalibration";
+import type { PostureCalibrationDTO } from "../../types/postureCalibration";
 import type { UserPresenceState } from "../../types/vision";
 
 export type { UserPresenceState };
@@ -36,8 +39,12 @@ export interface WebcamFeedProps {
   onStreamChange?: (stream: MediaStream | null) => void;
   /** Per-inference ocular values; null on camera pause/mute/error. */
   onOcularUpdate?: (metrics: OcularMetrics | null) => void;
+  /** Synchronized posture/IPD from a frontal face; null on an unusable frame or capture reset. */
+  onCalibrationFrame?: (frame: PostureCalibrationFrame | null) => void;
   /** Explicit calibration context; absent until the distance calibration flow exists. */
   distanceReference?: ScreenDistanceReference | null;
+  /** Saved posture calibration containing distance baseline. Used to derive distanceReference dynamically when video dimensions are known. */
+  calibration?: PostureCalibrationDTO | null;
   className?: string;
 }
 
@@ -62,11 +69,6 @@ interface PoseOverlay {
  */
 const ABSENCE_THRESHOLD_MS = 5000;
 
-/**
- * Fator de suavização temporal (Filtro Exponencial EMA) para estabilizar oscilações angulares.
- */
-const EMA_ALPHA = 0.3;
-
 export default function WebcamFeed({
   isMonitoring,
   onToggleMonitoring,
@@ -76,7 +78,9 @@ export default function WebcamFeed({
   onHardwareBusyChange,
   onStreamChange,
   onOcularUpdate,
+  onCalibrationFrame,
   distanceReference = null,
+  calibration = null,
   className = "",
 }: WebcamFeedProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -84,11 +88,14 @@ export default function WebcamFeed({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const cameraRequestRef = useRef(0);
-  const hasMeasuredFrameRef = useRef(false);
+  const postureFilterRef = useRef(new TemporalPostureFilter());
   const lastOverlayRef = useRef<PoseOverlay | null>(null);
   const ocularStateRef = useRef(createOcularMetricsState());
   const onOcularUpdateRef = useRef(onOcularUpdate);
+  const onCalibrationFrameRef = useRef(onCalibrationFrame);
   const distanceReferenceRef = useRef(distanceReference);
+  const calibrationRef = useRef(calibration);
+  const derivedDistanceRef = useRef<ScreenDistanceReference | null>(null);
 
   // Estados de dispositivos e permissão
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -102,8 +109,7 @@ export default function WebcamFeed({
   const [isHardwareBusy, setIsHardwareBusy] = useState<boolean>(false);
   const [hardwareErrorMessage, setHardwareErrorMessage] = useState<string | null>(null);
 
-  // Estados de IA e Presença
-  const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
+  // Estados de Presença
   const [presenceState, setPresenceState] = useState<UserPresenceState>("PARTIALLY_OCCLUDED");
   const [showOverlay] = useState<boolean>(true);
 
@@ -151,12 +157,15 @@ export default function WebcamFeed({
 
   useEffect(() => {
     onOcularUpdateRef.current = onOcularUpdate;
+    onCalibrationFrameRef.current = onCalibrationFrame;
     distanceReferenceRef.current = distanceReference;
-  }, [onOcularUpdate, distanceReference]);
+    calibrationRef.current = calibration;
+  }, [onOcularUpdate, onCalibrationFrame, distanceReference, calibration]);
 
   const resetOcularTracking = useCallback(() => {
     ocularStateRef.current = createOcularMetricsState();
     onOcularUpdateRef.current?.(null);
+    onCalibrationFrameRef.current?.(null);
   }, []);
 
   /**
@@ -170,7 +179,6 @@ export default function WebcamFeed({
         return;
       }
 
-      setIsAiLoading(true);
       try {
         await poseDetector.initialize();
         if (!isCancelled) {
@@ -178,10 +186,6 @@ export default function WebcamFeed({
         }
       } catch (err) {
         console.warn("[WebcamFeed] Não foi possível carregar o detector MediaPipe; operando em modo de contingência:", err);
-      } finally {
-        if (!isCancelled) {
-          setIsAiLoading(false);
-        }
       }
     }
 
@@ -234,7 +238,7 @@ export default function WebcamFeed({
   const stopCurrentStream = useCallback(() => {
     resetOcularTracking();
     cameraRequestRef.current += 1;
-    hasMeasuredFrameRef.current = false;
+    postureFilterRef.current.reset();
     lastOverlayRef.current = null;
     isCameraMutedRef.current = false;
     setIsCameraMuted(false);
@@ -323,7 +327,7 @@ export default function WebcamFeed({
           resetOcularTracking();
           isCameraMutedRef.current = muted;
           setIsCameraMuted(muted);
-          hasMeasuredFrameRef.current = false;
+          postureFilterRef.current.reset();
           lastOverlayRef.current = null;
           lastLandmarksDetectedTimeRef.current = Date.now();
           // Keep metrics paused after unmute until a fresh valid frame arrives.
@@ -460,6 +464,10 @@ export default function WebcamFeed({
       let rightShoulderPt: LandmarkPoint | null = null;
       let poseAngles: PoseAngles | null = null;
       let headPitch: number | null = null;
+      let detectionTimestampMs: number | null = null;
+      let calibrationFrame: PostureCalibrationFrame | null = null;
+      let frameOcular: OcularMetrics | null = null;
+      let isCalibrationPoseUsable = false;
 
       if (shouldRunInference) {
         lastInferenceTimeRef.current = currentTime - (elapsedSinceLastInference % INFERENCE_INTERVAL_MS);
@@ -468,9 +476,49 @@ export default function WebcamFeed({
           // Inferência real através do MediaPipe WebGL / WebAssembly
           try {
             const detection = poseDetector.detectFrame(video, currentTime);
+            detectionTimestampMs = detection.timestamp;
+            isCalibrationPoseUsable = isScreenDistancePoseUsable(detection.faceTransformationMatrix);
+            let refToUse = distanceReferenceRef.current;
+            if (!refToUse && calibrationRef.current && video.videoWidth > 0 && video.videoHeight > 0) {
+              const cal = calibrationRef.current;
+              if (cal.baselineEyeDistancePx > 0 && cal.baselineDistanceCm > 0) {
+                const hasIris = Boolean(
+                  detection.faceLandmarks &&
+                  detection.faceLandmarks.length >= 478 &&
+                  detection.faceLandmarks[468] &&
+                  detection.faceLandmarks[473] &&
+                  (detection.faceLandmarks[468].presence ?? 1) > 0.35 &&
+                  (detection.faceLandmarks[473].presence ?? 1) > 0.35
+                );
+                const source = hasIris ? "iris" : "eye-corners";
+
+                const prev = derivedDistanceRef.current;
+                if (
+                  prev &&
+                  prev.baselineDistanceCm === cal.baselineDistanceCm &&
+                  prev.baselineEyeDistancePx === cal.baselineEyeDistancePx &&
+                  prev.frameWidth === video.videoWidth &&
+                  prev.frameHeight === video.videoHeight &&
+                  prev.source === source
+                ) {
+                  refToUse = prev;
+                } else {
+                  refToUse = {
+                    baselineDistanceCm: cal.baselineDistanceCm,
+                    baselineEyeDistancePx: cal.baselineEyeDistancePx,
+                    frameWidth: video.videoWidth,
+                    frameHeight: video.videoHeight,
+                    source,
+                  };
+                  derivedDistanceRef.current = refToUse;
+                }
+              }
+            }
+
             const ocular = updateOcularMetrics(ocularStateRef.current, detection,
-              video.videoWidth, video.videoHeight, distanceReferenceRef.current);
+              video.videoWidth, video.videoHeight, refToUse);
             if (ocular) {
+              frameOcular = ocular.metrics;
               ocularStateRef.current = ocular.state;
               onOcularUpdateRef.current?.(ocular.metrics);
             } else {
@@ -543,12 +591,12 @@ export default function WebcamFeed({
         }
 
         // Paused tracking must not blend pre-gap posture into the first new measurement.
-        if (presenceRef.current !== "ACTIVE") hasMeasuredFrameRef.current = false;
+        if (presenceRef.current !== "ACTIVE") postureFilterRef.current.reset();
 
         // -------------------------------------------------------------
         // 3. EXTRAÇÃO DE ÂNGULOS BIOMECÂNICOS & ATUALIZAÇÃO DE MÉTRICAS
         // -------------------------------------------------------------
-        if (currentPoseDetected && poseAngles && headPitch !== null && leftShoulderPt && rightShoulderPt) {
+        if (currentPoseDetected && poseAngles && headPitch !== null && detectionTimestampMs !== null && leftShoulderPt && rightShoulderPt) {
           lastOverlayRef.current = {
             head: { ...poseAngles.headCenter },
             leftShoulder: { x: leftShoulderPt.x, y: leftShoulderPt.y },
@@ -556,53 +604,68 @@ export default function WebcamFeed({
             detectedAt: currentTime,
           };
           // Keep both upward and downward deviations; opposite signs must not
-          // cancel in the EMA, nor hide behind a centered image-plane vector.
+          // cancel in the filter, nor hide behind a centered image-plane vector.
           const rawNeckAngle = Math.max(poseAngles.neckAngle, Math.abs(headPitch));
-          const rawShoulderBalance = poseAngles.shoulderBalance;
+          const filtered = postureFilterRef.current.filter({
+            neckAngle: rawNeckAngle,
+            shoulderAngle: poseAngles.shoulderAngle,
+          }, detectionTimestampMs);
 
-          // Ocular geometry already applies its own independent distance EMA.
-          const smoothedDist = ocularStateRef.current.previousDistanceCm;
+          if (filtered !== null) {
+            // Ocular geometry already applies its own independent distance EMA.
+            const smoothedDist = ocularStateRef.current.previousDistanceCm;
 
-          // Suavização temporal (EMA) para estabilizar oscilações
-          // Keep fractional values in the filter; round only when publishing to UI.
-          const alpha = hasMeasuredFrameRef.current ? EMA_ALPHA : 1;
-          const smoothedNeck = alpha * rawNeckAngle + (1 - alpha) * smoothedMetricsRef.current.neckAngle;
-          const smoothedShoulder = alpha * rawShoulderBalance + (1 - alpha) * smoothedMetricsRef.current.shoulderBalance;
-          hasMeasuredFrameRef.current = true;
+            // Filter degrees before converting/clamping shoulders; round only for UI.
+            const smoothedNeck = filtered.neckAngle;
+            const smoothedShoulder = Math.max(0, Math.min(100, 100 - filtered.shoulderAngle * 10));
 
-          smoothedMetricsRef.current = {
-            neckAngle: smoothedNeck,
-            shoulderBalance: smoothedShoulder,
-          };
+            if (isCalibrationPoseUsable && frameOcular?.ipd && video) {
+              calibrationFrame = {
+                timestampMs: detectionTimestampMs,
+                captureId: cameraRequestRef.current,
+                frameWidth: video.videoWidth,
+                frameHeight: video.videoHeight,
+                ipd: frameOcular.ipd,
+                rawAngles: { neckAngle: rawNeckAngle, shoulderAngle: poseAngles.shoulderAngle },
+                filteredAngles: filtered,
+              };
+            }
 
-          // Classificação de risco ergonômico
-          let postureStatus: "good" | "warning" | "danger" = "good";
-          let postureLabel = "Postura Excelente";
+            smoothedMetricsRef.current = {
+              neckAngle: smoothedNeck,
+              shoulderBalance: smoothedShoulder,
+            };
 
-          if (smoothedNeck > 20 || smoothedShoulder < 85 || (smoothedDist !== null && smoothedDist < 45)) {
-            postureStatus = "danger";
-            postureLabel =
-              smoothedNeck > 20
-                ? "Atenção: Pescoço Muito Inclinado!"
-                : smoothedDist !== null && smoothedDist < 45
-                  ? "Muito Próximo da Tela"
-                  : "Ombros Desalinhados";
-          } else if (smoothedNeck > 14 || smoothedShoulder < 92) {
-            postureStatus = "warning";
-            postureLabel = smoothedNeck > 14
-              ? "Atenção à Inclinação do Pescoço"
-              : "Atenção ao Alinhamento dos Ombros";
+            // Classificação de risco ergonômico
+            let postureStatus: "good" | "warning" | "danger" = "good";
+            let postureLabel = "Postura Excelente";
+
+            if (smoothedNeck > 20 || smoothedShoulder < 85 || (smoothedDist !== null && smoothedDist < 45)) {
+              postureStatus = "danger";
+              postureLabel =
+                smoothedNeck > 20
+                  ? "Atenção: Pescoço Muito Inclinado!"
+                  : smoothedDist !== null && smoothedDist < 45
+                    ? "Muito Próximo da Tela"
+                    : "Ombros Desalinhados";
+            } else if (smoothedNeck > 14 || smoothedShoulder < 92) {
+              postureStatus = "warning";
+              postureLabel = smoothedNeck > 14
+                ? "Atenção à Inclinação do Pescoço"
+                : "Atenção ao Alinhamento dos Ombros";
+            }
+
+            onPostureUpdateRef.current?.({
+              neckAngle: Math.round(smoothedNeck),
+              shoulderBalance: Math.round(smoothedShoulder),
+              distanceCm: smoothedDist === null ? null : Math.round(smoothedDist),
+              status: postureStatus,
+              statusLabel: postureLabel,
+              presence: "ACTIVE",
+            });
           }
-
-          onPostureUpdateRef.current?.({
-            neckAngle: Math.round(smoothedNeck),
-            shoulderBalance: Math.round(smoothedShoulder),
-            distanceCm: smoothedDist === null ? null : Math.round(smoothedDist),
-            status: postureStatus,
-            statusLabel: postureLabel,
-            presence: "ACTIVE",
-          });
         }
+        onCalibrationFrameRef.current?.(calibrationFrame);
       }
 
       // -------------------------------------------------------------
@@ -716,18 +779,13 @@ export default function WebcamFeed({
   return (
     <div
       ref={containerRef}
-      className={`relative flex flex-col bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-xl ${className}`}
+      className={`relative flex flex-col bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 ${className}`}
     >
-      <div className="flex items-center justify-between p-3.5 bg-slate-900/95 backdrop-blur-md z-20 border-b border-slate-800/80">
+      <div className="flex items-center justify-between rounded-2xl p-3.5 bg-slate-900/95 backdrop-blur-md z-20 border-b border-slate-800/80">
         <div className="flex items-center gap-2.5">
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-semibold text-white">Feed da Câmera</h3>
-              {isAiLoading && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                  <RefreshCw size={10} className="animate-spin" /> Carregando IA...
-                </span>
-              )}
             </div>
 
             <div className="flex items-center gap-2 mt-1.5">

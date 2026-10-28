@@ -53,3 +53,14 @@ export const DEFAULT_BLINK_RATE_THRESHOLDS: Readonly<BlinkRateThresholds> = Obje
   highRiskBelow: 5,
   attentionBelow: 8,
 });
+
+/**
+ * Plausibility ratio thresholds for interpupillary distance relative to frame width
+ * (IPD / frameWidth). Protects against incorrect user distance during calibration.
+ */
+export const CALIBRATION_IPD_RATIO_LIMITS = Object.freeze({
+  minRatio: 0.04,   // Abaixo de 4% da largura da tela: muito longe (> 90cm)
+  maxRatio: 0.20,   // Acima de 20% da largura da tela: muito perto (< 40cm)
+  optimalMin: 0.06, // Faixa ideal recomendada (~60cm)
+  optimalMax: 0.16,
+});

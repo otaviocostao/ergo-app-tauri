@@ -1,5 +1,5 @@
 import { calculateMeanEAR, type Point2D } from "./biomechanics";
-import { MIN_OCULAR_CONFIDENCE, MIN_OCULAR_SPAN_PX } from "./ocularConfig";
+import { CALIBRATION_IPD_RATIO_LIMITS, MIN_OCULAR_CONFIDENCE, MIN_OCULAR_SPAN_PX } from "./ocularConfig";
 import { FACE_EAR_INDEX, FACE_LANDMARK_INDEX, type LandmarkPoint } from "./poseDetector";
 
 /**
@@ -85,4 +85,23 @@ export function calculateInterpupillaryDistance(
     return a && b ? { x: a.x / 2 + b.x / 2, y: a.y / 2 + b.y / 2 } : null;
   };
   return measure(center(FACE_LANDMARK_INDEX.LEFT_EYE), center(FACE_LANDMARK_INDEX.RIGHT_EYE), "eye-corners");
+}
+
+export type IPDCalibrationValidationResult = "valid" | "too-close" | "too-far";
+
+/**
+ * Validates whether the measured interpupillary distance (in pixels) during calibration
+ * conforms to human optical plausibility given the camera frame width.
+ * Prevents saving calibrations where the user is sitting too close (< 40cm) or too far (> 90cm).
+ */
+export function validateCalibrationIPD(
+  ipdPx: number,
+  frameWidth: number,
+  limits = CALIBRATION_IPD_RATIO_LIMITS,
+): IPDCalibrationValidationResult {
+  if (!Number.isFinite(ipdPx) || !Number.isFinite(frameWidth) || frameWidth <= 0 || ipdPx <= 0) return "too-far";
+  const ratio = ipdPx / frameWidth;
+  if (ratio > limits.maxRatio) return "too-close";
+  if (ratio < limits.minRatio) return "too-far";
+  return "valid";
 }

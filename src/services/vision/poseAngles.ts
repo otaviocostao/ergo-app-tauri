@@ -1,10 +1,12 @@
-import { calculateNeckAngle, calculateShoulderBalance, type Point2D } from "./biomechanics";
+import { calculateNeckAngle, calculateShoulderAngle, type Point2D } from "./biomechanics";
 import { POSE_LANDMARK_INDEX, type LandmarkPoint } from "./poseDetector";
 
 const MIN_CONFIDENCE = 0.35;
 
 export interface PoseAngles {
   neckAngle: number;
+  /** Raw inclination in degrees, before conversion to the display percentage. */
+  shoulderAngle: number;
   shoulderBalance: number;
   /** Normalized midpoint used by both the neck calculation and the overlay. */
   headCenter: Point2D;
@@ -51,8 +53,9 @@ export function calculatePoseAngles(
 
   const pixels = (point: Point2D): Point2D => ({ x: point.x * frameWidth, y: point.y * frameHeight });
   const neckAngle = calculateNeckAngle(pixels(nose), pixels(ear), pixels(midpoint(leftShoulder, rightShoulder)));
-  const shoulderBalance = calculateShoulderBalance(pixels(leftShoulder), pixels(rightShoulder));
-  if (neckAngle === null || shoulderBalance === null) return null;
+  const shoulderAngle = calculateShoulderAngle(pixels(leftShoulder), pixels(rightShoulder));
+  if (neckAngle === null || shoulderAngle === null) return null;
 
-  return { neckAngle, shoulderBalance, headCenter: midpoint(nose, ear) };
+  const shoulderBalance = Math.max(0, Math.min(100, 100 - shoulderAngle * 10));
+  return { neckAngle, shoulderAngle, shoulderBalance, headCenter: midpoint(nose, ear) };
 }
