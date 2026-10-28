@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { PostureStatus } from "../../enums/postureStatus";
-import { classifyNeckDeviation, classifyScreenDistance, classifyShoulderDeviation } from "./postureClassifier";
+import { classifyBlinkFrequency, classifyNeckDeviation, classifyScreenDistance, classifyShoulderDeviation } from "./postureClassifier";
 import { createPostureClassificationConfig } from "./postureClassificationConfig";
+import { createBlinkRateState, updateBlinkRate, type BlinkRateMeasurement } from "./blinkRate";
 
 describe("neck deviation classification", () => {
   it.each([
@@ -66,5 +67,58 @@ describe("screen distance classification in cm", () => {
     expect(classifyScreenDistance(45, config)).toBe(PostureStatus.GOOD);
     expect(classifyScreenDistance(85, config)).toBe(PostureStatus.DANGER);
     expect(classifyScreenDistance(45)).toBe(PostureStatus.WARNING);
+  });
+});
+
+describe("blink frequency classification", () => {
+  const measured = (blinksPerMinute: number | null): BlinkRateMeasurement => ({
+    blinkCount: 4, observedMs: 30_000, blinksPerMinute, isWarmingUp: false,
+  });
+
+  it.each([
+    [0, PostureStatus.WARNING], [4, PostureStatus.WARNING], [7.999, PostureStatus.WARNING],
+    [8, PostureStatus.GOOD], [8.001, PostureStatus.GOOD], [20, PostureStatus.GOOD],
+  ])("classifies %s blinks/min as %s", (rate, expected) => {
+    expect(classifyBlinkFrequency(measured(rate))).toBe(expected);
+  });
+
+  it.each([null, NaN, Infinity, -Infinity, -1])("rejects unavailable or invalid rate %s", rate => {
+    expect(classifyBlinkFrequency(measured(rate))).toBeNull();
+  });
+
+  it("requires enough valid observation even if a caller supplies a provisional rate", () => {
+    expect(classifyBlinkFrequency(null)).toBeNull();
+    expect(classifyBlinkFrequency(undefined)).toBeNull();
+    expect(classifyBlinkFrequency({ ...measured(0), isWarmingUp: true })).toBeNull();
+    expect(classifyBlinkFrequency({ ...measured(0), observedMs: 29_999 })).toBeNull();
+    expect(classifyBlinkFrequency({ ...measured(0), observedMs: NaN })).toBeNull();
+  });
+
+  it("follows oscillations without latching a parallel fatigue state", () => {
+    expect([7, 8, 7, 9].map(rate => classifyBlinkFrequency(measured(rate))))
+      .toEqual([PostureStatus.WARNING, PostureStatus.GOOD, PostureStatus.WARNING, PostureStatus.GOOD]);
+  });
+
+  it("uses the existing timestamp-driven window and does not count warm-up as low-rate observation", () => {
+    let state = createBlinkRateState();
+    let firstLowAt: number | null = null;
+    for (let timestamp = 0; timestamp <= 55_000; timestamp += 100) {
+      const update = updateBlinkRate(state, timestamp, true, timestamp > 0 && timestamp % 10_000 === 0)!;
+      state = update.state;
+      const status = classifyBlinkFrequency(update.measurement);
+      if (timestamp < 30_000) expect(status).toBeNull();
+      else {
+        expect(status).toBe(PostureStatus.WARNING);
+        firstLowAt ??= timestamp;
+      }
+    }
+    expect(firstLowAt).toBe(30_000);
+    expect(55_000 - firstLowAt!).toBeGreaterThan(createPostureClassificationConfig().blinkPersistenceMs);
+  });
+
+  it("uses a configured low-frequency threshold", () => {
+    const config = createPostureClassificationConfig({ blinkRate: { lowBelowPerMinute: 10 } });
+    expect(classifyBlinkFrequency(measured(9), config)).toBe(PostureStatus.WARNING);
+    expect(classifyBlinkFrequency(measured(9))).toBe(PostureStatus.GOOD);
   });
 });

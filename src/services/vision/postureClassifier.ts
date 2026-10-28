@@ -1,4 +1,6 @@
 import { PostureStatus } from "../../enums/postureStatus";
+import type { BlinkRateMeasurement } from "./blinkRate";
+import { DEFAULT_BLINK_RATE_CONFIG } from "./ocularConfig";
 import {
   DEFAULT_POSTURE_CLASSIFICATION_CONFIG,
   type AngularClassificationThresholds,
@@ -41,4 +43,16 @@ export function classifyScreenDistance(
   if (distanceCm >= limits.goodMinCm && distanceCm <= limits.goodMaxCm) return PostureStatus.GOOD;
   if (distanceCm < limits.dangerBelowCm || distanceCm > limits.dangerAboveCm) return PostureStatus.DANGER;
   return PostureStatus.WARNING;
+}
+
+/** Reuse the existing rolling rate and warm-up; persistence belongs to shared hysteresis. */
+export function classifyBlinkFrequency(
+  measurement: BlinkRateMeasurement | null | undefined,
+  config: PostureClassificationConfig = DEFAULT_POSTURE_CLASSIFICATION_CONFIG,
+): PostureStatus | null {
+  if (!measurement || measurement.isWarmingUp || !Number.isFinite(measurement.observedMs) ||
+    measurement.observedMs < DEFAULT_BLINK_RATE_CONFIG.minObservedMs ||
+    measurement.blinksPerMinute === null || !Number.isFinite(measurement.blinksPerMinute) ||
+    measurement.blinksPerMinute < 0) return null;
+  return measurement.blinksPerMinute < config.blinkRate.lowBelowPerMinute ? PostureStatus.WARNING : PostureStatus.GOOD;
 }
