@@ -39,6 +39,7 @@ export default function Monitoring() {
   const userId = auth?.session.kind === "authenticated" ? auth.session.user.id : null;
   const [isMonitoring, setIsMonitoring] = useState(true);
   const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
+  const monitoringContextRef = useRef({ enabled: true, userId });
   const [calibration, setCalibration] = useState<PostureCalibrationDTO | null>(null);
   const [sessionBlinkCount, setSessionBlinkCount] = useState(0);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
@@ -96,8 +97,10 @@ export default function Monitoring() {
   };
 
   const handleClassificationUpdate = (current: PostureClassification | null) => {
-    setClassification(current);
-    if (!current || !isMonitoring || isCalibrationOpen) {
+    const context = monitoringContextRef.current;
+    if (context.userId !== userId) return;
+    setClassification(context.enabled ? current : null);
+    if (!current || !context.enabled) {
       alertState.hysteresis.resetContinuity();
       return;
     }
@@ -117,8 +120,10 @@ export default function Monitoring() {
   };
 
   useEffect(() => {
-    if (!isMonitoring || isCalibrationOpen) alertState.hysteresis.resetContinuity();
-  }, [isMonitoring, isCalibrationOpen]);
+    const enabled = isMonitoring && !isCalibrationOpen;
+    monitoringContextRef.current = { enabled, userId };
+    if (!enabled) alertState.hysteresis.resetContinuity();
+  }, [isMonitoring, isCalibrationOpen, userId]);
 
   const handlePresenceChange = (presence: UserPresenceState) => {
     setUserPresence(presence);

@@ -152,4 +152,28 @@ describe("Monitoring classification and temporal alerts", () => {
     expect(container.textContent).toContain("Recalibre a postura base");
     expect(alerts()).toEqual([]);
   });
+
+  it("ignores obsolete callback closures after pausing or changing account", async () => {
+    await render();
+    const obsolete = view.feed!.onClassificationUpdate!;
+    await act(async () => view.feed!.onToggleMonitoring!());
+    await act(async () => {
+      for (let timestampMs = 0; timestampMs <= 30_000; timestampMs += 100) {
+        obsolete(classifyPosture({ timestampMs, captureId: 1, neckAngle: 35, shoulderAngle: 2,
+          distanceCm: 60, blinkRate: null }, baseline));
+      }
+    });
+    expect(alerts()).toEqual([]);
+    view.userId = 2;
+    vi.mocked(postureService.getActiveCalibration).mockResolvedValue({ ...baseline, id: "user-2", userId: 2 });
+    await render();
+    await act(async () => view.feed!.onToggleMonitoring!());
+    await act(async () => {
+      for (let timestampMs = 30_100; timestampMs <= 60_000; timestampMs += 100) {
+        obsolete(classifyPosture({ timestampMs, captureId: 1, neckAngle: 35, shoulderAngle: 2,
+          distanceCm: 60, blinkRate: null }, baseline));
+      }
+    });
+    expect(alerts()).toEqual([]);
+  });
 });
