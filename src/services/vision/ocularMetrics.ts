@@ -35,6 +35,8 @@ export interface OcularMetrics {
   readonly eyeState: BlinkState["phase"];
   readonly blinkRate: BlinkRateMeasurement;
   readonly visualFatigue: VisualFatigueLevel | null;
+  readonly frameWidth?: number;
+  readonly frameHeight?: number;
 }
 
 /** Fresh temporal state; use on pause, camera changes, mute and hardware loss. */
@@ -99,6 +101,7 @@ export function updateOcularMetrics(
       available, ear, ipd, rawDistanceCm, distanceCm,
       blinkEvent: blink.event, eyeState: blink.state.phase, blinkRate: rate.measurement,
       visualFatigue: available ? classifyBlinkRate(rate.measurement.blinksPerMinute) : null,
+      frameWidth, frameHeight,
     },
   };
 }
