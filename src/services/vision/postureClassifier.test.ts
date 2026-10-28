@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PostureStatus } from "../../enums/postureStatus";
-import { classifyNeckDeviation, classifyShoulderDeviation } from "./postureClassifier";
+import { classifyNeckDeviation, classifyScreenDistance, classifyShoulderDeviation } from "./postureClassifier";
 import { createPostureClassificationConfig } from "./postureClassificationConfig";
 
 describe("neck deviation classification", () => {
@@ -40,5 +40,31 @@ describe("angular classifier contracts", () => {
     expect(classifyShoulderDeviation(3, config)).toBe(PostureStatus.DANGER);
     expect(classifyNeckDeviation(6)).toBe(PostureStatus.GOOD);
     expect(classifyShoulderDeviation(3)).toBe(PostureStatus.GOOD);
+  });
+});
+
+describe("screen distance classification in cm", () => {
+  it.each([
+    [20, PostureStatus.DANGER], [39.999, PostureStatus.DANGER], [40, PostureStatus.WARNING],
+    [40.001, PostureStatus.WARNING], [45, PostureStatus.WARNING], [49.999, PostureStatus.WARNING],
+    [50, PostureStatus.GOOD], [50.001, PostureStatus.GOOD], [60, PostureStatus.GOOD],
+    [74.999, PostureStatus.GOOD], [75, PostureStatus.GOOD], [75.001, PostureStatus.WARNING],
+    [80, PostureStatus.WARNING], [84.999, PostureStatus.WARNING], [85, PostureStatus.WARNING],
+    [85.001, PostureStatus.DANGER], [100, PostureStatus.DANGER],
+  ])("classifies %s cm as %s", (distance, expected) => {
+    expect(classifyScreenDistance(distance)).toBe(expected);
+  });
+
+  it.each([null, undefined, 0, -1, NaN, Infinity, -Infinity])("keeps invalid distance %s unavailable", value => {
+    expect(classifyScreenDistance(value)).toBeNull();
+  });
+
+  it("uses the configured distance boundaries", () => {
+    const config = createPostureClassificationConfig({
+      distance: { dangerBelowCm: 35, goodMinCm: 45, goodMaxCm: 70, dangerAboveCm: 80 },
+    });
+    expect(classifyScreenDistance(45, config)).toBe(PostureStatus.GOOD);
+    expect(classifyScreenDistance(85, config)).toBe(PostureStatus.DANGER);
+    expect(classifyScreenDistance(45)).toBe(PostureStatus.WARNING);
   });
 });

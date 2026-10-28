@@ -30,3 +30,15 @@ export function classifyShoulderDeviation(
 ): PostureStatus | null {
   return classifyAngularDeviation(deviationDegrees, config.shoulders);
 }
+
+/** The existing ocular estimator already produces cm; no conversion is needed. */
+export function classifyScreenDistance(
+  distanceCm: number | null | undefined,
+  config: PostureClassificationConfig = DEFAULT_POSTURE_CLASSIFICATION_CONFIG,
+): PostureStatus | null {
+  if (distanceCm == null || !Number.isFinite(distanceCm) || distanceCm <= 0) return null;
+  const limits = config.distance;
+  if (distanceCm >= limits.goodMinCm && distanceCm <= limits.goodMaxCm) return PostureStatus.GOOD;
+  if (distanceCm < limits.dangerBelowCm || distanceCm > limits.dangerAboveCm) return PostureStatus.DANGER;
+  return PostureStatus.WARNING;
+}
