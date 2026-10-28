@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { calculateFaceEAR, calculateInterpupillaryDistance, getEyeLandmarksInPixels, normalizedPointToPixels } from "./ocularLandmarks";
+import {
+  calculateFaceEAR,
+  calculateInterpupillaryDistance,
+  getEyeLandmarksInPixels,
+  normalizedPointToPixels,
+  validateCalibrationIPD,
+} from "./ocularLandmarks";
 import { FACE_EAR_INDEX, type LandmarkPoint } from "./poseDetector";
 
 function face(): LandmarkPoint[] {
@@ -70,5 +76,40 @@ describe("calculateInterpupillaryDistance", () => {
     points[468] = { ...points[473] };
     expect(calculateInterpupillaryDistance(points, 1280, 720, "iris")).toBeNull();
     expect(calculateInterpupillaryDistance(face(), 0, 720)).toBeNull();
+  });
+});
+
+describe("validateCalibrationIPD", () => {
+  it("approves IPD within the normal optical plausibility range", () => {
+    // 120px on 1280 (ratio: 0.09375, ~9.4%)
+    expect(validateCalibrationIPD(120, 1280)).toBe("valid");
+    // 200px on 1920 (ratio: 0.104, ~10.4%)
+    expect(validateCalibrationIPD(200, 1920)).toBe("valid");
+    // Boundary checks: 5% and 20%
+    expect(validateCalibrationIPD(64, 1280)).toBe("valid");
+    expect(validateCalibrationIPD(256, 1280)).toBe("valid");
+  });
+
+  it("identifies when the user is too close to the screen (excessive IPD ratio)", () => {
+    // 350px on 1280 (ratio: 0.273, > 20%)
+    expect(validateCalibrationIPD(350, 1280)).toBe("too-close");
+    // 400px on 1920 (ratio: 0.208, > 20%)
+    expect(validateCalibrationIPD(400, 1920)).toBe("too-close");
+  });
+
+  it("identifies when the user is too far from the screen (insufficient IPD ratio)", () => {
+    // 30px on 1280 (ratio: 0.023, < 4%)
+    expect(validateCalibrationIPD(30, 1280)).toBe("too-far");
+    // 70px on 1920 (ratio: 0.036, < 4%)
+    expect(validateCalibrationIPD(70, 1920)).toBe("too-far");
+  });
+
+  it("safely handles non-finite, zero or negative inputs as too-far", () => {
+    expect(validateCalibrationIPD(NaN, 1280)).toBe("too-far");
+    expect(validateCalibrationIPD(120, 0)).toBe("too-far");
+    expect(validateCalibrationIPD(120, -1280)).toBe("too-far");
+    expect(validateCalibrationIPD(0, 1280)).toBe("too-far");
+    expect(validateCalibrationIPD(-50, 1280)).toBe("too-far");
+    expect(validateCalibrationIPD(120, Infinity)).toBe("too-far");
   });
 });

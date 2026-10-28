@@ -17,6 +17,7 @@ import webcamPositionGif from "../../assets/calibration/webcam-position.gif";
 import webcamPositionStill from "../../assets/calibration/webcam-position-still.png";
 import { workspaceService, type CreateWorkspacePayload } from "../../services/workspaceService";
 import { postureService } from "../../services/postureService";
+import { validateCalibrationIPD, type IPDCalibrationValidationResult } from "../../services/vision";
 import type { PostureCalibrationDTO, SaveCalibrationPayload } from "../../types/postureCalibration";
 import {
   CheckCircle2,
@@ -97,11 +98,14 @@ export default function WorkspaceCalibrationModal({
   const [countdownRemaining, setCountdownRemaining] = useState<number>(CALIBRATION_DURATION_SECONDS);
   const [calibratedBaseline, setCalibratedBaseline] = useState<CalibratedBaseline | null>(null);
   const [calibrationError, setCalibrationError] = useState<string | null>(null);
+  const [distanceWarning, setDistanceWarning] = useState<IPDCalibrationValidationResult | null>(null);
+  const [allowOverrideWarning, setAllowOverrideWarning] = useState<boolean>(false);
 
   const samplesRef = useRef<CalibrationSample[]>([]);
   const isCalibratingRef = useRef(false);
   const autoSaveOnCompleteRef = useRef(false);
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const latestFrameWidthRef = useRef<number>(1280);
 
   const latestPostureRef = useRef<{
     neckAngle: number;
@@ -201,10 +205,17 @@ export default function WorkspaceCalibrationModal({
     autoSaveOnCompleteRef.current = false;
     setCalibrationStatus("idle");
     setCalibrationError(null);
+    setDistanceWarning(null);
+    setAllowOverrideWarning(false);
   };
 
   const handleSave = async (baselineToPersist?: CalibratedBaseline | null) => {
     if (savingRef.current || isLoadingWorkspace || loadError || !isFinalWebcamStep) return;
+
+    if (distanceWarning && distanceWarning !== "valid" && !allowOverrideWarning) {
+      setCalibrationError("Ajuste a distância para a faixa ideal ou confirme que deseja manter assim mesmo.");
+      return;
+    }
 
     const baseline = baselineToPersist ?? calibratedBaseline;
 
@@ -290,6 +301,10 @@ export default function WorkspaceCalibrationModal({
     const avgDist = Number((samples.reduce((acc, s) => acc + s.distanceCm, 0) / count).toFixed(1));
     const avgIpd = Number((samples.reduce((acc, s) => acc + s.ipdPx, 0) / count).toFixed(1));
 
+    const validation = validateCalibrationIPD(avgIpd, latestFrameWidthRef.current);
+    setDistanceWarning(validation);
+    setAllowOverrideWarning(false);
+
     const baseline: CalibratedBaseline = {
       baselineNeckAngle: avgNeck,
       baselineShoulderBalance: avgShoulder,
@@ -303,7 +318,9 @@ export default function WorkspaceCalibrationModal({
 
     if (autoSaveOnCompleteRef.current) {
       autoSaveOnCompleteRef.current = false;
-      void handleSave(baseline);
+      if (validation === "valid") {
+        void handleSave(baseline);
+      }
     }
   };
 
@@ -314,6 +331,8 @@ export default function WorkspaceCalibrationModal({
     }
 
     setCalibrationError(null);
+    setDistanceWarning(null);
+    setAllowOverrideWarning(false);
     samplesRef.current = [];
     isCalibratingRef.current = true;
     autoSaveOnCompleteRef.current = autoSave;
@@ -607,7 +626,7 @@ export default function WorkspaceCalibrationModal({
                     <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
                       Imagem / GIF Informativo ({currentStep.title})
                     </span>
-                    <span className="text-[11px] text-slate-400 dark:text-slate-500 max-w-xs">
+                    <span className="text-xs text-slate-400 dark:text-slate-500 max-w-xs">
                       Demonstração visual do ajuste ideal de postura e ergonomia
                     </span>
                   </div>
@@ -676,6 +695,9 @@ export default function WorkspaceCalibrationModal({
                 onPresenceChange?.(presence);
               }}
               onOcularUpdate={(ocular) => {
+                if (ocular?.frameWidth) {
+                  latestFrameWidthRef.current = ocular.frameWidth;
+                }
                 if (ocular?.available && ocular.ipd) {
                   latestOcularRef.current = {
                     ipdPx: ocular.ipd.distancePx,
@@ -687,7 +709,6 @@ export default function WorkspaceCalibrationModal({
               }}
             />
 
-            {/* Caixa de Calibração da Postura Neutra (Baseline) */}
             <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 shadow-sm space-y-3">
               {calibrationStatus === "idle" && (
                 <div className="space-y-3">
@@ -696,14 +717,14 @@ export default function WorkspaceCalibrationModal({
                       <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
                         Calibração da Postura
                       </h4>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                         Mantenha-se na postura ideal a um braço de distância (aproximadamente 60 cm) e inicie a contagem de 5 segundos para registrar seu baseline.
                       </p>
                     </div>
                   </div>
 
                   <div className="flex items-center justify-between pt-1">
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
                       Mantenha-se enquadrado e com ombros nivelados.
                     </span>
                     <Button
@@ -739,7 +760,7 @@ export default function WorkspaceCalibrationModal({
                     <p className="text-xs font-medium text-slate-800 dark:text-slate-200">
                       Mantenha sua postura ereta e olhe para o centro da tela
                     </p>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
                       Amostras capturadas: {samplesRef.current.length} leituras
                     </p>
                   </div>
@@ -763,9 +784,8 @@ export default function WorkspaceCalibrationModal({
                 <div className="space-y-3 animate-in fade-in">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
-                      <CheckCircle2 size={16} />
-                      <span className="text-xs font-bold uppercase tracking-wider">
-                        Postura Neutra (Baseline) Calibrada
+                      <span className="text-sm uppercase font-bold ">
+                        Postura Calibrada
                       </span>
                     </div>
 
@@ -783,7 +803,7 @@ export default function WorkspaceCalibrationModal({
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
                     <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
                       <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
-                        Pescoço (θ_neck)
+                        Ângulo do Pescoço
                       </div>
                       <div className="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">
                         {calibratedBaseline.baselineNeckAngle}°
@@ -792,7 +812,7 @@ export default function WorkspaceCalibrationModal({
 
                     <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
                       <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
-                        Ombros (Balance)
+                        Balanceamento dos Ombros
                       </div>
                       <div className="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">
                         {calibratedBaseline.baselineShoulderBalance}%
@@ -801,7 +821,7 @@ export default function WorkspaceCalibrationModal({
 
                     <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
                       <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
-                        Distância (Base)
+                        Distância de Referência
                       </div>
                       <div className="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">
                         {calibratedBaseline.baselineDistanceCm} cm
@@ -810,13 +830,99 @@ export default function WorkspaceCalibrationModal({
 
                     <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
                       <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
-                        IPD (Pupilas)
+                        Distância de Olhos
                       </div>
                       <div className="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">
                         {calibratedBaseline.baselineEyeDistancePx} px
                       </div>
                     </div>
                   </div>
+
+                  {distanceWarning === "too-close" && !allowOverrideWarning && (
+                    <div className="p-3.5 rounded-xl border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 space-y-2.5 animate-in fade-in">
+                      <div className="flex items-start gap-2.5">
+                        <AlertTriangle className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" size={18} />
+                        <div className="space-y-1">
+                          <h5 className="text-xs font-semibold text-amber-900 dark:text-amber-100">
+                            Você parece estar muito próximo da tela:
+                          </h5>
+                          <p className="text-xs leading-relaxed text-amber-800 dark:text-amber-300">
+                            Afaste-se para a distância de mais ou menos 60cm para que os alertas de postura funcionem com precisão.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between pt-1 border-t border-amber-200/60 dark:border-amber-800/60">
+                        <button
+                          type="button"
+                          onClick={() => setAllowOverrideWarning(true)}
+                          className="text-xs text-amber-800 dark:text-amber-300 underline underline-offset-2 hover:text-amber-950 dark:hover:text-amber-100 transition-colors cursor-pointer"
+                        >
+                          Desejo manter assim mesmo
+                        </button>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => startCalibration(false)}
+                          className="flex items-center gap-1.5 text-xs shadow-sm"
+                        >
+                          <RotateCcw size={12} />
+                          Recalibrar (5s)
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {distanceWarning === "too-far" && !allowOverrideWarning && (
+                    <div className="p-3.5 rounded-xl border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 space-y-2.5 animate-in fade-in">
+                      <div className="flex items-start gap-2.5">
+                        <AlertTriangle className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" size={18} />
+                        <div className="space-y-1">
+                          <h5 className="text-xs font-semibold text-amber-900 dark:text-amber-100">
+                            Você parece estar muito distante da tela:
+                          </h5>
+                          <p className="text-xs leading-relaxed text-amber-800 dark:text-amber-300">
+                            Aproxime-se para a distância de mais ou menos 60cm para que os alertas de postura funcionem com precisão.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between pt-1 border-t border-amber-200/60 dark:border-amber-800/60">
+                        <button
+                          type="button"
+                          onClick={() => setAllowOverrideWarning(true)}
+                          className="text-xs text-amber-800 dark:text-amber-300 underline underline-offset-2 hover:text-amber-950 dark:hover:text-amber-100 transition-colors cursor-pointer"
+                        >
+                          Desejo manter assim mesmo
+                        </button>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => startCalibration(false)}
+                          className="flex items-center gap-1.5 text-xs shadow-sm"
+                        >
+                          <RotateCcw size={12} />
+                          Recalibrar (5s)
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {(distanceWarning === "valid" || allowOverrideWarning) && (
+                    <div className="p-3 rounded-xl border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-between gap-3 text-xs text-emerald-800 dark:text-emerald-200 animate-in fade-in">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <div>
+                          <span className="font-semibold block text-emerald-900 dark:text-emerald-100">
+                            Distância Óptica Confirmada:
+                          </span>
+                          <span className="text-emerald-700 dark:text-emerald-300">
+                            {allowOverrideWarning
+                              ? "Distância mantida conforme sua preferência manual."
+                              : "Referência pupilar calibrada dentro da faixa ideal (60 cm)."}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -853,7 +959,10 @@ export default function WorkspaceCalibrationModal({
                 size="md"
                 onClick={() => handleSave()}
                 isLoading={isSaving}
-                disabled={calibrationStatus === "countdown"}
+                disabled={
+                  calibrationStatus === "countdown" ||
+                  Boolean(distanceWarning && distanceWarning !== "valid" && !allowOverrideWarning)
+                }
                 className="flex items-center gap-1.5"
               >
                 {!isSaving && <CheckCircle2 size={16} />}

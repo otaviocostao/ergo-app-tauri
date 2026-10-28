@@ -28,11 +28,11 @@ function upright(): LandmarkPoint[] {
   return points;
 }
 
-function ocularFace(ear = 0.3): LandmarkPoint[] {
+function ocularFace(ear = 0.3, rightEyeX = 300, leftEyeX = 500): LandmarkPoint[] {
   const points = Array.from({ length: 478 }, (): LandmarkPoint => ({ x: 0, y: 0, z: 0, visibility: 0 }));
   for (const [indices, offset] of [
-    [FACE_EAR_INDEX.RIGHT_EYE, 300],
-    [FACE_EAR_INDEX.LEFT_EYE, 500],
+    [FACE_EAR_INDEX.RIGHT_EYE, rightEyeX],
+    [FACE_EAR_INDEX.LEFT_EYE, leftEyeX],
   ] as const) {
     for (const [i, [x, y]] of [
       [0, 0],
@@ -45,8 +45,8 @@ function ocularFace(ear = 0.3): LandmarkPoint[] {
       points[indices[i]] = { x: (offset + x) / 1280, y: (200 + y) / 720, z: 0, visibility: 1, presence: 1 };
     }
   }
-  points[468] = { x: 300 / 1280, y: 200 / 720, z: 0, visibility: 1, presence: 1 };
-  points[473] = { x: 500 / 1280, y: 200 / 720, z: 0, visibility: 1, presence: 1 };
+  points[468] = { x: rightEyeX / 1280, y: 200 / 720, z: 0, visibility: 1, presence: 1 };
+  points[473] = { x: leftEyeX / 1280, y: 200 / 720, z: 0, visibility: 1, presence: 1 };
   return points;
 }
 
@@ -311,5 +311,69 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     );
     expect(onCalibrateSubmit).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("warns when user is too close to screen and prevents accidental auto-saving", async () => {
+    // 360px on 1280 (ratio: 0.281, > 20% -> too close)
+    faceLandmarks = ocularFace(0.3, 200, 560);
+
+    await renderModal();
+    await reachCalibrationCamera();
+    await advance(200);
+
+    await clickButton("Iniciar Calibração (5s)");
+    await advance(5100);
+
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain("Atenção à Distância da Tela:");
+    expect(dialog?.textContent).toContain("menos de 45 cm da tela");
+    expect(dialog?.textContent).toContain("Recalibrar (5s)");
+    expect(dialog?.textContent).toContain("Desejo manter assim mesmo");
+
+    // "Salvar Calibração" button is disabled until override is acknowledged
+    const saveButton = [...document.querySelectorAll("button")].find((b) =>
+      b.textContent?.trim().includes("Salvar Calibração")
+    );
+    expect(saveButton).toBeDefined();
+    expect(saveButton?.disabled).toBe(true);
+
+    // Clicking "Desejo manter assim mesmo" enables saving
+    await clickButton("Desejo manter assim mesmo");
+    expect(saveButton?.disabled).toBe(false);
+
+    // Now clicking save succeeds
+    await clickButton("Salvar Calibração");
+    await advance(100);
+
+    expect(postureService.saveCalibration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baselineEyeDistancePx: 360,
+      })
+    );
+    expect(onCalibrateSubmit).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("warns when user is too far from screen and allows recalibrating", async () => {
+    // 30px on 1280 (ratio: 0.023, < 4% -> too far)
+    faceLandmarks = ocularFace(0.3, 400, 430);
+
+    await renderModal();
+    await reachCalibrationCamera();
+    await advance(200);
+
+    await clickButton("Iniciar Calibração (5s)");
+    await advance(5100);
+
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain("Você parece estar muito distante da tela (> 90 cm)");
+
+    // User steps closer and recalibrates (mock normal distance: 200px)
+    faceLandmarks = ocularFace(0.3, 300, 500);
+    await clickButton("Recalibrar (5s)");
+    await advance(5100);
+
+    expect(dialog?.textContent).toContain("Distância Óptica Confirmada:");
+    expect(dialog?.textContent).toContain("faixa ideal (~60 cm)");
   });
 });
