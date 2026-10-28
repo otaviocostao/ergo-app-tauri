@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Header from "../components/Header";
 import WebcamFeed from "../components/monitoring/WebcamFeed";
 import ErgoMetricsCard from "../components/monitoring/ErgoMetricsCard";
 import KeyboardMonitorCard from "../components/monitoring/KeyboardMonitorCard";
 import PostureHistoryLog, { LogEvent } from "../components/monitoring/PostureHistoryLog";
 import WorkspaceCalibrationModal from "../components/monitoring/WorkspaceCalibrationModal";
+import { postureService } from "../services/postureService";
+import type { PostureCalibrationDTO } from "../types/postureCalibration";
 
 import {
   Compass,
@@ -21,6 +23,8 @@ import type { OcularMetrics } from "../services/vision/ocularMetrics";
 export default function Monitoring() {
   const [isMonitoring, setIsMonitoring] = useState(true);
   const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
+  const [calibration, setCalibration] = useState<PostureCalibrationDTO | null>(null);
+  const [sessionBlinkCount, setSessionBlinkCount] = useState(0);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [soundAlerts, setSoundAlerts] = useState(true);
   const [neckAngle, setNeckAngle] = useState(12);
@@ -109,15 +113,49 @@ export default function Monitoring() {
     }
   };
 
-  const handleCalibrateSubmit = () => {
+  useEffect(() => {
+    let isMounted = true;
+    postureService
+      .getActiveCalibration()
+      .then((activeCal) => {
+        if (isMounted && activeCal) {
+          setCalibration(activeCal);
+        }
+      })
+      .catch((err) => {
+        console.error("Erro ao carregar calibração ativa:", err);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleCalibrateSubmit = (savedCalibration?: PostureCalibrationDTO | null) => {
+    if (savedCalibration) {
+      setCalibration(savedCalibration);
+    } else {
+      postureService
+        .getActiveCalibration()
+        .then((cal) => {
+          if (cal) setCalibration(cal);
+        })
+        .catch(console.error);
+    }
     const newLog: LogEvent = {
       id: Date.now().toString(),
       timestamp: new Date().toLocaleTimeString(),
       type: "success",
       message: "Ambiente de trabalho salvo com sucesso",
-      detail: `Configuração atualizada. Métricas exibidas na calibração: pescoço ${neckAngle}°, ombros ${shoulderBalance}%.`,
+      detail: `Configuração atualizada. Calibração neutra aplicada.`,
     };
     setLogs((prev) => [newLog, ...prev]);
+  };
+
+  const handleOcularUpdate = (metrics: OcularMetrics | null) => {
+    setOcularMetrics(metrics);
+    if (metrics?.blinkEvent === "blink") {
+      setSessionBlinkCount((prev) => prev + 1);
+    }
   };
 
   // Calculate live health score (0 - 100)
@@ -135,7 +173,6 @@ export default function Monitoring() {
   );
 
   const isPaused = !isMonitoring || isCalibrationOpen || userPresence !== "ACTIVE";
-  const ocularPaused = !isMonitoring || isCalibrationOpen || !ocularMetrics?.available;
   const blinkRate = ocularMetrics?.blinkRate.blinksPerMinute ?? null;
   const visualFatigue = ocularMetrics?.visualFatigue ?? null;
 
@@ -164,13 +201,14 @@ export default function Monitoring() {
         <div className="lg:col-span-7 flex flex-col gap-6">
           <WebcamFeed
             isMonitoring={isMonitoring && !isCalibrationOpen}
+            calibration={calibration}
             onToggleMonitoring={() => setIsMonitoring(!isMonitoring)}
             onCalibrate={() => setIsCalibrationOpen(true)}
             onPostureUpdate={handlePostureUpdate}
             onPresenceChange={handlePresenceChange}
             onHardwareBusyChange={handleHardwareBusyChange}
             onStreamChange={setCameraStream}
-            onOcularUpdate={setOcularMetrics}
+            onOcularUpdate={handleOcularUpdate}
           />
 
           <KeyboardMonitorCard
@@ -194,12 +232,12 @@ export default function Monitoring() {
                 <h2 className="text-base font-bold text-white">Resumo da sua ergonomia</h2>
                 <span
                   className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${isPaused
-                      ? "bg-slate-800 text-slate-400 border border-slate-700"
-                      : healthScore >= 85
-                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                        : healthScore >= 70
-                          ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                          : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                    ? "bg-slate-800 text-slate-400 border border-slate-700"
+                    : healthScore >= 85
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                      : healthScore >= 70
+                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                        : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
                     }`}
                 >
                   {!isMonitoring
@@ -234,12 +272,12 @@ export default function Monitoring() {
                   <span className="text-slate-400">Status Geral:</span>
                   <span
                     className={`font-semibold ${isPaused
-                        ? "text-slate-400"
-                        : postureStatus === "good"
-                          ? "text-emerald-400"
-                          : postureStatus === "warning"
-                            ? "text-amber-400"
-                            : "text-rose-400"
+                      ? "text-slate-400"
+                      : postureStatus === "good"
+                        ? "text-emerald-400"
+                        : postureStatus === "warning"
+                          ? "text-amber-400"
+                          : "text-rose-400"
                       }`}
                   >
                     {!isMonitoring
@@ -298,17 +336,18 @@ export default function Monitoring() {
 
             <ErgoMetricsCard
               title="Distância da Tela"
-              value={distanceCm === null ? "Aguardando calibração" : Math.round(distanceCm)}
+              value={distanceCm === null ? (calibration ? "Aguardando detecção facial" : "Aguardando calibração") : Math.round(distanceCm)}
               unit={distanceCm === null ? undefined : "cm"}
               status={distanceCm === null ? "info" : distanceCm >= 50 && distanceCm <= 75 ? "good" : "warning"}
               icon={Eye}
-              progress={distanceCm === null ? undefined : Math.min(100, (distanceCm / 80) * 100)}
+              progress={distanceCm === null ? undefined : Math.min(100, Math.max(0, (distanceCm / 80) * 100))}
               idealRange="50 - 70 cm"
               trend="stable"
               description="Estimativa pela distância entre os olhos, dependente de calibração e rosto frontal."
               details={[
                 { label: "Recomendado:", value: "50-70 cm" },
-                { label: "Medição:", value: distanceCm === null ? "Indisponível" : "Calibrada" },
+                { label: "Medição:", value: distanceCm === null ? (calibration ? "Aguardando detecção facial" : "Não calibrada") : "Calibrada" },
+                ...(calibration ? [{ label: "Ref. Base:", value: `${Math.round(calibration.baselineDistanceCm)} cm` }] : []),
               ]}
               isPaused={isPaused}
             />
@@ -321,10 +360,12 @@ export default function Monitoring() {
               icon={Eye}
               description="Indicador experimental de frequência de piscadas. Não constitui diagnóstico de fadiga ou olho seco."
               details={[
+                { label: "Piscadas na janela:", value: `${ocularMetrics?.blinkRate.blinkCount ?? 0}` },
+                { label: "Total da sessão:", value: `${sessionBlinkCount}` },
                 { label: "Observação:", value: `${Math.floor((ocularMetrics?.blinkRate.observedMs ?? 0) / 1000)} s válidos` },
                 { label: "Frequência:", value: visualFatigue === null ? "Coletando dados" : visualFatigue === "normal" ? "Faixa de referência" : visualFatigue === "attention" ? "Reduzida" : "Muito baixa" },
               ]}
-              isPaused={ocularPaused}
+              isPaused={isPaused}
             />
 
             <ErgoMetricsCard
