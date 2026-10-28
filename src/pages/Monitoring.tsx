@@ -6,6 +6,7 @@ import KeyboardMonitorCard from "../components/monitoring/KeyboardMonitorCard";
 import PostureHistoryLog, { LogEvent } from "../components/monitoring/PostureHistoryLog";
 import WorkspaceCalibrationModal from "../components/monitoring/WorkspaceCalibrationModal";
 import { postureService } from "../services/postureService";
+import { useOptionalAuth } from "../auth/AuthContext";
 import type { PostureCalibrationDTO } from "../types/postureCalibration";
 
 import {
@@ -21,6 +22,8 @@ import type { UserPresenceState } from "../types/vision";
 import type { OcularMetrics } from "../services/vision/ocularMetrics";
 
 export default function Monitoring() {
+  const auth = useOptionalAuth();
+  const userId = auth?.session.kind === "authenticated" ? auth.session.user.id : null;
   const [isMonitoring, setIsMonitoring] = useState(true);
   const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
   const [calibration, setCalibration] = useState<PostureCalibrationDTO | null>(null);
@@ -116,7 +119,7 @@ export default function Monitoring() {
   useEffect(() => {
     let isMounted = true;
     postureService
-      .getActiveCalibration()
+      .getActiveCalibration(userId)
       .then((activeCal) => {
         if (isMounted && activeCal) {
           setCalibration(activeCal);
@@ -128,14 +131,14 @@ export default function Monitoring() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [userId]);
 
   const handleCalibrateSubmit = (savedCalibration?: PostureCalibrationDTO | null) => {
     if (savedCalibration) {
       setCalibration(savedCalibration);
     } else {
       postureService
-        .getActiveCalibration()
+        .getActiveCalibration(userId)
         .then((cal) => {
           if (cal) setCalibration(cal);
         })
@@ -396,6 +399,7 @@ export default function Monitoring() {
         activeStream={cameraStream}
         onPostureUpdate={handlePostureUpdate}
         onPresenceChange={handlePresenceChange}
+        userId={userId}
       />
     </div>
   );

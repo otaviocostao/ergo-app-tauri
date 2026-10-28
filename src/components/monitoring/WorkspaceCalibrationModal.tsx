@@ -17,6 +17,7 @@ import webcamPositionGif from "../../assets/calibration/webcam-position.gif";
 import webcamPositionStill from "../../assets/calibration/webcam-position-still.png";
 import { workspaceService, type CreateWorkspacePayload } from "../../services/workspaceService";
 import { postureService } from "../../services/postureService";
+import { useOptionalAuth } from "../../auth/AuthContext";
 import { validateCalibrationIPD, type IPDCalibrationValidationResult } from "../../services/vision";
 import type { PostureCalibrationDTO, SaveCalibrationPayload } from "../../types/postureCalibration";
 import {
@@ -41,6 +42,7 @@ export interface WorkspaceCalibrationModalProps {
   isNotebookUser?: boolean;
   onPostureUpdate?: WebcamFeedProps["onPostureUpdate"];
   onPresenceChange?: WebcamFeedProps["onPresenceChange"];
+  userId?: number | null;
 }
 
 export interface SetupStep {
@@ -72,7 +74,10 @@ export default function WorkspaceCalibrationModal({
   onCalibrateSubmit,
   onPostureUpdate,
   onPresenceChange,
+  userId: propUserId,
 }: WorkspaceCalibrationModalProps) {
+  const auth = useOptionalAuth();
+  const currentUserId = propUserId ?? (auth?.session.kind === "authenticated" ? auth.session.user.id : null);
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
 
   const [deviceType, setDeviceType] = useState<"desktop" | "notebook">("notebook");
@@ -250,6 +255,7 @@ export default function WorkspaceCalibrationModal({
       setWorkspaceId(workspace.id);
 
       const calibrationPayload: SaveCalibrationPayload = {
+        userId: currentUserId,
         baselineNeckAngle: baseline.baselineNeckAngle,
         baselineShoulderBalance: baseline.baselineShoulderBalance,
         baselineDistanceCm: baseline.baselineDistanceCm,

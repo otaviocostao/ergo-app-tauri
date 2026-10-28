@@ -194,7 +194,8 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     for (const point of landmarks!) point.x += 0.1;
     await advance(200);
     expect(pointPositions[pointPositions.length - 1][0].x).toBeCloseTo(firstHead.x - 80, 6);
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Pescoço: 0° | Ombros: 100%");
+    const startButton = [...document.querySelectorAll("button")].find(b => b.textContent?.includes("Iniciar Calibração"));
+    expect(startButton?.disabled).toBe(false);
     await renderCalibration(false);
     expect(streams.every(item => item.track.stop.mock.calls.length === 1)).toBe(true);
   });
@@ -203,12 +204,16 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     landmarks = null;
     await renderCalibration(); await reachCalibrationCamera(); await advance(200);
     expect(drawnFrames[drawnFrames.length - 1]?.points).toBe(0);
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Aguardando detecção confiável");
+    const startButton1 = [...document.querySelectorAll("button")].find(b => b.textContent?.includes("Iniciar Calibração"));
+    expect(startButton1?.disabled).toBe(true);
     landmarks = upright(); await advance(200);
     expect(drawnFrames[drawnFrames.length - 1]?.points).toBe(4);
+    const startButton2 = [...document.querySelectorAll("button")].find(b => b.textContent?.includes("Iniciar Calibração"));
+    expect(startButton2?.disabled).toBe(false);
     faceTransformationMatrix = null; await advance(350);
     expect(drawnFrames[drawnFrames.length - 1]?.points).toBe(0);
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Aguardando detecção confiável");
+    const startButton3 = [...document.querySelectorAll("button")].find(b => b.textContent?.includes("Iniciar Calibração"));
+    expect(startButton3?.disabled).toBe(true);
   });
 
   it("reopens calibration at the setup form without briefly restarting its previous camera step", async () => {
@@ -227,7 +232,8 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     await renderCalibration(); await reachCalibrationCamera(); await advance(200);
     const dialog = document.querySelector('[role="dialog"]');
     expect(dialog?.textContent).toContain("Permissão de câmera negada");
-    expect(dialog?.textContent).toContain("Aguardando detecção confiável");
+    const startButton = [...document.querySelectorAll("button")].find(b => b.textContent?.includes("Iniciar Calibração"));
+    expect(startButton?.disabled).toBe(true);
   });
 
   it.each([true, false])("hands the camera to calibration and restores the previous monitoring state (%s)", async running => {

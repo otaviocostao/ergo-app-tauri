@@ -230,11 +230,11 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     await advance(1000);
 
     // Calibration completed
-    expect(dialog?.textContent).toContain("Postura Neutra (Baseline) Calibrada");
-    expect(dialog?.textContent).toContain("Pescoço (θ_neck)");
-    expect(dialog?.textContent).toContain("Ombros (Balance)");
-    expect(dialog?.textContent).toContain("Distância (Base)");
-    expect(dialog?.textContent).toContain("IPD (Pupilas)");
+    expect(dialog?.textContent).toContain("Postura Calibrada");
+    expect(dialog?.textContent).toContain("Ângulo do Pescoço");
+    expect(dialog?.textContent).toContain("Balanceamento dos Ombros");
+    expect(dialog?.textContent).toContain("Distância de Referência");
+    expect(dialog?.textContent).toContain("Distância de Olhos");
     expect(dialog?.textContent).toContain("60 cm");
     expect(dialog?.textContent).toContain("200 px");
 
@@ -278,14 +278,14 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     await advance(5100);
 
     const dialog = document.querySelector('[role="dialog"]');
-    expect(dialog?.textContent).toContain("Postura Neutra (Baseline) Calibrada");
+    expect(dialog?.textContent).toContain("Postura Calibrada");
 
     // Click Recalibrar
     await clickButton("Recalibrar");
     expect(dialog?.textContent).toContain("Gravando postura de referência");
 
     await advance(5100);
-    expect(dialog?.textContent).toContain("Postura Neutra (Baseline) Calibrada");
+    expect(dialog?.textContent).toContain("Postura Calibrada");
   });
 
   it("automatically starts countdown and saves on completion when clicking Salvar Calibração directly", async () => {
@@ -325,8 +325,8 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     await advance(5100);
 
     const dialog = document.querySelector('[role="dialog"]');
-    expect(dialog?.textContent).toContain("Atenção à Distância da Tela:");
-    expect(dialog?.textContent).toContain("menos de 45 cm da tela");
+    expect(dialog?.textContent).toContain("Você parece estar muito próximo da tela:");
+    expect(dialog?.textContent).toContain("Afaste-se para a distância de mais ou menos 60cm");
     expect(dialog?.textContent).toContain("Recalibrar (5s)");
     expect(dialog?.textContent).toContain("Desejo manter assim mesmo");
 
@@ -366,7 +366,7 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     await advance(5100);
 
     const dialog = document.querySelector('[role="dialog"]');
-    expect(dialog?.textContent).toContain("Você parece estar muito distante da tela (> 90 cm)");
+    expect(dialog?.textContent).toContain("Você parece estar muito distante da tela:");
 
     // User steps closer and recalibrates (mock normal distance: 200px)
     faceLandmarks = ocularFace(0.3, 300, 500);
@@ -374,6 +374,39 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     await advance(5100);
 
     expect(dialog?.textContent).toContain("Distância Óptica Confirmada:");
-    expect(dialog?.textContent).toContain("faixa ideal (~60 cm)");
+    expect(dialog?.textContent).toContain("faixa ideal (60 cm)");
+  });
+
+  it("includes userId in the payload when provided", async () => {
+    await act(async () => {
+      root.render(
+        <WorkspaceCalibrationModal
+          isOpen={true}
+          onClose={onClose}
+          onCalibrateSubmit={onCalibrateSubmit}
+          userId={42}
+        />
+      );
+    });
+    mounted = true;
+    await reachCalibrationCamera();
+    await advance(200);
+
+    await clickButton("Iniciar Calibração (5s)");
+    await advance(5100);
+
+    await clickButton("Salvar Calibração");
+    await advance(100);
+
+    expect(postureService.saveCalibration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 42,
+        baselineNeckAngle: 0,
+        baselineShoulderBalance: 100,
+        baselineDistanceCm: 60,
+        baselineEyeDistancePx: 200,
+        isActive: true,
+      })
+    );
   });
 });
