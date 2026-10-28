@@ -8,3 +8,7 @@ export * from "./blinkRate";
 export * from "./ocularMetrics";
 export * from "./temporalPostureFilter";
 export * from "./postureCalibration";
+export * from "./postureClassificationConfig";
+export * from "./postureClassifier";
+export * from "./postureHysteresis";
+export * from "./postureAlertCooldown";

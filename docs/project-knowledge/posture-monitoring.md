@@ -427,5 +427,5 @@ npx vitest run
 1. **Concluído**: Detecção de corpo e face via MediaPipe WASM offline, filtro temporal One Euro, captura e persistência de baseline de calibração no SQLite, cálculo de EAR e contagem de piscadas, estimativa monocular da distância da tela e integração em tempo real na página de Monitoramento.
 2. **Próximas Tarefas (Fase de Agregação e Histórico)**:
    - Implementação do buffer temporal de agregação em memória para gravação periódica de snapshots consolidados (`posture_metrics_snapshots`) a cada 60 segundos no SQLite.
-   - Motor de histerese para alertas persistentes de má postura sustentada (`posture_alerts`).
+   - A Task 4.3 já classifica desvios contra baseline e controla histerese/cooldown no frontend, com saída no histórico visual existente. A gravação desses eventos em `posture_alerts` permanece pendente; contratos e limites estão no [guia de classificação](../classificacao-postura.md).
    - Cálculo e consolidação do Ergo Score diário da sessão de monitoramento.

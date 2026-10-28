@@ -9,6 +9,8 @@ import WorkspaceCalibrationModal from "./WorkspaceCalibrationModal";
 import Monitoring from "../../pages/Monitoring";
 import { workspaceService } from "../../services/workspaceService";
 import { FACE_EAR_INDEX, TemporalPostureFilter, type OcularMetrics, type PostureCalibrationFrame, type ScreenDistanceReference } from "../../services/vision";
+import type { PostureCalibrationDTO } from "../../types/postureCalibration";
+import type { PostureClassification } from "../../types/postureClassification";
 
 function faceMatrix(pitch: number) {
   const radians = pitch * Math.PI / 180;
@@ -32,6 +34,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   let landmarks: LandmarkPoint[] | null;
   let faceTransformationMatrix: ReturnType<typeof faceMatrix> | null;
   let faceLandmarks: LandmarkPoint[] | null;
+  let baseline: PostureCalibrationDTO | null;
   let previewWidth: number;
   let previewHeight: number;
   let drawnFrames: { segments: number; points: number }[];
@@ -42,6 +45,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   const hardware = vi.fn();
   const ocularUpdate = vi.fn<(metrics: OcularMetrics | null) => void>();
   const calibrationUpdate = vi.fn<(frame: PostureCalibrationFrame | null) => void>();
+  const classificationUpdate = vi.fn<(classification: PostureClassification | null) => void>();
   const getUserMedia = vi.fn<() => Promise<MediaStream>>();
 
   function makeStream(muted = false) {
@@ -67,7 +71,8 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     await act(async () => {
       root.render(<WebcamFeed isMonitoring={monitoring} onToggleMonitoring={vi.fn()} onCalibrate={vi.fn()}
         onPostureUpdate={update} onPresenceChange={presence} onHardwareBusyChange={hardware}
-        onOcularUpdate={ocularUpdate} onCalibrationFrame={calibrationUpdate} distanceReference={distanceReference} />);
+        onOcularUpdate={ocularUpdate} onCalibrationFrame={calibrationUpdate} distanceReference={distanceReference}
+        calibration={baseline} onClassificationUpdate={classificationUpdate} />);
     });
     mounted = true;
   }
@@ -104,8 +109,11 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     landmarks = upright();
     faceTransformationMatrix = faceMatrix(0);
     faceLandmarks = null;
+    baseline = { id: "base", baselineNeckAngle: 0, baselineShoulderBalance: 100,
+      baselineDistanceCm: 60, baselineEyeDistancePx: 200, isActive: true };
     ocularUpdate.mockReset();
     calibrationUpdate.mockReset();
+    classificationUpdate.mockReset();
     previewWidth = 800;
     previewHeight = 450;
     drawnFrames = [];
@@ -412,9 +420,9 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   });
 
   it.each<[number, number, string]>([
-    [0, 90, "Atenção ao Alinhamento dos Ombros"],
+    [0, 60, "Atenção ao Alinhamento dos Ombros"],
     [18, 100, "Atenção à Inclinação do Pescoço"],
-    [18, 90, "Atenção à Inclinação do Pescoço"],
+    [18, 60, "Atenção à Inclinação do Pescoço"],
   ])("labels a warning for neck %s degrees and shoulder balance %s", async (pitch, balance, label) => {
     faceTransformationMatrix = faceMatrix(pitch);
     const dy = Math.tan((100 - balance) / 10 * Math.PI / 180) * 0.4 * 1280 / 720;
@@ -660,9 +668,10 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   });
 
   it("publishes unavailable distance instead of estimating from shoulder width without calibration", async () => {
+    baseline = null;
     faceLandmarks = ocularFace();
     await render(); await advance(200);
-    expect(update.mock.lastCall?.[0]).toMatchObject({ distanceCm: null, status: "good" });
+    expect(update.mock.lastCall?.[0]).toMatchObject({ distanceCm: null, status: null });
   });
 
   it("renders blink warm-up and uncalibrated distance without an early fatigue classification", async () => {
@@ -749,6 +758,39 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     expect(calibrationUpdate.mock.lastCall?.[0]).toBeNull();
     await render(false); await render(true); await advance(200);
     expect(calibrationUpdate.mock.lastCall![0]!.captureId).not.toBe(captureId);
+  });
+
+  it("publishes classification once per inference before UI rounding and invalidates individual metrics", async () => {
+    faceLandmarks = ocularFace();
+    faceTransformationMatrix = faceMatrix(12.1);
+    await render(); await advance(200);
+    const classifiedFrames = () => classificationUpdate.mock.calls.filter(([result]) => result !== null);
+    expect(classifiedFrames()).toHaveLength(vi.mocked(poseDetector.detectFrame).mock.calls.length);
+    expect(classificationUpdate.mock.lastCall?.[0]?.metrics.neck).toMatchObject({ status: "warning" });
+    expect(classificationUpdate.mock.lastCall?.[0]?.metrics.neck.value).toBeCloseTo(12.1);
+    expect(update.mock.lastCall?.[0]).toMatchObject({ neckAngle: 12, status: "warning" });
+    const count = classifiedFrames().length; await advance(48);
+    expect(classifiedFrames()).toHaveLength(count);
+    landmarks = null; await advance(100);
+    expect(classificationUpdate.mock.lastCall?.[0]?.metrics.neck.status).toBeNull();
+    expect(classificationUpdate.mock.lastCall?.[0]?.metrics.distance.status).toBe("good");
+  });
+
+  it("uses baseline deviation and the same classification for neck and shoulder overlay colors", async () => {
+    baseline = { ...baseline!, baselineNeckAngle: 15, baselineShoulderBalance: 80 };
+    faceTransformationMatrix = faceMatrix(20);
+    const dy = Math.tan(4 * Math.PI / 180) * 0.4 * 1280 / 720;
+    landmarks![INDEX.LEFT_SHOULDER].y -= dy / 2;
+    landmarks![INDEX.RIGHT_SHOULDER].y += dy / 2;
+    const colors: string[] = [];
+    const canvasContext = document.createElement("canvas").getContext("2d")!;
+    vi.mocked(canvasContext.stroke).mockImplementation(() => { colors.push(String(canvasContext.strokeStyle)); });
+    await render(); await advance(200);
+    expect(classificationUpdate.mock.lastCall?.[0]?.metrics.neck.value).toBeCloseTo(5);
+    expect(classificationUpdate.mock.lastCall?.[0]?.metrics.shoulders.value).toBeCloseTo(2);
+    expect(update.mock.lastCall?.[0]?.status).toBe("good");
+    expect(colors).toContain("rgba(16, 185, 129, 0.85)");
+    expect(colors).not.toContain("rgba(239, 68, 68, 0.85)");
   });
 
   it("displays session blink counts and window counts in Monitoring cards", async () => {
