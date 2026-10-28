@@ -666,4 +666,38 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     expect(container.textContent).not.toContain("Fadiga Visual:");
     expect(container.textContent).not.toContain("Muito baixa");
   });
+
+  it("publishes calibrated face distance dynamically derived from calibration prop", async () => {
+    faceLandmarks = ocularFace(); landmarks = null;
+    await act(async () => {
+      root.render(
+        <WebcamFeed
+          isMonitoring={true}
+          onToggleMonitoring={vi.fn()}
+          onCalibrate={vi.fn()}
+          onPostureUpdate={update}
+          onOcularUpdate={ocularUpdate}
+          calibration={{
+            id: "cal-1",
+            baselineNeckAngle: 12,
+            baselineShoulderBalance: 95,
+            baselineDistanceCm: 60,
+            baselineEyeDistancePx: 200,
+            isActive: true,
+          }}
+        />
+      );
+    });
+    mounted = true;
+    await advance(200);
+    expect(ocularUpdate.mock.lastCall?.[0]).toMatchObject({ available: true, ear: 0.3, distanceCm: 60 });
+  });
+
+  it("displays session blink counts and window counts in Monitoring cards", async () => {
+    faceLandmarks = ocularFace();
+    await act(async () => root.render(<Monitoring />)); mounted = true;
+    await advance(200);
+    expect(container.textContent).toContain("Piscadas na janela:");
+    expect(container.textContent).toContain("Total da sessão:");
+  });
 });

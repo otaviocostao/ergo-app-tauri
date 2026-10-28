@@ -16,6 +16,7 @@ import { calculatePoseAngles, type PoseAngles } from "../../services/vision/pose
 import { calculateHeadPitch, type Point2D } from "../../services/vision/biomechanics";
 import { TemporalPostureFilter } from "../../services/vision/temporalPostureFilter";
 import { createOcularMetricsState, updateOcularMetrics, type OcularMetrics, type ScreenDistanceReference } from "../../services/vision/ocularMetrics";
+import type { PostureCalibrationDTO } from "../../types/postureCalibration";
 import type { UserPresenceState } from "../../types/vision";
 
 export type { UserPresenceState };
@@ -39,6 +40,8 @@ export interface WebcamFeedProps {
   onOcularUpdate?: (metrics: OcularMetrics | null) => void;
   /** Explicit calibration context; absent until the distance calibration flow exists. */
   distanceReference?: ScreenDistanceReference | null;
+  /** Saved posture calibration containing distance baseline. Used to derive distanceReference dynamically when video dimensions are known. */
+  calibration?: PostureCalibrationDTO | null;
   className?: string;
 }
 
@@ -73,6 +76,7 @@ export default function WebcamFeed({
   onStreamChange,
   onOcularUpdate,
   distanceReference = null,
+  calibration = null,
   className = "",
 }: WebcamFeedProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -85,6 +89,8 @@ export default function WebcamFeed({
   const ocularStateRef = useRef(createOcularMetricsState());
   const onOcularUpdateRef = useRef(onOcularUpdate);
   const distanceReferenceRef = useRef(distanceReference);
+  const calibrationRef = useRef(calibration);
+  const derivedDistanceRef = useRef<ScreenDistanceReference | null>(null);
 
   // Estados de dispositivos e permissão
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -148,7 +154,8 @@ export default function WebcamFeed({
   useEffect(() => {
     onOcularUpdateRef.current = onOcularUpdate;
     distanceReferenceRef.current = distanceReference;
-  }, [onOcularUpdate, distanceReference]);
+    calibrationRef.current = calibration;
+  }, [onOcularUpdate, distanceReference, calibration]);
 
   const resetOcularTracking = useCallback(() => {
     ocularStateRef.current = createOcularMetricsState();
@@ -466,8 +473,45 @@ export default function WebcamFeed({
           try {
             const detection = poseDetector.detectFrame(video, currentTime);
             detectionTimestampMs = detection.timestamp;
+            let refToUse = distanceReferenceRef.current;
+            if (!refToUse && calibrationRef.current && video.videoWidth > 0 && video.videoHeight > 0) {
+              const cal = calibrationRef.current;
+              if (cal.baselineEyeDistancePx > 0 && cal.baselineDistanceCm > 0) {
+                const hasIris = Boolean(
+                  detection.faceLandmarks &&
+                  detection.faceLandmarks.length >= 478 &&
+                  detection.faceLandmarks[468] &&
+                  detection.faceLandmarks[473] &&
+                  (detection.faceLandmarks[468].presence ?? 1) > 0.35 &&
+                  (detection.faceLandmarks[473].presence ?? 1) > 0.35
+                );
+                const source = hasIris ? "iris" : "eye-corners";
+
+                const prev = derivedDistanceRef.current;
+                if (
+                  prev &&
+                  prev.baselineDistanceCm === cal.baselineDistanceCm &&
+                  prev.baselineEyeDistancePx === cal.baselineEyeDistancePx &&
+                  prev.frameWidth === video.videoWidth &&
+                  prev.frameHeight === video.videoHeight &&
+                  prev.source === source
+                ) {
+                  refToUse = prev;
+                } else {
+                  refToUse = {
+                    baselineDistanceCm: cal.baselineDistanceCm,
+                    baselineEyeDistancePx: cal.baselineEyeDistancePx,
+                    frameWidth: video.videoWidth,
+                    frameHeight: video.videoHeight,
+                    source,
+                  };
+                  derivedDistanceRef.current = refToUse;
+                }
+              }
+            }
+
             const ocular = updateOcularMetrics(ocularStateRef.current, detection,
-              video.videoWidth, video.videoHeight, distanceReferenceRef.current);
+              video.videoWidth, video.videoHeight, refToUse);
             if (ocular) {
               ocularStateRef.current = ocular.state;
               onOcularUpdateRef.current?.(ocular.metrics);
