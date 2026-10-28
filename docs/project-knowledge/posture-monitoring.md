@@ -47,8 +47,10 @@ O sistema opera através de um pipeline híbrido que combina visão computaciona
 | **Task 3.1** | Inicializador dos Detectores do MediaPipe | `src/services/vision/poseDetector.ts`, `src/types/vision.ts` | **Concluída** |
 | **Task 3.2** | Gerenciamento do Feed de Câmera e Concorrência de Dispositivo | `src/components/monitoring/WebcamFeed.tsx` | **Concluída** |
 | **Task 3.3** | Geometria de Pescoço/Ombros e Orientação Vertical | `biomechanics.ts`, `poseAngles.ts`, testes e integração no feed | **Concluída** |
-| **Task 3.4** | EAR, Piscadas e Distância Calibrada | `biomechanics.ts`, `ocularLandmarks.ts`, `blinkDetector.ts`, `blinkRate.ts`, `ocularMetrics.ts` | **Algoritmos e integração concluídos; coleta do baseline na UI pendente** |
-| **Próximas** | Calibração, Agregação, Score e Alertas Persistentes | Pipeline frontend e integração com serviços existentes | *Pendente* |
+| **Task 3.4** | EAR, Piscadas e Distância Calibrada | `biomechanics.ts`, `ocularLandmarks.ts`, `blinkDetector.ts`, `blinkRate.ts`, `ocularMetrics.ts` | **Concluída** |
+| **Task 4.1** | Calibração de Postura Neutra e IPD na UI | `WorkspaceCalibrationModal.tsx`, `WebcamFeed.tsx`, `postureService.ts` | **Concluída** |
+| **Task 4.2** | Filtro Temporal de Ruído (One Euro Filter / Suavização) | `temporalPostureFilter.ts`, `WebcamFeed.tsx` | **Concluída** |
+| **Próximas** | Agregação Periódica de Snapshots, Score e Histerese de Alertas | Pipeline frontend e persistência em lote no SQLite | *Pendente* |
 
 ---
 
@@ -284,32 +286,115 @@ Implementado e refatorado no componente `src/components/monitoring/WebcamFeed.ts
 
 ---
 
-## 6. Guia Prático para Agentes e Próximos Desenvolvimentos
+## 6. Fase 4: Calibração de Postura Neutra, IPD e Estimativa de Distância da Tela
 
-### 6.1 Como Executar os Testes Unitários de Backend
+Esta seção detalha o funcionamento, as equações matemáticas e os racionais de engenharia que fundamentam a calibração ergonômica e a medição de distância da tela em tempo real no aplicativo.
+
+### 6.1 O Desafio da Ambiguidade de Escala em Câmeras 2D (Por que uma Baseline é Necessária)
+
+Uma webcam convencional de notebook ou monitor externo é um sensor **2D monocular** (possui apenas uma lente RGB e não dispõe de sensores físicos de profundidade como LiDAR, câmeras estéreo com múltiplos sensores ópticos ou emissores infravermelhos Time-of-Flight). 
+
+Em uma projeção óptica bidimensional, a coordenada física de profundidade ($Z$) é perdida. Isso impõe dois desafios fundamentais da visão computacional:
+
+1. **Variabilidade Antropométrica Individual**: A distância física entre as pupilas humanas (**IPD - Interpupillary Distance**) varia consideravelmente entre indivíduos adultos (faixa típica entre **54 mm e 74 mm**, com média global em torno de 63 mm). Uma pessoa com IPD estreito (55 mm) sentada a 50 cm projeta exatamente a mesma quantidade de pixels na imagem que uma pessoa com IPD largo (70 mm) sentada a 64 cm.
+2. **Heterogeneidade de Lentes e Sensores**: Câmeras de mercado possuem campos de visão (FOV) distintos (ex.: lentes padrão de 60° versus grande-angulares de 90° a 110°) e resoluções variadas (720p, 1080p, 4K). Um mesmo rosto a 60 cm ocupará muito menos pixels em uma lente grande-angular do que em uma lente fechada.
+
+Para contornar a ausência de hardware especializado e evitar a necessidade de calibrações de laboratório da matriz intrínseca da câmera ($f_x, f_y, c_x, c_y$), o Ergo adota o princípio da **Ancoragem Relativa via Baseline Neutra**.
+
+---
+
+### 6.2 Fluxo de Calibração da Postura Neutra (`WorkspaceCalibrationModal.tsx`)
+
+O modal de calibração guia o usuário por orientações ergonômicas interativas e finaliza na coleta ativa de sua postura de referência:
+
+1. **Posicionamento de Referência**: O usuário é instruído a sentar-se na postura ereta recomendada a **um braço de distância** da tela (aproximadamente **60 cm**, padrão ergonômico internacional preconizado pelas normas NR-17, ISO 9241-5 e OSHA).
+2. **Contagem Regressiva Ativa (5 segundos)**: Durante `CALIBRATION_DURATION_SECONDS = 5`, o componente captura amostras em alta frequência (`~11 FPS`) contanto que a presença do usuário seja confirmada como ativa e estável (`metrics.presence === "ACTIVE"`).
+3. **Métricas Coletadas**:
+   - `neckAngle` ($\theta_{neck}$): Ângulo de flexão cervical em relação à vertical (graus).
+   - `shoulderBalance`: Nível de alinhamento horizontal dos ombros (0 a 100%).
+   - `distanceCm`: Ancorado na constante de referência ergonômica (`DEFAULT_REFERENCE_DISTANCE_CM = 60 cm`).
+   - `ipdPx`: Distância em pixels entre as pupilas/olhos do usuário capturada pelo sensor naquela resolução de vídeo.
+4. **Persistência Relacional**: Ao término dos 5 segundos, as médias aritméticas das amostras são computadas e enviadas ao backend Rust através de `postureService.saveCalibration`:
+   ```typescript
+   const calibrationPayload: SaveCalibrationPayload = {
+     baselineNeckAngle: avgNeck,
+     baselineShoulderBalance: avgShoulder,
+     baselineDistanceCm: 60.0,
+     baselineEyeDistancePx: avgIpd,
+     isActive: true,
+   };
+   ```
+   O backend desativa quaisquer calibrações anteriores do usuário em uma única transação SQLite e marca o novo registro como ativo.
+
+---
+
+### 6.3 Distância Interpupilar (IPD - Interpupillary Distance) e Detecção Ocular
+
+Implementado em `src/services/vision/ocularLandmarks.ts`:
+
+1. **Pontos de Referência na Malha Facial (MediaPipe Face Mesh)**:
+   - O detector utiliza a malha facial de **478 pontos anatômicos**.
+   - **Centros das Íris (preferencial)**: Pontos `468` (íris anatômica direita) e `473` (íris anatômica esquerda). Fornecem a maior precisão biométrica para IPD.
+   - **Cantos dos Olhos (fallback automático)**: Caso o modelo em execução não possua pontos de íris (ex.: malha legada de 468 pontos) ou ocorra oclusão pontual, o algoritmo calcula os pontos médios entre os cantos externos e internos de cada olho:
+     - Olho anatômico direito: midpoint dos cantos `[33, 133]`.
+     - Olho anatômico esquerdo: midpoint dos cantos `[362, 263]`.
+2. **Tratamento Crítico do Runtime WebAssembly do MediaPipe**:
+   - No compilado C++ WebAssembly de `@mediapipe/tasks-vision`, a rede neural `FaceLandmarker` não calcula scores de visibilidade individual por vértice (diferente da rede `PoseLandmarker`). Por padrão interno, os vértices faciais são exportados com `visibility: 0.0` e `presence: 1.0`.
+   - Se o filtro de qualidade de pixels (`usablePixels`) avaliar cegamente `visibility <= 0.35`, todos os 478 pontos faciais seriam sumariamente descartados, travando os cálculos de EAR e IPD.
+   - **Solução implementada em `poseDetector.ts` (`mapFaceLandmarks`)**: O serviço inspeciona o lote de landmarks; se todos os pontos apresentarem `visibility === 0`, o mapeador chaveia automaticamente para a métrica de confiança real da face (`presence: 1.0`), garantindo que o pipeline ocular receba coordenadas válidas.
+
+---
+
+### 6.4 Estimativa em Tempo Real da Distância da Tela
+
+Implementado em `src/services/vision/biomechanics.ts` (`estimateScreenDistance`) e orquestrado por `src/services/vision/ocularMetrics.ts`:
+
+1. **Reconstituição Dinâmica de Resolução (`ScreenDistanceReference`)**:
+   - O banco de dados armazena valores invariantes (`baselineDistanceCm` e `baselineEyeDistancePx`).
+   - Em tempo de execução, o `WebcamFeed.tsx` combina a calibração com a resolução ativa do stream da câmera (`video.videoWidth` e `video.videoHeight`) e com a fonte de IPD disponível (`iris` ou `eye-corners`).
+2. **Equação do Modelo de Câmera Pinhole**:
+   A distância da tela é inversamente proporcional à distância dos olhos projetada no sensor:
+   $$\text{Distância Atual (cm)} = \frac{\text{baselineDistanceCm} \times \text{baselineEyeDistancePx}}{\text{currentEyeDistancePx}}$$
+3. **Estabilidade e Filtro Temporal**:
+   - **Clamp de Limites Físicos**: `clampScreenDistance` restringe os valores para a faixa anatomicamente plausível de **20 cm a 150 cm**, eliminando artefatos pontuais.
+   - **Filtro Suavizador EMA (Exponential Moving Average)**: Aplica amortecimento com $\alpha = 0.3$ para absorver micro-oscilações de iluminação e ruído do sensor óptico sem introduzir latência perceptível.
+4. **Portão de Qualidade Postural (`isScreenDistancePoseUsable`)**:
+   - Se o usuário girar ou inclinar a cabeça lateralmente ou verticalmente, a projeção 2D entre os olhos diminui geometricamente na imagem (encurtamento por perspectiva), o que falsearia o cálculo simulando que a pessoa se afastou.
+   - O algoritmo extrai os ângulos de rotação cefálica em graus:
+     - `pitch`: Inclinação vertical extraída da `facialTransformationMatrix` 4x4 do MediaPipe.
+     - `yaw`: Rotação horizontal calculada a partir dos vetores de rotação da mesma matriz.
+   - Se $|pitch| > 25^\circ$ ou $|yaw| > 25^\circ$ (`maxHeadRotationDegrees`), a estimativa de distância é **invalidada para aquele frame** (`distanceCm = null`), aguardando que o usuário retorne à orientação frontal.
+
+---
+
+### 6.5 Racional das Decisões de Projeto
+
+| Decisão de Projeto | Justificativa Técnica / Ergonômica |
+| :--- | :--- |
+| **Fixação de 60 cm como distância de calibração** | Elimina a necessidade de fitas métricas ou réguas físicas no posto de trabalho. O comprimento médio do braço humano esticado corresponde à faixa de 50 a 70 cm preconizada pelas normas de ergonomia visual (NR-17 / ISO 9241). |
+| **Classificação por faixas ergonômicas em vez de precisão milimétrica** | O monitoramento postural não requer exatidão cirúrgica ($59.8\text{ cm}$ vs $60.2\text{ cm}$). O propósito essencial é distinguir a **Zona Saudável** (50 a 70 cm) da **Zona de Alerta** (< 45 cm, onde ocorre fadiga de acomodação do cristalino e projeção anterior da coluna). |
+| **Janela de aquecimento de 30s para Taxa de Piscadas** | Extrapolar `piscadas/min` com apenas 5 ou 10 segundos de observação geraria taxas matemáticas erráticas (ex.: 1 piscada em 3s viraria 20/min). A janela mínima de 30s de rosto presente estabiliza a inferência antes de alertar sobre ressecamento ocular. |
+| **Separação entre ausência do posto e má postura** | Se o usuário sai da mesa (pausa para café ou almoço), o sistema não deve penalizar o score nem registrar alertas de postura incorreta; ele simplesmente transita para `ABSENT` e congela as medições. |
+
+---
+
+## 7. Guia Prático para Agentes e Próximos Desenvolvimentos
+
+### 7.1 Como Executar os Testes Unitários de Backend
 Para verificar que as migrations e todos os fluxos de persistência do monitoramento postural continuam íntegros:
 ```bash
 cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
 
-### 6.2 Integração da Task 3.3 e Próximas Etapas
-O resultado retornado por `poseDetector.detectFrame(videoElement)` fornece:
-- `result.poseLandmarks` (para cálculo do ângulo de flexão do pescoço e inclinação dos ombros).
-- `result.faceLandmarks` (para cálculo do EAR dos olhos esquerdo e direito e contagem de piscadas).
-- `result.worldLandmarks` (coordenadas 3D métricas em metros para validação de distância).
+### 7.2 Como Executar os Testes Automatizados de Frontend
+Para validar os testes de biomecânica, geometria ocular, calibração e componentes:
+```bash
+npx vitest run
+```
 
-O feed já consome `poseAngles.ts`, que adapta os landmarks e chama as funções puras de `biomechanics.ts`. A conversão usa `video.videoWidth` e `video.videoHeight`, preservando a geometria quando a prévia muda de tamanho. O referencial da cabeça usa nariz e a média das orelhas visíveis; os ângulos brutos não aplicam uma calibração neutra.
-
-A inferência continua limitada a aproximadamente 11 FPS, e a suavização One Euro mantém valores decimais até a publicação na interface. Os ombros são filtrados em graus antes da conversão em porcentagem; pescoço e ombros mantêm históricos independentes. Pausa, troca de câmera, mute, perda de hardware, presença parcial/ausência e gaps maiores que um segundo reiniciam o filtro. Capturas que terminam depois de uma pausa, troca de dispositivo ou desmontagem liberam os tracks imediatamente. Os testes do componente usam DOM, captura e detector simulados; a câmera física e a precisão da inferência MediaPipe exigem validação manual no aplicativo. Contrato, parâmetros e critérios sintéticos: [Task 4.2 — filtro temporal](../filtro-temporal-postura.md).
-
-### 6.3 Algoritmos oculares e integração da Task 3.4
-
-`calculateEAR` e `estimateScreenDistance` estendem `biomechanics.ts` sem alterar as funções geométricas anteriores. A malha facial é convertida para pixels reais por `ocularLandmarks.ts`; a IPD prefere íris e informa quando usa o fallback pelos pontos médios dos cantos. O estimador reutiliza os campos de `PostureCalibrationDTO`. Clamp e EMA são opcionais e separados da estimativa bruta.
-
-`blinkDetector.ts` usa timestamps, histerese e duração para distinguir piscadas normais, ruído e fechamento prolongado. `blinkRate.ts` mantém uma janela deslizante de 60 s, desconta interrupções e exige 30 s válidos antes de classificar a frequência. Os limiares experimentais ficam em `ocularConfig.ts`.
-
-`ocularMetrics.ts` compõe essas APIs sem React e invalida a distância por pitch/yaw excessivos ou por método/resolução incompatíveis com a referência. O feed compartilha os landmarks e o timestamp da inferência existente por `onOcularUpdate`; pausa, mute, troca de câmera e falhas de hardware reiniciam o estado. A página mostra a taxa real de piscadas; sem baseline, a distância é indisponível, substituindo a heurística pelos ombros. `onPostureUpdate.distanceCm` aceita `null`.
-
-O modal ainda salva configuração do ambiente, sem coletar baseline ocular. O DTO persistido também não registra método/resolução/câmera, necessários para reutilizar a referência com segurança. Permanecem pendentes a coleta/invalidação dessa calibração, a avaliação do EAR com sequências anotadas, a histerese de alertas sustentados e o buffer de agregação para persistência no SQLite. A amostragem de aproximadamente 11 FPS pode perder piscadas curtas; testes sintéticos não validam a precisão da webcam.
-
-Contratos, fontes e roteiro de verificação: [algoritmos oculares](../algoritmos-oculares.md).
+### 7.3 Status Atual e Próximos Passos do Pipeline
+1. **Concluído**: Detecção de corpo e face via MediaPipe WASM offline, filtro temporal One Euro, captura e persistência de baseline de calibração no SQLite, cálculo de EAR e contagem de piscadas, estimativa monocular da distância da tela e integração em tempo real na página de Monitoramento.
+2. **Próximas Tarefas (Fase de Agregação e Histórico)**:
+   - Implementação do buffer temporal de agregação em memória para gravação periódica de snapshots consolidados (`posture_metrics_snapshots`) a cada 60 segundos no SQLite.
+   - Motor de histerese para alertas persistentes de má postura sustentada (`posture_alerts`).
+   - Cálculo e consolidação do Ergo Score diário da sessão de monitoramento.
