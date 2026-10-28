@@ -48,7 +48,7 @@ O sistema opera através de um pipeline híbrido que combina visão computaciona
 | **Task 3.2** | Gerenciamento do Feed de Câmera e Concorrência de Dispositivo | `src/components/monitoring/WebcamFeed.tsx` | **Concluída** |
 | **Task 3.3** | Geometria de Pescoço/Ombros e Orientação Vertical | `biomechanics.ts`, `poseAngles.ts`, testes e integração no feed | **Concluída** |
 | **Task 3.4** | EAR, Piscadas e Distância Calibrada | `biomechanics.ts`, `ocularLandmarks.ts`, `blinkDetector.ts`, `blinkRate.ts`, `ocularMetrics.ts` | **Concluída** |
-| **Task 4.1** | Calibração de Postura Neutra e IPD na UI | `WorkspaceCalibrationModal.tsx`, `WebcamFeed.tsx`, `postureService.ts` | **Concluída** |
+| **Task 4.1** | Calibração de Postura Neutra, IPD e Validação Óptica | `WorkspaceCalibrationModal.tsx`, `ocularLandmarks.ts`, `ocularConfig.ts`, `postureService.ts` | **Concluída** |
 | **Task 4.2** | Filtro Temporal de Ruído (One Euro Filter / Suavização) | `temporalPostureFilter.ts`, `WebcamFeed.tsx` | **Concluída** |
 | **Próximas** | Agregação Periódica de Snapshots, Score e Histerese de Alertas | Pipeline frontend e persistência em lote no SQLite | *Pendente* |
 
@@ -203,6 +203,9 @@ Todos os comandos recebem injeção do `State<'_, AppState>` gerenciado pelo Tau
     - `postureCalibrationService`
     - `postureMetricSnapshotService`
     - `postureAlertService`
+- **Isolamento Multi-usuário na Sessão Frontend**:
+  - A página `Monitoring.tsx` e o modal `WorkspaceCalibrationModal.tsx` consomem o hook `useOptionalAuth()`.
+  - Quando autenticado, o `userId: number` é explicitamente propagado nas consultas de calibração ativa (`postureService.getActiveCalibration(userId)`) e no payload de salvamento (`SaveCalibrationPayload.userId`), garantindo que diferentes perfis de usuário cadastrados na mesma máquina não misturem suas baselines antropométricas nem desativem registros de terceiros.
 
 ---
 
@@ -309,14 +312,16 @@ O modal de calibração guia o usuário por orientações ergonômicas interativ
 
 1. **Posicionamento de Referência**: O usuário é instruído a sentar-se na postura ereta recomendada a **um braço de distância** da tela (aproximadamente **60 cm**, padrão ergonômico internacional preconizado pelas normas NR-17, ISO 9241-5 e OSHA).
 2. **Contagem Regressiva Ativa (5 segundos)**: Durante `CALIBRATION_DURATION_SECONDS = 5`, o componente captura amostras em alta frequência (`~11 FPS`) contanto que a presença do usuário seja confirmada como ativa e estável (`metrics.presence === "ACTIVE"`).
-3. **Métricas Coletadas**:
-   - `neckAngle` ($\theta_{neck}$): Ângulo de flexão cervical em relação à vertical (graus).
-   - `shoulderBalance`: Nível de alinhamento horizontal dos ombros (0 a 100%).
-   - `distanceCm`: Ancorado na constante de referência ergonômica (`DEFAULT_REFERENCE_DISTANCE_CM = 60 cm`).
-   - `ipdPx`: Distância em pixels entre as pupilas/olhos do usuário capturada pelo sensor naquela resolução de vídeo.
-4. **Persistência Relacional**: Ao término dos 5 segundos, as médias aritméticas das amostras são computadas e enviadas ao backend Rust através de `postureService.saveCalibration`:
+3. **Métricas Coletadas e Nomenclatura Amigável na UI**:
+   - **Ângulo do Pescoço**: Ângulo de flexão cervical em relação à vertical (graus).
+   - **Balanceamento dos Ombros**: Nível de alinhamento horizontal dos ombros (0 a 100%).
+   - **Distância de Referência**: Ancorado na constante de referência ergonômica (`DEFAULT_REFERENCE_DISTANCE_CM = 60 cm`).
+   - **Distância de Olhos**: Distância em pixels entre as pupilas/olhos do usuário capturada pelo sensor naquela resolução de vídeo (`ipdPx`).
+4. **Isolamento de Usuário e Persistência Relacional**:
+   Ao término dos 5 segundos, as médias aritméticas das amostras são computadas e enviadas ao backend Rust através de `postureService.saveCalibration`, associando o identificador do usuário autenticado (`currentUserId` derivado de `useOptionalAuth` ou passado como prop):
    ```typescript
    const calibrationPayload: SaveCalibrationPayload = {
+     userId: currentUserId,
      baselineNeckAngle: avgNeck,
      baselineShoulderBalance: avgShoulder,
      baselineDistanceCm: 60.0,
@@ -324,7 +329,7 @@ O modal de calibração guia o usuário por orientações ergonômicas interativ
      isActive: true,
    };
    ```
-   O backend desativa quaisquer calibrações anteriores do usuário em uma única transação SQLite e marca o novo registro como ativo.
+   O backend desativa quaisquer calibrações anteriores daquele usuário específico em uma transação SQLite isolada e marca o novo registro como ativo.
 
 ---
 
@@ -345,7 +350,31 @@ Implementado em `src/services/vision/ocularLandmarks.ts`:
 
 ---
 
-### 6.4 Estimativa em Tempo Real da Distância da Tela
+### 6.4 Validação de Plausibilidade Óptica do IPD na Calibração
+
+Implementado em `src/services/vision/ocularLandmarks.ts` (`validateCalibrationIPD`) e configurado em `src/services/vision/ocularConfig.ts` (`CALIBRATION_IPD_RATIO_LIMITS`):
+
+1. **O Problema da Calibração em Distâncias Inadequadas**:
+   Se o usuário sentar colado à tela (< 40 cm) ou encostado no fundo da sala (> 1 metro) no momento da calibração, o sistema gravaria um `baselineEyeDistancePx` distorcido. Como a distância em tempo real depende da razão inversa entre o IPD atual e a baseline, qualquer desvio nessa etapa inicial comprometeria todos os alertas futuros de aproximação e ergonomia.
+2. **Equação da Razão Óptica Relativa**:
+   Em vez de exigir largura fixa em pixels (o que quebraria entre 720p, 1080p e 4K), a validação avalia a **fração da largura da imagem** ocupada pela distância entre os olhos:
+   $$\text{Ratio} = \frac{\text{ipdPx}}{\text{frameWidth}}$$
+3. **Limites de Plausibilidade (`CALIBRATION_IPD_RATIO_LIMITS`)**:
+   - `maxRatio: 0.20`: Razões acima de 20% da largura indicam proximidade excessiva da câmera (< 40–45 cm). Resultado: `"too-close"`.
+   - `minRatio: 0.04`: Razões abaixo de 4% da largura indicam distância excessiva (> 90 cm). Resultado: `"too-far"`.
+   - `optimalMin: 0.06` a `optimalMax: 0.16`: Faixa anatômica esperada para a postura neutra ergonômica a ~60 cm. Resultado: `"valid"`.
+4. **Propagação Dinâmica de Resolução (`OcularMetrics.frameWidth`)**:
+   A interface `OcularMetrics` carrega `frameWidth` e `frameHeight` extraídos diretamente do elemento `<video>` em cada ciclo de `updateOcularMetrics`. No modal, `latestFrameWidthRef.current` é atualizado em tempo real, garantindo precisão milimétrica mesmo em mudanças de dispositivo ou aspect ratio.
+5. **Fluxo de Proteção e Respeito à Autonomia do Usuário**:
+   - **Bloqueio de Auto-Save**: Se a calibração for concluída mas o resultado for `"too-close"` ou `"too-far"`, o salvamento automático imediato é suspenso e o botão "Salvar" permanece desabilitado.
+   - **Cards de Orientação Contextual**: Apresenta instruções claras de reposicionamento ("Afaste-se para a distância de mais ou menos 60cm" ou "Aproxime-se para a distância de mais ou menos 60cm").
+   - **Ação "Recalibrar (5s)"**: Reinicia o cronômetro para uma nova amostragem limpa.
+   - **Ação "Desejo manter assim mesmo" (Override Manual)**: Caso o usuário tenha necessidades ergonômicas especiais ou utilize lentes grande-angulares atípicas, ele pode confirmar conscientemente que deseja manter a leitura, liberando o botão "Salvar".
+   - **Confirmação Visual**: Exibe o card verde "Postura Confirmada" quando validado ou após override.
+
+---
+
+### 6.5 Estimativa em Tempo Real da Distância da Tela
 
 Implementado em `src/services/vision/biomechanics.ts` (`estimateScreenDistance`) e orquestrado por `src/services/vision/ocularMetrics.ts`:
 
@@ -367,11 +396,12 @@ Implementado em `src/services/vision/biomechanics.ts` (`estimateScreenDistance`)
 
 ---
 
-### 6.5 Racional das Decisões de Projeto
+### 6.6 Racional das Decisões de Projeto
 
 | Decisão de Projeto | Justificativa Técnica / Ergonômica |
 | :--- | :--- |
 | **Fixação de 60 cm como distância de calibração** | Elimina a necessidade de fitas métricas ou réguas físicas no posto de trabalho. O comprimento médio do braço humano esticado corresponde à faixa de 50 a 70 cm preconizada pelas normas de ergonomia visual (NR-17 / ISO 9241). |
+| **Validação de proporção IPD/frameWidth (4% a 20%)** | Protege o modelo pinhole contra baselines aberrantes registradas muito perto (< 40 cm) ou muito longe (> 90 cm), sem depender de resoluções de câmera rígidas. Permite override manual para flexibilidade e inclusão ergonômica. |
 | **Classificação por faixas ergonômicas em vez de precisão milimétrica** | O monitoramento postural não requer exatidão cirúrgica ($59.8\text{ cm}$ vs $60.2\text{ cm}$). O propósito essencial é distinguir a **Zona Saudável** (50 a 70 cm) da **Zona de Alerta** (< 45 cm, onde ocorre fadiga de acomodação do cristalino e projeção anterior da coluna). |
 | **Janela de aquecimento de 30s para Taxa de Piscadas** | Extrapolar `piscadas/min` com apenas 5 ou 10 segundos de observação geraria taxas matemáticas erráticas (ex.: 1 piscada em 3s viraria 20/min). A janela mínima de 30s de rosto presente estabiliza a inferência antes de alertar sobre ressecamento ocular. |
 | **Separação entre ausência do posto e má postura** | Se o usuário sai da mesa (pausa para café ou almoço), o sistema não deve penalizar o score nem registrar alertas de postura incorreta; ele simplesmente transita para `ABSENT` e congela as medições. |
