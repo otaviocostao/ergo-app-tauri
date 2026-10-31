@@ -66,6 +66,17 @@ Estes registros descrevem o produto existente. Não são apresentados como novos
 - Evidências de teste: `npm run test:birth-date` cobre datas impossíveis, campos vazios, aniversários e anos bissextos; os testes de `user_service` em `cargo test --manifest-path src-tauri/Cargo.toml` cobrem os mesmos limites, campos omitidos, persistência e remoção dos dados opcionais.
 - Situação: implementada. A faixa etária é uma regra de produto deste cadastro.
 
+### RN-14 Módulos de análise
+
+- Origem e aprovação: solicitação do responsável pelo projeto em 31/10/2026, incluindo a ligação entre módulos e avisos e o bloqueio dos avisos enquanto o módulo estiver inativo.
+- Cada conta tem uma linha em `settings` com `postural_analysis`, `ocular_analysis` e `typing_analysis` (0 ou 1, padrão 1). A linha é criada na primeira leitura; sem ela, todos os módulos são considerados ativos. Visitantes e contas não conectadas não leem nem alteram os módulos.
+- **Configurações → Módulos** apresenta um card por módulo, com interruptor salvo automaticamente; uma falha informa o erro e mantém o estado anterior.
+- Desativar um módulo desativa, na mesma transação, os avisos de ergonomia e os lembretes personalizados vinculados: análise postural → “Revise sua postura”, “Mude de posição” e lembretes das categorias Postura e Exercício; análise ocular → “Faça uma pausa visual” e lembretes de Pausa Visual; análise de digitação e a categoria Hidratação não têm vínculo. Enquanto o módulo estiver inativo, o backend recusa ativar, criar como ativo ou mover ativo para essas categorias, e a interface bloqueia o interruptor e fixa o status do formulário em Inativo. Ao reativar o módulo, eles continuam desativados até o usuário ligá-los.
+- No Monitoramento, as métricas de um módulo inativo ficam indisponíveis antes de chegarem aos cards, à histerese, aos alertas e à gravação de snapshots. Análise postural inativa: cards de pescoço, ombros, distância e coluna e o resumo exibem o módulo inativo. Análise ocular inativa: cards de piscadas e distância. A distância é métrica postural medida pelos olhos, por isso depende dos dois módulos. Análise de digitação inativa: o card de digitação exibe o módulo inativo e não contabiliza teclas.
+- Evidências: testes de `settings_service` em `cargo test --manifest-path src-tauri/Cargo.toml --lib` (padrões, vínculo com avisos, bloqueio, rollback, isolamento por conta e validação) e testes Vitest da aba Módulos, dos avisos, do card de digitação, do filtro por módulo e da página de Monitoramento.
+- Sessões de monitoramento só são abertas com a análise postural ativa, para não gravar sessões vazias. Com as análises postural e ocular inativas, a câmera não é ligada. O Monitoramento aguarda os módulos carregarem antes de ligar a câmera ou abrir uma sessão.
+- Situação: implementada.
+
 ## Propostas pendentes de aprovação
 
 | ID | Proposta | Motivação e decisão necessária |
