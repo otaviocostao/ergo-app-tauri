@@ -78,11 +78,29 @@ pub fn resolve_posture_alert(
         .resolved_at
         .unwrap_or_else(|| Utc::now().to_rfc3339());
 
-    posture_alert_repository::resolve_alert(conn, &existing.id, &resolved_at)
-        .map_err(|e| e.to_string())?;
+    let duration_seconds = payload.duration_seconds.unwrap_or(existing.duration_seconds);
+    if duration_seconds < 0 {
+        return Err("Duration seconds cannot be negative".to_string());
+    }
+    let severity = payload
+        .severity
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| existing.severity.clone());
+
+    posture_alert_repository::resolve_alert(
+        conn,
+        &existing.id,
+        &resolved_at,
+        duration_seconds,
+        &severity,
+    )
+    .map_err(|e| e.to_string())?;
 
     let mut updated = existing;
     updated.resolved_at = Some(resolved_at);
+    updated.duration_seconds = duration_seconds;
+    updated.severity = severity;
 
     Ok(updated)
 }
@@ -208,6 +226,8 @@ mod tests {
             ResolveAlertPayload {
                 id: alert.id.clone(),
                 resolved_at: Some("2026-10-10T10:05:30Z".to_string()),
+                duration_seconds: None,
+                severity: None,
             },
         )
         .unwrap();
@@ -218,6 +238,51 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(fetched.resolved_at, Some("2026-10-10T10:05:30Z".to_string()));
+        assert_eq!(fetched.duration_seconds, 30);
+        assert_eq!(fetched.severity, "danger");
+    }
+
+    #[test]
+    fn test_resolve_posture_alert_updates_final_episode_state() {
+        let conn = setup_test_db();
+        let alert = record_posture_alert(
+            &conn,
+            CreateAlertPayload {
+                session_id: "test-session-1".to_string(),
+                timestamp: Some("2026-10-10T10:05:00Z".to_string()),
+                alert_type: "poor_posture".to_string(),
+                severity: Some("warning".to_string()),
+                duration_seconds: Some(20),
+                message: "Má postura".to_string(),
+            },
+        )
+        .unwrap();
+
+        let payload: ResolveAlertPayload = serde_json::from_str(&format!(
+            r#"{{"id":"{}","resolvedAt":"2026-10-10T10:05:35Z","durationSeconds":35,"severity":"DANGER"}}"#,
+            alert.id
+        ))
+        .unwrap();
+        let resolved = resolve_posture_alert(&conn, payload).unwrap();
+        assert_eq!(resolved.duration_seconds, 35);
+        assert_eq!(resolved.severity, "danger");
+
+        let fetched = posture_alert_repository::find_by_id(&conn, &alert.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(fetched.duration_seconds, 35);
+        assert_eq!(fetched.severity, "danger");
+
+        let negative = resolve_posture_alert(
+            &conn,
+            ResolveAlertPayload {
+                id: alert.id,
+                resolved_at: None,
+                duration_seconds: Some(-1),
+                severity: None,
+            },
+        );
+        assert!(negative.is_err());
     }
 
     #[test]
@@ -256,6 +321,8 @@ mod tests {
             ResolveAlertPayload {
                 id: alert2.id,
                 resolved_at: None,
+                duration_seconds: None,
+                severity: None,
             },
         )
         .unwrap();
