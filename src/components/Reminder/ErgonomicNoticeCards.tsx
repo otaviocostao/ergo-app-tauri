@@ -1,6 +1,8 @@
 import { Activity, Clock, Eye, PersonStanding } from "lucide-react";
 import type { ReminderItem } from "../../services/reminderService";
-import { REMINDER_FREQUENCY_LABELS } from "../../enums";
+import { isModuleEnabled, reminderModule } from "../../services/settingsService";
+import { useModuleSettings } from "../../hooks/useModuleSettings";
+import { MODULE_LABELS, REMINDER_FREQUENCY_LABELS } from "../../enums";
 
 interface ErgonomicNoticeCardsProps {
   reminders: ReminderItem[];
@@ -9,6 +11,8 @@ interface ErgonomicNoticeCardsProps {
 }
 
 export default function ErgonomicNoticeCards({ reminders, pendingIds, onStatusChange }: ErgonomicNoticeCardsProps) {
+  const { settings } = useModuleSettings();
+
   if (reminders.length === 0) {
     return <p className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">Nenhum aviso de ergonomia encontrado.</p>;
   }
@@ -19,6 +23,9 @@ export default function ErgonomicNoticeCards({ reminders, pendingIds, onStatusCh
         const active = reminder.status === "ativo";
         const pending = pendingIds.has(reminder.id);
         const Icon = reminder.systemType === "POSTURE_CHECK" ? Activity : reminder.systemType === "VISUAL_BREAK" ? Eye : PersonStanding;
+        const module = reminderModule(reminder);
+        // A notice of a disabled module can still be turned off, never on.
+        const locked = module !== null && !isModuleEnabled(settings, module) && !active;
 
         return (
           <article key={reminder.id} aria-busy={pending} className="flex min-w-0 flex-col rounded-xl border border-slate-200 bg-slate-50/60 p-5 dark:border-slate-700 dark:bg-slate-800/30">
@@ -45,10 +52,16 @@ export default function ErgonomicNoticeCards({ reminders, pendingIds, onStatusCh
               </div>
             </dl>
 
+            {locked && module && (
+              <p className="mb-4 rounded-lg bg-slate-100 px-3 py-2 text-xs leading-5 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                Módulo {MODULE_LABELS[module]} inativo. Ative-o em <strong className="font-semibold">Módulos</strong> para usar este aviso.
+              </p>
+            )}
+
             <div className="mt-auto flex items-center border-t border-slate-200 pt-4 dark:border-slate-700">
-              <label className={`inline-flex items-center gap-2.5 ${pending ? "cursor-wait" : "cursor-pointer"}`}>
+              <label className={`inline-flex items-center gap-2.5 ${pending ? "cursor-wait" : locked ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
                 <input type="checkbox" role="switch" className="peer sr-only"
-                  aria-label={`Aviso: ${reminder.title}`} checked={active} disabled={pending}
+                  aria-label={`Aviso: ${reminder.title}`} checked={active} disabled={pending || locked}
                   onChange={(event) => onStatusChange(reminder, event.currentTarget.checked)} />
                 <span aria-hidden="true" className="relative h-6 w-11 shrink-0 rounded-full bg-slate-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:size-5 after:rounded-full after:bg-white after:shadow-sm after:transition-transform peer-checked:bg-primary-600 peer-checked:after:translate-x-5 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary-600 dark:bg-slate-600" />
                 <span className={`min-w-10 text-xs font-medium ${active ? "text-primary-700 dark:text-primary-400" : "text-slate-500 dark:text-slate-400"}`}>
