@@ -186,6 +186,6 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(migration_count, 1);
+        assert_eq!(migration_count, 2);
     }
 }
