@@ -139,10 +139,10 @@ export default function ReminderList({ kind }: ReminderListProps) {
         if (editingReminder && editingReminder.id) {
             const updated = await reminderService.update({
                 id: editingReminder.id,
-                ...(!editingReminder.systemType ? {
-                    title: item.title, message: item.message,
-                    description: item.description, category: item.category,
-                } : {}),
+                title: item.title,
+                message: item.message,
+                description: item.description,
+                category: item.category,
                 interval: item.interval,
                 period: item.period,
                 frequency: item.frequency,
@@ -305,7 +305,7 @@ export default function ReminderList({ kind }: ReminderListProps) {
                 <header>
                     <h2 className="text-base font-bold text-slate-800 dark:text-white">Avisos de ergonomia</h2>
                     <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
-                        Escolha quais avisos deseja receber durante sua rotina. Ative ou desative cada aviso abaixo; as alterações são salvas automaticamente.
+                        Avisos definidos pelo sistema, enviados todos os dias ao longo do dia inteiro. Ative ou desative cada aviso abaixo; as alterações são salvas automaticamente.
                     </p>
                 </header>
             ) : <Header
@@ -378,7 +378,7 @@ export default function ReminderList({ kind }: ReminderListProps) {
                 </div>
             ) : isSystemList ? (
                 <ErgonomicNoticeCards reminders={reminders} pendingIds={pendingStatusIds}
-                    onStatusChange={handleStatusChange} onConfigure={handleOpenEditReminderModal} />
+                    onStatusChange={handleStatusChange} />
             ) : (
                 <Table
                     data={filteredReminders}
