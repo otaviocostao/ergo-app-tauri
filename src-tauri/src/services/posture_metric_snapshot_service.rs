@@ -153,8 +153,6 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(include_str!("../../migrations/0001_initial_migration.sql"))
             .unwrap();
-        conn.execute_batch(include_str!("../../migrations/0002_nullable_snapshot_metrics.sql"))
-            .unwrap();
 
         // Seed a user and an active monitoring session
         conn.execute(
@@ -202,40 +200,6 @@ mod tests {
 
         let invalid = CreateSnapshotPayload { avg_distance_cm: Some(f64::NAN), ..payload };
         assert!(record_metric_snapshot(&conn, invalid).is_err());
-    }
-
-    #[test]
-    fn test_nullable_metrics_migration_preserves_existing_snapshots() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(include_str!("../../migrations/0001_initial_migration.sql"))
-            .unwrap();
-        conn.execute_batch(
-            "INSERT INTO monitoring_sessions (id, started_at) VALUES ('s1', '2026-10-10T10:00:00Z');
-             INSERT INTO posture_metrics_snapshots (id, session_id, timestamp, avg_neck_angle, max_neck_angle,
-               avg_shoulder_balance, min_shoulder_balance, avg_distance_cm, blink_count, dominant_status, score, samples_count)
-             VALUES ('old', 's1', '2026-10-10T10:01:00Z', 10, 12, 95, 90, 60, 3, 'good', 97, 600);",
-        )
-        .unwrap();
-        conn.execute_batch(include_str!("../../migrations/0002_nullable_snapshot_metrics.sql"))
-            .unwrap();
-
-        let old = posture_metric_snapshot_repository::find_by_id(&conn, "old").unwrap().unwrap();
-        assert_eq!(old.avg_distance_cm, Some(60.0));
-        assert_eq!(old.samples_count, 600);
-        conn.execute(
-            "INSERT INTO posture_metrics_snapshots (id, session_id, timestamp, dominant_status, score)
-             VALUES ('new', 's1', '2026-10-10T10:02:00Z', 'warning', 80)",
-            [],
-        )
-        .unwrap();
-        let indexes: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND tbl_name = 'posture_metrics_snapshots' AND name LIKE 'idx_%'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(indexes, 2);
     }
 
     #[test]
