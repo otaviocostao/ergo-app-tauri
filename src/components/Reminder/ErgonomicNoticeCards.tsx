@@ -1,16 +1,14 @@
-import { Activity, Clock, Eye, PersonStanding, Settings2 } from "lucide-react";
-import Button from "../Button";
+import { Activity, Clock, Eye, PersonStanding } from "lucide-react";
 import type { ReminderItem } from "../../services/reminderService";
-import { ReminderFrequency, REMINDER_FREQUENCY_LABELS, WEEK_DAY_LABELS, type WeekDay } from "../../enums";
+import { REMINDER_FREQUENCY_LABELS } from "../../enums";
 
 interface ErgonomicNoticeCardsProps {
   reminders: ReminderItem[];
   pendingIds: ReadonlySet<string>;
   onStatusChange: (reminder: ReminderItem, active: boolean) => void;
-  onConfigure: (reminder: ReminderItem) => void;
 }
 
-export default function ErgonomicNoticeCards({ reminders, pendingIds, onStatusChange, onConfigure }: ErgonomicNoticeCardsProps) {
+export default function ErgonomicNoticeCards({ reminders, pendingIds, onStatusChange }: ErgonomicNoticeCardsProps) {
   if (reminders.length === 0) {
     return <p className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">Nenhum aviso de ergonomia encontrado.</p>;
   }
@@ -21,9 +19,6 @@ export default function ErgonomicNoticeCards({ reminders, pendingIds, onStatusCh
         const active = reminder.status === "ativo";
         const pending = pendingIds.has(reminder.id);
         const Icon = reminder.systemType === "POSTURE_CHECK" ? Activity : reminder.systemType === "VISUAL_BREAK" ? Eye : PersonStanding;
-        const frequency = reminder.frequency === ReminderFrequency.CUSTOM
-          ? reminder.customDays?.map((day) => WEEK_DAY_LABELS[day as WeekDay] ?? day).join(", ")
-          : REMINDER_FREQUENCY_LABELS[reminder.frequency];
 
         return (
           <article key={reminder.id} aria-busy={pending} className="flex min-w-0 flex-col rounded-xl border border-slate-200 bg-slate-50/60 p-5 dark:border-slate-700 dark:bg-slate-800/30">
@@ -36,24 +31,21 @@ export default function ErgonomicNoticeCards({ reminders, pendingIds, onStatusCh
             <dl className="my-5 space-y-2 text-xs text-slate-600 dark:text-slate-300">
               <div className="flex justify-between gap-3">
                 <dt className="flex items-center gap-1.5"><Clock size={13} aria-hidden="true" /> Intervalo</dt>
-                <dd className="text-right font-medium">{reminder.frequency === ReminderFrequency.ONCE ? "Uma vez" : `${reminder.interval} min`}</dd>
+                <dd className="text-right font-medium">{`${reminder.interval} min`}</dd>
               </div>
               <div className="flex justify-between gap-3">
                 <dt>Horário</dt><dd className="text-right font-medium">{reminder.period}</dd>
               </div>
               <div className="flex justify-between gap-3">
                 <dt>Frequência</dt>
-                <dd className="text-right font-medium">
-                  {frequency}
-                  {reminder.frequency === ReminderFrequency.ONCE && reminder.reminderDate && ` · ${reminder.reminderDate.split("-").reverse().join("/")}`}
-                </dd>
+                <dd className="text-right font-medium">{REMINDER_FREQUENCY_LABELS[reminder.frequency]}</dd>
               </div>
               <div className="flex justify-between gap-3">
                 <dt>Notificação</dt><dd className="text-right font-medium">{reminder.notificationTone ? "Com som" : "Silenciosa"}</dd>
               </div>
             </dl>
 
-            <div className="mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4 dark:border-slate-700">
+            <div className="mt-auto flex items-center border-t border-slate-200 pt-4 dark:border-slate-700">
               <label className={`inline-flex items-center gap-2.5 ${pending ? "cursor-wait" : "cursor-pointer"}`}>
                 <input type="checkbox" role="switch" className="peer sr-only"
                   aria-label={`Aviso: ${reminder.title}`} checked={active} disabled={pending}
@@ -63,10 +55,6 @@ export default function ErgonomicNoticeCards({ reminders, pendingIds, onStatusCh
                   {active ? "Ativo" : "Inativo"}
                 </span>
               </label>
-              <Button type="button" variant="secondary" size="sm" disabled={pending} className="disabled:opacity-100!"
-                aria-label={`Configurar aviso: ${reminder.title}`} onClick={() => onConfigure(reminder)}>
-                <Settings2 size={14} aria-hidden="true" /> Configurar
-              </Button>
             </div>
           </article>
         );
