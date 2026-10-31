@@ -32,6 +32,12 @@ pub struct CreateAlertPayload {
 pub struct ResolveAlertPayload {
     pub id: String,
     pub resolved_at: Option<String>,
+    /// Final episode duration, replacing the value recorded when the alert was raised.
+    #[serde(default)]
+    pub duration_seconds: Option<i64>,
+    /// Highest severity observed during the whole episode.
+    #[serde(default)]
+    pub severity: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
