@@ -8,9 +8,13 @@ import WorkspaceCalibrationModal from "../components/monitoring/WorkspaceCalibra
 import { postureService } from "../services/postureService";
 import { useOptionalAuth } from "../auth/AuthContext";
 import { useMetricRecording } from "../hooks/useMetricRecording";
+import { useModuleSettings } from "../hooks/useModuleSettings";
+import { isModuleEnabled } from "../services/settingsService";
+import { getInactiveModule, restrictClassificationToModules } from "../services/monitoring/moduleClassification";
 import type { PostureCalibrationDTO } from "../types/postureCalibration";
 import type { PostureClassification, PostureMetric } from "../types/postureClassification";
 import { PostureStatus, POSTURE_STATUS_LABELS } from "../enums/postureStatus";
+import { Module, MODULE_LABELS } from "../enums/module";
 import {
   DEFAULT_POSTURE_CLASSIFICATION_CONFIG as classificationConfig,
   getPostureStatusLabel, PostureAlertCooldown, PostureHysteresis,
@@ -69,7 +73,12 @@ export default function Monitoring() {
   const userId = auth?.session.kind === "authenticated" ? auth.session.user.id : null;
   const [isMonitoring, setIsMonitoring] = useState(true);
   const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
-  const monitoringContextRef = useRef({ enabled: true, userId });
+  const { settings: moduleSettings, isLoading: modulesLoading } = useModuleSettings();
+  const posturalEnabled = isModuleEnabled(moduleSettings, Module.POSTURAL_ANALYSIS);
+  const ocularEnabled = isModuleEnabled(moduleSettings, Module.OCULAR_ANALYSIS);
+  // Waiting for the settings avoids switching the camera on, or opening a session, only to stop it.
+  const cameraModulesEnabled = !modulesLoading && (posturalEnabled || ocularEnabled);
+  const monitoringContextRef = useRef({ enabled: true, userId, modules: moduleSettings });
   const [calibration, setCalibration] = useState<PostureCalibrationDTO | null>(null);
   const [sessionBlinkCount, setSessionBlinkCount] = useState(0);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
@@ -90,7 +99,8 @@ export default function Monitoring() {
   const [logs, setLogs] = useState<LogEvent[]>([]);
   // Blink events since the last classification; both callbacks come from the same inference.
   const pendingBlinksRef = useRef(0);
-  const recording = useMetricRecording(isMonitoring && !isCalibrationOpen, userId, event => {
+  // Sessions and snapshots summarize posture, so nothing is recorded without the postural module.
+  const recording = useMetricRecording(isMonitoring && !isCalibrationOpen && !modulesLoading && posturalEnabled, userId, event => {
     setLogs(previous => [{
       ...event,
       id: crypto.randomUUID(),
@@ -111,12 +121,14 @@ export default function Monitoring() {
     }
   };
 
-  const handleClassificationUpdate = (current: PostureClassification | null) => {
+  const handleClassificationUpdate = (measured: PostureClassification | null) => {
     const context = monitoringContextRef.current;
     if (context.userId !== userId) {
       return;
     }
 
+    // Disabled modules produce no card value, alert or stored measurement.
+    const current = measured && restrictClassificationToModules(measured, context.modules);
     setClassification(context.enabled ? current : null);
 
     if (!current || !context.enabled) {
@@ -149,13 +161,13 @@ export default function Monitoring() {
 
   useEffect(() => {
     const enabled = isMonitoring && !isCalibrationOpen;
-    monitoringContextRef.current = { enabled, userId };
+    monitoringContextRef.current = { enabled, userId, modules: moduleSettings };
 
     if (!enabled) {
       alertState.hysteresis.resetContinuity();
     }
 
-  }, [isMonitoring, isCalibrationOpen, userId]);
+  }, [isMonitoring, isCalibrationOpen, userId, moduleSettings]);
 
   const handlePresenceChange = (presence: UserPresenceState) => {
     setUserPresence(presence);
@@ -243,12 +255,16 @@ export default function Monitoring() {
   const handleOcularUpdate = (metrics: OcularMetrics | null) => {
     setOcularMetrics(metrics);
 
-    if (metrics?.blinkEvent === "blink") {
+    if (metrics?.blinkEvent === "blink" && isModuleEnabled(monitoringContextRef.current.modules, Module.OCULAR_ANALYSIS)) {
       setSessionBlinkCount((prev) => prev + 1);
       pendingBlinksRef.current++;
     }
   };
 
+  const inactiveModuleLabel = (metric: PostureMetric) => {
+    const module = getInactiveModule(metric, moduleSettings);
+    return module && MODULE_LABELS[module];
+  };
   const isPaused = !isMonitoring || isCalibrationOpen || userPresence !== "ACTIVE";
   const blinkRate = ocularMetrics?.blinkRate.blinksPerMinute ?? null;
   const neck = classification?.metrics.neck;
@@ -283,7 +299,9 @@ export default function Monitoring() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <div className="lg:col-span-7 flex flex-col gap-6">
           <WebcamFeed
-            isMonitoring={isMonitoring && !isCalibrationOpen}
+            isMonitoring={isMonitoring && !isCalibrationOpen && cameraModulesEnabled}
+            disabledMessage={modulesLoading || posturalEnabled || ocularEnabled ? null
+              : "As análises postural e ocular estão desativadas em Configurações → Módulos. A câmera fica desligada até que uma delas seja ativada."}
             calibration={calibration}
             classificationConfig={classificationConfig}
             onClassificationUpdate={handleClassificationUpdate}
@@ -297,6 +315,7 @@ export default function Monitoring() {
           />
 
           <KeyboardMonitorCard
+            enabled={isModuleEnabled(moduleSettings, Module.TYPING_ANALYSIS)}
             onPauseRequested={() => {
               const newLog: LogEvent = {
                 id: Date.now().toString(),
@@ -316,7 +335,7 @@ export default function Monitoring() {
               <div className="flex gap-2">
                 <h2 className="text-base font-bold text-white">Resumo da sua ergonomia</h2>
                 <span
-                  className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${isPaused || postureStatus === null
+                  className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${!posturalEnabled || isPaused || postureStatus === null
                     ? "bg-slate-800 text-slate-400 border border-slate-700"
                     : postureStatus === PostureStatus.GOOD
                       ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
@@ -325,7 +344,9 @@ export default function Monitoring() {
                         : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
                     }`}
                 >
-                  {!isMonitoring
+                  {!posturalEnabled
+                    ? "Módulo inativo"
+                    : !isMonitoring
                     ? "Pausado"
                     : userPresence === "ABSENT"
                       ? "Ausente (Pausado)"
@@ -343,7 +364,9 @@ export default function Monitoring() {
             </div>
             <div className="flex">
               <p className="text-xs text-slate-300 mt-1 sm:pr-6">
-                {!isMonitoring
+                {!posturalEnabled
+                  ? "A análise postural está desativada em Configurações → Módulos. Ative-a para acompanhar pescoço, ombros, coluna e distância da tela."
+                  : !isMonitoring
                   ? "O monitoramento está pausado. Inicie o monitoramento para visualizar a análise postural e métricas em tempo real."
                   : userPresence === "ABSENT"
                     ? "Nenhum usuário detectado há mais de 5 segundos. O cálculo de métricas e gráficos está pausado até o seu retorno."
@@ -360,7 +383,7 @@ export default function Monitoring() {
                 <div className="flex flex-col">
                   <span className="text-slate-400">Status Geral:</span>
                   <span
-                    className={`font-semibold ${isPaused || postureStatus === null
+                    className={`font-semibold ${!posturalEnabled || isPaused || postureStatus === null
                       ? "text-slate-400"
                       : postureStatus === "good"
                         ? "text-emerald-400"
@@ -369,7 +392,9 @@ export default function Monitoring() {
                           : "text-rose-400"
                       }`}
                   >
-                    {!isMonitoring
+                    {!posturalEnabled
+                      ? "Análise postural inativa"
+                      : !isMonitoring
                       ? "Pausado"
                       : userPresence === "ABSENT"
                         ? "Usuário Ausente"
@@ -404,6 +429,7 @@ export default function Monitoring() {
                 { label: "Limite Alerta:", value: `${classificationConfig.neck.warningMaxDegrees}°` },
               ]}
               isPaused={isPaused}
+              inactiveModule={inactiveModuleLabel("neck")}
             />
 
             <ErgoMetricsCard
@@ -425,6 +451,7 @@ export default function Monitoring() {
                 },
               ]}
               isPaused={isPaused}
+              inactiveModule={inactiveModuleLabel("shoulders")}
             />
 
             <ErgoMetricsCard
@@ -443,6 +470,7 @@ export default function Monitoring() {
                 ...(calibration ? [{ label: "Ref. Base:", value: `${Math.round(calibration.baselineDistanceCm)} cm` }] : []),
               ]}
               isPaused={isPaused}
+              inactiveModule={inactiveModuleLabel("distance")}
             />
 
             <ErgoMetricsCard
@@ -459,6 +487,7 @@ export default function Monitoring() {
                 { label: "Frequência:", value: blink?.status == null ? "Coletando dados" : blink.status === PostureStatus.GOOD ? "Faixa de referência" : "Reduzida" },
               ]}
               isPaused={isPaused}
+              inactiveModule={inactiveModuleLabel("blink-rate")}
             />
 
             <ErgoMetricsCard
@@ -475,6 +504,7 @@ export default function Monitoring() {
                 { label: "Suporte:", value: "Cadeira Reclinada" },
               ]}
               isPaused={isPaused}
+              inactiveModule={posturalEnabled ? null : MODULE_LABELS[Module.POSTURAL_ANALYSIS]}
             />
           </div>
 
