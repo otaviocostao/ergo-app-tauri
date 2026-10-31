@@ -50,7 +50,8 @@ O sistema opera através de um pipeline híbrido que combina visão computaciona
 | **Task 3.4** | EAR, Piscadas e Distância Calibrada | `biomechanics.ts`, `ocularLandmarks.ts`, `blinkDetector.ts`, `blinkRate.ts`, `ocularMetrics.ts` | **Concluída** |
 | **Task 4.1** | Calibração de Postura Neutra, IPD e Validação Óptica | `WorkspaceCalibrationModal.tsx`, `ocularLandmarks.ts`, `ocularConfig.ts`, `postureService.ts` | **Concluída** |
 | **Task 4.2** | Filtro Temporal de Ruído (One Euro Filter / Suavização) | `temporalPostureFilter.ts`, `WebcamFeed.tsx` | **Concluída** |
-| **Próximas** | Agregação Periódica de Snapshots, Score e Histerese de Alertas | Pipeline frontend e persistência em lote no SQLite | *Pendente* |
+| **Task 4.3** | Classificação, Histerese e Cooldown de Alertas | `postureClassifier.ts`, `postureHysteresis.ts`, `postureAlertCooldown.ts` | **Concluída** |
+| **Task 4.4** | Buffer Circular, Snapshots de 60s e Persistência de Alertas | `services/monitoring/`, `hooks/useMetricRecording.ts`, `0001_initial_migration.sql` | **Concluída** |
 
 ---
 
@@ -407,6 +408,42 @@ Implementado em `src/services/vision/biomechanics.ts` (`estimateScreenDistance`)
 | **Janela de aquecimento de 30s para Taxa de Piscadas** | Extrapolar `piscadas/min` com apenas 5 ou 10 segundos de observação geraria taxas matemáticas erráticas (ex.: 1 piscada em 3s viraria 20/min). A janela mínima de 30s de rosto presente estabiliza a inferência antes de alertar sobre ressecamento ocular. |
 | **Separação entre ausência do posto e má postura** | Se o usuário sai da mesa (pausa para café ou almoço), o sistema não deve penalizar o score nem registrar alertas de postura incorreta; ele simplesmente transita para `ABSENT` e congela as medições. |
 
+### 6.7 Agregação e Persistência Periódica (Task 4.4)
+
+- **Fonte dos dados:** `Monitoring.tsx` repassa ao `useMetricRecording` cada `PostureClassification` (Task 4.3), os eventos `alerts` da `PostureHysteresis` da mesma atualização e as piscadas (`blinkEvent`) ocorridas desde a classificação anterior. Os callbacks ocular e de classificação vêm da mesma inferência.
+- **Quadro agregado:** `frameFromClassification` guarda somente escalares, sem landmarks ou imagens:
+  - desvio do pescoço em relação à baseline (graus);
+  - alinhamento calibrado dos ombros (0–100), com a mesma conversão do card, sem arredondamento;
+  - distância estimada (cm);
+  - status postural e piscadas.
+  Inferências sem status postural (por exemplo, sem baseline ativa) não entram no buffer.
+- **Buffer:** `ringBuffer.ts` guarda no máximo 720 amostras (60s a até 12 FPS). A especificação original previa 600 amostras a 10 FPS. Como a inferência roda a ~11 FPS (~667 por minuto), a capacidade foi ampliada para cobrir os 60s inteiros. A duração da janela segue o relógio monotônico.
+- **Snapshot (`MetricAggregation`):** a cada 60s completos, calcula:
+  - média e máximo do desvio do pescoço;
+  - média e mínimo do alinhamento dos ombros;
+  - média da distância;
+  - soma das piscadas;
+  - status dominante (empates favorecem o mais grave);
+  - média do score.
+  Médias usam só os valores disponíveis. Uma métrica ausente na janela inteira é gravada como `NULL`. Essas colunas aceitam `NULL` na migração inicial `0001_initial_migration.sql`, seguindo a política de migração única. Bancos locais criados antes dessa alteração precisam ser recriados conforme o README. O buffer é limpo antes do `record_metric_snapshot`.
+- **Score:** heurística do aplicativo, sem validação científica. Penaliza apenas o excesso além da faixa boa de cada métrica: pescoço 2,5 pontos/°, ombros 5 pontos/° e distância 2 pontos/cm. Métricas indisponíveis não penalizam.
+- **Interrupções:** quadros inválidos são ignorados. Pausa, calibração, ausência, oclusão, câmera ocupada ou mais de 1s sem quadros descartam a janela incompleta e encerram os episódios de alerta abertos.
+- **Alertas (`PostureAlertEpisodes`):** a regra de confirmação é a mesma da histerese da página. Quando a histerese confirma um desvio, o app grava `record_posture_alert` com:
+  - `alertType` igual a `neck_posture`, `shoulder_alignment`, `screen_distance` ou `low_blink_rate`;
+  - `timestamp` no início do episódio.
+
+  Cada desvio contínuo de uma métrica gera um único alerta, mesmo que escale de `warning` para `danger`. O episódio termina na primeira amostra boa ou indisponível, ou na quebra de continuidade (intervalo maior que `maxSampleGapMs`, nova captura ou nova baseline). Ao terminar, `resolve_posture_alert` grava `resolvedAt`, a duração total e a maior severidade. As notificações visuais continuam com o cooldown da página.
+- **Sessão (`useMetricRecording`):**
+  - abre `start_monitoring_session` para o usuário autenticado e reinicia a sessão quando a conta muda;
+  - serializa as escritas IPC;
+  - ao pausar, calibrar ou sair da tela, aguarda as escritas pendentes e só então chama `end_monitoring_session`, com tempo ativo, score médio e percentuais posturais.
+
+  Falhas de IPC aparecem no histórico da tela, sem repetição automática.
+
+Validação automatizada:
+- `npx vitest run` cobre o buffer, estatísticas com métricas ausentes, fronteiras de janela, FPS variável, episódios de alerta (com classificador e histerese reais), ciclo de vida IPC e a integração na página.
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib` cobre `NULL` nas métricas indisponíveis e o resolve com duração e severidade.
+
 ---
 
 ## 7. Guia Prático para Agentes e Próximos Desenvolvimentos
@@ -425,7 +462,5 @@ npx vitest run
 
 ### 7.3 Status Atual e Próximos Passos do Pipeline
 1. **Concluído**: Detecção de corpo e face via MediaPipe WASM offline, filtro temporal One Euro, captura e persistência de baseline de calibração no SQLite, cálculo de EAR e contagem de piscadas, estimativa monocular da distância da tela e integração em tempo real na página de Monitoramento.
-2. **Próximas Tarefas (Fase de Agregação e Histórico)**:
-   - Implementação do buffer temporal de agregação em memória para gravação periódica de snapshots consolidados (`posture_metrics_snapshots`) a cada 60 segundos no SQLite.
-   - A Task 4.3 já classifica desvios contra baseline e controla histerese/cooldown no frontend, com saída no histórico visual existente. A gravação desses eventos em `posture_alerts` permanece pendente; contratos e limites estão no [guia de classificação](../classificacao-postura.md).
-   - Cálculo e consolidação do Ergo Score diário da sessão de monitoramento.
+2. **Concluído (Task 4.4)**: snapshots de 60s em `posture_metrics_snapshots` e eventos persistentes em `posture_alerts`, com duração final (seção 6.7). Contratos e limites da classificação estão no [guia de classificação](../classificacao-postura.md).
+3. **Próximas Tarefas**: consolidação do Ergo Score diário e telas de histórico a partir dos snapshots e alertas persistidos.
