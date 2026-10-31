@@ -51,7 +51,7 @@ O sistema opera através de um pipeline híbrido que combina visão computaciona
 | **Task 4.1** | Calibração de Postura Neutra, IPD e Validação Óptica | `WorkspaceCalibrationModal.tsx`, `ocularLandmarks.ts`, `ocularConfig.ts`, `postureService.ts` | **Concluída** |
 | **Task 4.2** | Filtro Temporal de Ruído (One Euro Filter / Suavização) | `temporalPostureFilter.ts`, `WebcamFeed.tsx` | **Concluída** |
 | **Task 4.3** | Classificação, Histerese e Cooldown de Alertas | `postureClassifier.ts`, `postureHysteresis.ts`, `postureAlertCooldown.ts` | **Concluída** |
-| **Task 4.4** | Buffer Circular, Snapshots de 60s e Persistência de Alertas | `services/monitoring/`, `hooks/useMetricRecording.ts`, `0002_nullable_snapshot_metrics.sql` | **Concluída** |
+| **Task 4.4** | Buffer Circular, Snapshots de 60s e Persistência de Alertas | `services/monitoring/`, `hooks/useMetricRecording.ts`, `0001_initial_migration.sql` | **Concluída** |
 
 ---
 
@@ -425,7 +425,7 @@ Implementado em `src/services/vision/biomechanics.ts` (`estimateScreenDistance`)
   - soma das piscadas;
   - status dominante (empates favorecem o mais grave);
   - média do score.
-  Médias usam só os valores disponíveis. Uma métrica ausente na janela inteira é gravada como `NULL`. A migração `0002_nullable_snapshot_metrics.sql` reconstrói a tabela sem `NOT NULL` nessas colunas e preserva os registros existentes. O buffer é limpo antes do `record_metric_snapshot`.
+  Médias usam só os valores disponíveis. Uma métrica ausente na janela inteira é gravada como `NULL`. Essas colunas aceitam `NULL` na migração inicial `0001_initial_migration.sql`, seguindo a política de migração única. Bancos locais criados antes dessa alteração precisam ser recriados conforme o README. O buffer é limpo antes do `record_metric_snapshot`.
 - **Score:** heurística do aplicativo, sem validação científica. Penaliza apenas o excesso além da faixa boa de cada métrica: pescoço 2,5 pontos/°, ombros 5 pontos/° e distância 2 pontos/cm. Métricas indisponíveis não penalizam.
 - **Interrupções:** quadros inválidos são ignorados. Pausa, calibração, ausência, oclusão, câmera ocupada ou mais de 1s sem quadros descartam a janela incompleta e encerram os episódios de alerta abertos.
 - **Alertas (`PostureAlertEpisodes`):** a regra de confirmação é a mesma da histerese da página. Quando a histerese confirma um desvio, o app grava `record_posture_alert` com:
@@ -442,7 +442,7 @@ Implementado em `src/services/vision/biomechanics.ts` (`estimateScreenDistance`)
 
 Validação automatizada:
 - `npx vitest run` cobre o buffer, estatísticas com métricas ausentes, fronteiras de janela, FPS variável, episódios de alerta (com classificador e histerese reais), ciclo de vida IPC e a integração na página.
-- `cargo test --manifest-path src-tauri/Cargo.toml --lib` cobre `NULL`, a migração com dados existentes e o resolve com duração e severidade.
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib` cobre `NULL` nas métricas indisponíveis e o resolve com duração e severidade.
 
 ---
 
