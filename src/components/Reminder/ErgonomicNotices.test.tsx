@@ -5,9 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ReminderList from "./ReminderList";
 import type { ReminderItem, SystemReminderType } from "../../services/reminderService";
 import { ReminderFrequency } from "../../enums";
+import { settingsService } from "../../services/settingsService";
 
 const ipc = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: ipc.invoke, isTauri: () => false }));
+const auth = vi.hoisted(() => ({ userId: null as number | null }));
+vi.mock("../../auth/AuthContext", () => ({
+  useOptionalAuth: () => auth.userId === null ? null : { session: { kind: "authenticated", user: { id: auth.userId } } },
+}));
 
 function notice(systemType: SystemReminderType, title: string, interval: number): ReminderItem {
   return {
@@ -62,6 +67,26 @@ describe("Avisos de ergonomia em Configurações", () => {
 
   afterEach(async () => {
     await act(async () => root.unmount()); container.remove(); ipc.invoke.mockReset();
+    auth.userId = null; vi.restoreAllMocks();
+  });
+
+  it("bloqueia a ativação dos avisos de um módulo inativo", async () => {
+    auth.userId = 1;
+    vi.spyOn(settingsService, "get").mockResolvedValue({
+      id: 1, userId: 1, posturalAnalysis: false, ocularAnalysis: true, typingAnalysis: true, createdAt: "", updatedAt: "",
+    });
+    await render();
+    for (const title of ["Revise sua postura", "Mude de posição"]) {
+      expect(switchOf(title).disabled).toBe(true);
+      expect(card(title).textContent).toContain("Módulo Análise postural inativo");
+    }
+    expect(switchOf("Faça uma pausa visual").disabled).toBe(false);
+    expect(card("Faça uma pausa visual").textContent).not.toContain("inativo.");
+
+    await toggle("Revise sua postura");
+    expect(switchOf("Revise sua postura").checked).toBe(false);
+    await toggle("Faça uma pausa visual");
+    expect(updates()).toEqual([{ id: "system-reminder:1:VISUAL_BREAK", status: "ativo" }]);
   });
 
   it("mostra os três avisos com frequência diária e o dia inteiro, sem opção de configurar", async () => {
@@ -106,6 +131,25 @@ describe("Avisos de ergonomia em Configurações", () => {
     expect(switchOf("Faça uma pausa visual").checked).toBe(false);
     expect(container.querySelector('[role="alert"]')!.textContent).toContain("Não foi possível alterar o aviso");
     vi.restoreAllMocks();
+  });
+
+  it("salva como inativo um lembrete personalizado cuja categoria pertence a um módulo inativo", async () => {
+    auth.userId = 1;
+    vi.spyOn(settingsService, "get").mockResolvedValue({
+      id: 1, userId: 1, posturalAnalysis: false, ocularAnalysis: true, typingAnalysis: true, createdAt: "", updatedAt: "",
+    });
+    reminders.push({ ...custom, id: "posture-reminder", title: "Alongar costas", category: "Postura", status: "inativo" });
+    await render("custom");
+    const editButtons = container.querySelectorAll<HTMLButtonElement>('button[title="Editar lembrete"]');
+    await act(async () => editButtons[1].click());
+    const status = () => [...document.querySelectorAll<HTMLSelectElement>("select")].find((select) =>
+      [...select.options].some((option) => option.value === "inativo"))!;
+    expect(status().disabled).toBe(true);
+    expect(status().value).toBe("inativo");
+    expect(document.body.textContent).toContain("Módulo Análise postural inativo: lembretes de Postura ficam inativos");
+
+    await act(async () => [...document.querySelectorAll("button")].find((button) => button.textContent === "Salvar")!.click());
+    expect(updates()).toEqual([expect.objectContaining({ id: "posture-reminder", category: "Postura", status: "inativo" })]);
   });
 
   it("mantém a edição apenas para os lembretes personalizados", async () => {
