@@ -4,7 +4,10 @@ import Button from "../Button";
 import Input from "../Input";
 import Select from "../Select";
 import type { ReminderItem } from "../../services/reminderService";
+import { isModuleEnabled, reminderModule } from "../../services/settingsService";
+import { useModuleSettings } from "../../hooks/useModuleSettings";
 import {
+  MODULE_LABELS,
   ReminderFrequency,
   REMINDER_FREQUENCY_OPTIONS,
   WEEK_DAYS_OPTIONS,
@@ -71,6 +74,11 @@ export default function ReminderFormModal({
   const [status, setStatus] = useState<"ativo" | "inativo">("ativo");
   const [isSaving, setIsSaving] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const { settings: moduleSettings } = useModuleSettings();
+  const categoryModule = reminderModule({ systemType: reminder?.systemType, category });
+  // Reminders of a disabled module can only be saved as inactive, as the backend requires.
+  const lockedModule = categoryModule && !isModuleEnabled(moduleSettings, categoryModule) ? categoryModule : null;
+  const effectiveStatus = lockedModule ? "inativo" : status;
 
   useEffect(() => {
     if (isOpen) {
@@ -228,7 +236,7 @@ export default function ReminderFormModal({
         customDays:
           frequency === ReminderFrequency.CUSTOM ? customDays : undefined,
         notificationTone: !silentNotification,
-        status,
+        status: effectiveStatus,
       };
 
       await onSave?.(savedReminder);
@@ -314,13 +322,16 @@ export default function ReminderFormModal({
           />
           <Select
             label="Status"
-            value={status}
+            value={effectiveStatus}
             onChange={(e) => setStatus(e.target.value as "ativo" | "inativo")}
+            disabled={lockedModule !== null}
             options={[
               { label: "Ativo", value: "ativo" },
               { label: "Inativo", value: "inativo" },
             ]}
-            helperText="Somente lembretes ativos enviam notificações."
+            helperText={lockedModule
+              ? `Módulo ${MODULE_LABELS[lockedModule]} inativo: lembretes de ${category} ficam inativos até ativá-lo em Configurações → Módulos.`
+              : "Somente lembretes ativos enviam notificações."}
           />
         </div>
 
