@@ -7,6 +7,7 @@ import PostureHistoryLog, { LogEvent } from "../components/monitoring/PostureHis
 import WorkspaceCalibrationModal from "../components/monitoring/WorkspaceCalibrationModal";
 import { postureService } from "../services/postureService";
 import { useOptionalAuth } from "../auth/AuthContext";
+import { useMetricRecording } from "../hooks/useMetricRecording";
 import type { PostureCalibrationDTO } from "../types/postureCalibration";
 import type { PostureClassification, PostureMetric } from "../types/postureClassification";
 import { PostureStatus, POSTURE_STATUS_LABELS } from "../enums/postureStatus";
@@ -86,29 +87,16 @@ export default function Monitoring() {
   const [userPresence, setUserPresence] = useState<UserPresenceState>("PARTIALLY_OCCLUDED");
 
   // Session logs list
-  const [logs, setLogs] = useState<LogEvent[]>([
-    {
-      id: "1",
-      timestamp: "11:34:10",
-      type: "success",
-      message: "Postura calibrada com sucesso",
-      detail: "Referência angular definida em 0°",
-    },
-    {
-      id: "2",
-      timestamp: "11:29:45",
-      type: "warning",
-      message: "Atenção: Inclinando pescoço à frente",
-      detail: "Ângulo médio de 18° detectado por 2 minutos",
-    },
-    {
-      id: "3",
-      timestamp: "11:22:15",
-      type: "info",
-      message: "Sessão de monitoramento iniciada",
-      detail: "Câmera principal ativada",
-    },
-  ]);
+  const [logs, setLogs] = useState<LogEvent[]>([]);
+  // Blink events since the last classification; both callbacks come from the same inference.
+  const pendingBlinksRef = useRef(0);
+  const recording = useMetricRecording(isMonitoring && !isCalibrationOpen, userId, event => {
+    setLogs(previous => [{
+      ...event,
+      id: crypto.randomUUID(),
+      timestamp: new Date().toLocaleTimeString(),
+    }, ...previous].slice(0, 100));
+  });
 
   const handlePostureUpdate = (metrics: {
     neckAngle: number;
@@ -133,10 +121,14 @@ export default function Monitoring() {
 
     if (!current || !context.enabled) {
       alertState.hysteresis.resetContinuity();
+      recording.pause();
+      pendingBlinksRef.current = 0;
       return;
     }
 
     const temporal = alertState.hysteresis.update(current);
+    recording.recordClassification(current, temporal.alerts, pendingBlinksRef.current);
+    pendingBlinksRef.current = 0;
     const alerts = alertState.cooldown.ready(temporal.sustained, current.timestampMs);
 
     if (alerts.length === 0) {
@@ -167,6 +159,7 @@ export default function Monitoring() {
 
   const handlePresenceChange = (presence: UserPresenceState) => {
     setUserPresence(presence);
+    if (presence !== "ACTIVE") recording.pause();
 
     if (presence === "ABSENT") {
       const newLog: LogEvent = {
@@ -191,6 +184,7 @@ export default function Monitoring() {
 
   const handleHardwareBusyChange = (isBusy: boolean) => {
     if (isBusy) {
+      recording.pause();
       const newLog: LogEvent = {
         id: Date.now().toString(),
         timestamp: new Date().toLocaleTimeString(),
@@ -251,6 +245,7 @@ export default function Monitoring() {
 
     if (metrics?.blinkEvent === "blink") {
       setSessionBlinkCount((prev) => prev + 1);
+      pendingBlinksRef.current++;
     }
   };
 
