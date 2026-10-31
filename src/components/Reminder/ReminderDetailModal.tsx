@@ -72,10 +72,10 @@ export default function ReminderDetailModal({
         <div className="flex items-center gap-2">
           <div>
             <h3 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-              {reminder.systemType ? "Detalhes do Aviso de Ergonomia" : "Detalhes do Lembrete"}
+              Detalhes do Lembrete
             </h3>
             <p className="text-sm text-slate-500 font-normal">
-              {reminder.systemType ? "Aviso padrão do sistema com configurações de envio da sua conta" : "Informações do lembrete personalizado"}
+              Informações do lembrete personalizado
             </p>
           </div>
         </div>
@@ -84,7 +84,7 @@ export default function ReminderDetailModal({
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-2 ml-auto">
             <Button variant="primary" size="md" onClick={onEdit}>
-              {reminder.systemType ? "Configurar aviso" : "Editar lembrete"}
+              Editar lembrete
             </Button>
             <Button variant="secondary" size="md" onClick={onClose}>
               Fechar

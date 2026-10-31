@@ -58,8 +58,6 @@ export default function ReminderFormModal({
   onSave,
   reminder,
 }: ReminderFormModalProps) {
-  const isSystem = Boolean(reminder?.systemType);
-
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [category, setCategory] = useState<ReminderItem["category"]>("Postura");
@@ -256,12 +254,10 @@ export default function ReminderFormModal({
         <div className="flex items-center gap-2">
           <div>
             <h3 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-              {isSystem ? "Configurar Aviso de Ergonomia" : reminder ? "Editar Lembrete" : "Novo Lembrete"}
+              {reminder ? "Editar Lembrete" : "Novo Lembrete"}
             </h3>
             <p className="text-sm text-slate-500 font-normal">
-              {isSystem
-                ? "O conteúdo é definido pelo sistema. Ajuste o status, os horários e o som."
-                : "Defina a mensagem, os horários e quando deseja receber o lembrete."}
+              Defina a mensagem, os horários e quando deseja receber o lembrete.
             </p>
           </div>
         </div>
@@ -288,7 +284,6 @@ export default function ReminderFormModal({
           type="text"
           placeholder="Ex: Alongamento da Coluna"
           value={title}
-          readOnly={isSystem}
           onChange={(e) => setTitle(e.target.value)}
           required
         />
@@ -298,7 +293,6 @@ export default function ReminderFormModal({
           type="text"
           placeholder="Ex: Mantenha a postura ereta e relaxe os ombros"
           value={message}
-          readOnly={isSystem}
           onChange={(e) => setMessage(e.target.value)}
           required
         />
@@ -308,7 +302,6 @@ export default function ReminderFormModal({
             label="Categoria"
             leftIcon={<Tag size={16} />}
             value={category}
-            disabled={isSystem}
             onChange={(e) =>
               setCategory(e.target.value as ReminderItem["category"])
             }
