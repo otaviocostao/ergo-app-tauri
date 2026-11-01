@@ -1,6 +1,8 @@
 use rusqlite::Connection;
 
-use crate::models::settings::{Module, SetModuleEnabledPayload, Settings, UpdateSettingsPayload};
+use crate::models::settings::{
+    Module, SetModuleEnabledPayload, Settings, UpdateSettingsPayload, WEB_CAM_MAX_LENGTH,
+};
 use crate::repositories::settings_repository;
 use crate::services::auth_service::AuthState;
 use crate::services::reminder_service;
@@ -28,18 +30,34 @@ pub fn get_settings(conn: &Connection, auth_state: &AuthState) -> Result<Setting
     })?
 }
 
+/// Browser device IDs are opaque, so they are stored as sent; only blank or oversized values are refused.
+fn validate_web_cam(web_cam: &Option<String>) -> Result<(), String> {
+    match web_cam {
+        Some(id) if id.trim().is_empty() || id.len() > WEB_CAM_MAX_LENGTH => {
+            Err("Invalid webcam identifier".to_string())
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Disabling a module also turns off the notices linked to it, in the same transaction.
 pub fn update_settings(
     conn: &Connection,
     auth_state: &AuthState,
     payload: UpdateSettingsPayload,
 ) -> Result<Settings, String> {
+    if let Some(web_cam) = &payload.web_cam {
+        validate_web_cam(web_cam)?;
+    }
     auth_state.with_authenticated_user(|user_id| {
         let user_id = user_id.ok_or(AUTHENTICATION_REQUIRED)?;
         let transaction = conn
             .unchecked_transaction()
             .map_err(|error| error.to_string())?;
         let mut settings = find_or_create(&transaction, user_id)?;
+        if let Some(web_cam) = payload.web_cam.clone() {
+            settings.web_cam = web_cam;
+        }
         for (module, enabled) in payload.changes() {
             settings.set_module_enabled(module, enabled);
             if !enabled {
@@ -463,6 +481,86 @@ mod tests {
         assert!(settings_repository::find_by_user_id(&conn, user_id)
             .unwrap()
             .is_none());
+    }
+
+    fn update_json(
+        conn: &Connection,
+        state: &AuthState,
+        payload: serde_json::Value,
+    ) -> Result<Settings, String> {
+        update_settings(conn, state, serde_json::from_value(payload).unwrap())
+    }
+
+    #[test]
+    fn the_default_webcam_is_saved_kept_and_cleared_per_account() {
+        let conn = setup_database();
+        let state = AuthState::new().unwrap();
+        authenticate(&conn, &state, "first@example.com");
+        assert_eq!(get_settings(&conn, &state).unwrap().web_cam, None);
+
+        let saved =
+            update_json(&conn, &state, serde_json::json!({ "webCam": "camera-2" })).unwrap();
+        assert_eq!(saved.web_cam.as_deref(), Some("camera-2"));
+        assert!(Module::ALL
+            .iter()
+            .all(|&module| saved.is_module_enabled(module)));
+        assert_eq!(serde_json::to_value(&saved).unwrap()["webCam"], "camera-2");
+
+        let module_off = set(&conn, &state, Module::OcularAnalysis, false);
+        assert_eq!(module_off.web_cam.as_deref(), Some("camera-2"));
+        let untouched = update_json(&conn, &state, serde_json::json!({})).unwrap();
+        assert_eq!(untouched.web_cam.as_deref(), Some("camera-2"));
+        assert!(!untouched.is_module_enabled(Module::OcularAnalysis));
+
+        authenticate(&conn, &state, "second@example.com");
+        assert_eq!(get_settings(&conn, &state).unwrap().web_cam, None);
+        authenticate(&conn, &state, "first@example.com");
+        assert_eq!(
+            get_settings(&conn, &state).unwrap().web_cam.as_deref(),
+            Some("camera-2")
+        );
+
+        let cleared = update_json(&conn, &state, serde_json::json!({ "webCam": null })).unwrap();
+        assert_eq!(cleared.web_cam, None);
+        update_json(&conn, &state, serde_json::json!({ "webCam": "camera-1" })).unwrap();
+        assert!(delete_settings(&conn, &state).unwrap());
+        assert_eq!(get_settings(&conn, &state).unwrap().web_cam, None);
+    }
+
+    #[test]
+    fn invalid_webcam_identifiers_change_nothing() {
+        let conn = setup_database();
+        let state = AuthState::new().unwrap();
+        authenticate(&conn, &state, "owner@example.com");
+        update_json(&conn, &state, serde_json::json!({ "webCam": "camera-1" })).unwrap();
+        let before = get_settings(&conn, &state).unwrap();
+        for invalid in [
+            String::new(),
+            "   ".to_string(),
+            "x".repeat(WEB_CAM_MAX_LENGTH + 1),
+        ] {
+            assert_eq!(
+                update_json(
+                    &conn,
+                    &state,
+                    serde_json::json!({ "webCam": invalid, "typingAnalysis": false })
+                )
+                .unwrap_err(),
+                "Invalid webcam identifier"
+            );
+            assert_eq!(get_settings(&conn, &state).unwrap(), before);
+        }
+        assert!(serde_json::from_value::<UpdateSettingsPayload>(
+            serde_json::json!({ "webCam": 1 })
+        )
+        .is_err());
+        let longest = "x".repeat(WEB_CAM_MAX_LENGTH);
+        assert_eq!(
+            update_json(&conn, &state, serde_json::json!({ "webCam": longest }))
+                .unwrap()
+                .web_cam,
+            Some(longest)
+        );
     }
 
     #[test]
