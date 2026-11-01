@@ -9,7 +9,7 @@ import { postureService } from "../services/postureService";
 import { useOptionalAuth } from "../auth/AuthContext";
 import { useMetricRecording } from "../hooks/useMetricRecording";
 import { useModuleSettings } from "../hooks/useModuleSettings";
-import { isModuleEnabled } from "../services/settingsService";
+import { isModuleEnabled, settingsService } from "../services/settingsService";
 import { getInactiveModule, restrictClassificationToModules } from "../services/monitoring/moduleClassification";
 import type { PostureCalibrationDTO } from "../types/postureCalibration";
 import type { PostureClassification, PostureMetric } from "../types/postureClassification";
@@ -73,7 +73,7 @@ export default function Monitoring() {
   const userId = auth?.session.kind === "authenticated" ? auth.session.user.id : null;
   const [isMonitoring, setIsMonitoring] = useState(true);
   const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
-  const { settings: moduleSettings, isLoading: modulesLoading } = useModuleSettings();
+  const { settings: moduleSettings, setSettings: setModuleSettings, isLoading: modulesLoading } = useModuleSettings();
   const posturalEnabled = isModuleEnabled(moduleSettings, Module.POSTURAL_ANALYSIS);
   const ocularEnabled = isModuleEnabled(moduleSettings, Module.OCULAR_ANALYSIS);
   // Waiting for the settings avoids switching the camera on, or opening a session, only to stop it.
@@ -252,6 +252,23 @@ export default function Monitoring() {
     setLogs((prev) => [newLog, ...prev]);
   };
 
+  // The chosen camera becomes the account's default for every visual analysis.
+  const handleWebCamSelect = (deviceId: string) => {
+    if (!moduleSettings) return;
+    const owner = moduleSettings.userId;
+    setModuleSettings(current => current?.userId === owner ? { ...current, webCam: deviceId } : current);
+    settingsService.setWebCam(deviceId).catch(error => {
+      console.error("Failed to save the default webcam:", error);
+      setLogs(previous => [{
+        id: crypto.randomUUID(),
+        timestamp: new Date().toLocaleTimeString(),
+        type: "error",
+        message: "Não foi possível salvar a câmera padrão.",
+        detail: "A câmera escolhida continua em uso nesta sessão.",
+      }, ...previous]);
+    });
+  };
+
   const handleOcularUpdate = (metrics: OcularMetrics | null) => {
     setOcularMetrics(metrics);
 
@@ -302,6 +319,8 @@ export default function Monitoring() {
             isMonitoring={isMonitoring && !isCalibrationOpen && cameraModulesEnabled}
             disabledMessage={modulesLoading || posturalEnabled || ocularEnabled ? null
               : "As análises postural e ocular estão desativadas em Configurações → Módulos. A câmera fica desligada até que uma delas seja ativada."}
+            preferredDeviceId={moduleSettings?.webCam ?? null}
+            onDeviceSelect={handleWebCamSelect}
             calibration={calibration}
             classificationConfig={classificationConfig}
             onClassificationUpdate={handleClassificationUpdate}
@@ -517,6 +536,8 @@ export default function Monitoring() {
         onClose={() => setIsCalibrationOpen(false)}
         onCalibrateSubmit={handleCalibrateSubmit}
         activeStream={cameraStream}
+        preferredDeviceId={moduleSettings?.webCam ?? null}
+        onDeviceSelect={handleWebCamSelect}
         onPostureUpdate={handlePostureUpdate}
         onPresenceChange={handlePresenceChange}
         userId={userId}
