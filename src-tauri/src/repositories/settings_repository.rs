@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::models::settings::Settings;
 
 pub const SELECT_SETTINGS_FIELDS: &str =
-    "id, user_id, postural_analysis, ocular_analysis, typing_analysis, created_at, updated_at";
+    "id, user_id, postural_analysis, ocular_analysis, typing_analysis, web_cam, created_at, updated_at";
 
 pub fn map_settings_row(row: &rusqlite::Row<'_>) -> Result<Settings, rusqlite::Error> {
     Ok(Settings {
@@ -12,8 +12,9 @@ pub fn map_settings_row(row: &rusqlite::Row<'_>) -> Result<Settings, rusqlite::E
         postural_analysis: row.get::<_, i32>(2)? != 0,
         ocular_analysis: row.get::<_, i32>(3)? != 0,
         typing_analysis: row.get::<_, i32>(4)? != 0,
-        created_at: row.get(5)?,
-        updated_at: row.get(6)?,
+        web_cam: row.get(5)?,
+        created_at: row.get(6)?,
+        updated_at: row.get(7)?,
     })
 }
 
@@ -43,12 +44,14 @@ pub fn update(conn: &Connection, settings: &Settings) -> Result<usize, rusqlite:
             postural_analysis = ?1,
             ocular_analysis = ?2,
             typing_analysis = ?3,
+            web_cam = ?4,
             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        WHERE user_id = ?4",
+        WHERE user_id = ?5",
         params![
             settings.postural_analysis as i32,
             settings.ocular_analysis as i32,
             settings.typing_analysis as i32,
+            settings.web_cam,
             settings.user_id,
         ],
     )
