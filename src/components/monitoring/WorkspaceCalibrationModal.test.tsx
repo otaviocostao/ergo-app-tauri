@@ -142,6 +142,9 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => new DOMRect(0, 0, 800, 450));
 
     const dummyContext = {
+      setTransform: vi.fn(),
+      drawImage: vi.fn(),
+      getImageData: vi.fn(() => ({ data: new Uint8ClampedArray([128, 128, 128, 255]) })),
       clearRect: vi.fn(),
       beginPath: vi.fn(),
       moveTo: vi.fn(),

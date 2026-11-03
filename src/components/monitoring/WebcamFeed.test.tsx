@@ -412,6 +412,14 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     expect(container.querySelector('[aria-label="Métricas ao vivo"]')).toBeNull();
   });
 
+  it("warns when confident shoulders leave the frame and clears the warning when they return", async () => {
+    landmarks![INDEX.LEFT_SHOULDER].x = -0.1;
+    await render(); await advance(400);
+    expect(container.textContent).toContain("Posicione cabeça e ombros");
+    landmarks = upright(); await advance(400);
+    expect(container.textContent).not.toContain("Posicione cabeça e ombros");
+  });
+
   it("converges to exactly neutral displayed values instead of accumulating integer rounding error", async () => {
     for (const index of [INDEX.NOSE, INDEX.LEFT_EAR, INDEX.RIGHT_EAR]) landmarks![index].x += 0.1;
     landmarks![INDEX.RIGHT_SHOULDER].y += 0.02;

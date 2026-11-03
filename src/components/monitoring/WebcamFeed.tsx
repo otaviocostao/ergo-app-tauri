@@ -119,6 +119,7 @@ export default function WebcamFeed({
   const uiPublishedAtRef = useRef(-Infinity);
   const [feedback, setFeedback] = useState<PostureClassification | null>(null);
   const [lowLight, setLowLight] = useState(false);
+  const [framingIssue, setFramingIssue] = useState(true);
 
   // Estados de dispositivos e permissão
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -195,6 +196,7 @@ export default function WebcamFeed({
     onClassificationUpdateRef.current?.(null);
     setFeedback(null);
     setLowLight(false);
+    setFramingIssue(true);
     lightingRef.current.reset();
     lightSampleAtRef.current = uiPublishedAtRef.current = -Infinity;
   }, []);
@@ -497,6 +499,7 @@ export default function WebcamFeed({
       let frameOcular: OcularMetrics | null = null;
       let isCalibrationPoseUsable = false;
       let filteredAngles: PostureAngles | null = null;
+      let frameFramingIssue = true;
 
       if (shouldRunInference) {
         lastInferenceTimeRef.current = currentTime - (elapsedSinceLastInference % INFERENCE_INTERVAL_MS);
@@ -589,6 +592,9 @@ export default function WebcamFeed({
                 poseAngles = calculatePoseAngles(detection.poseLandmarks, video.videoWidth, video.videoHeight);
                 leftShoulderPt = leftShoulder;
                 rightShoulderPt = rightShoulder;
+                // Display-only acquisition check; do not modify classification inputs.
+                frameFramingIssue = !detection.hasFace || !poseAngles || [nose, leftShoulder, rightShoulder].some(point =>
+                  point.x < 0 || point.x > 1 || point.y < 0 || point.y > 1);
               }
             }
           } catch (detectionErr) {
@@ -693,6 +699,7 @@ export default function WebcamFeed({
         if (currentTime - uiPublishedAtRef.current >= 250) {
           uiPublishedAtRef.current = currentTime;
           setFeedback(classification);
+          setFramingIssue(frameFramingIssue);
         }
         if (filteredAngles) {
           const distanceCm = frameOcular?.distanceCm ?? null;
@@ -902,7 +909,7 @@ export default function WebcamFeed({
           </div>
         )}
 
-        {isMonitoring && !isHardwareBusy && hasCameraPermission && presenceState === "PARTIALLY_OCCLUDED" && (
+        {isMonitoring && !isHardwareBusy && hasCameraPermission && presenceState !== "ABSENT" && (presenceState === "PARTIALLY_OCCLUDED" || framingIssue) && (
           <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs shadow-lg backdrop-blur-md animate-fadeIn">
             <AlertTriangle size={15} />
             <span>{isCameraMuted
