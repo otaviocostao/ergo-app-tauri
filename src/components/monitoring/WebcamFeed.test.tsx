@@ -207,10 +207,10 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     const firstHead = pointPositions[pointPositions.length - 1][0];
     for (const point of landmarks!) point.x += 0.1;
     await advance(200);
-    expect(pointPositions.at(-1)![0].x).toBeGreaterThan(firstHead.x - 80);
-    expect(pointPositions.at(-1)![0].x).toBeLessThan(firstHead.x);
+    expect(pointPositions[pointPositions.length - 1][0].x).toBeGreaterThan(firstHead.x - 80);
+    expect(pointPositions[pointPositions.length - 1][0].x).toBeLessThan(firstHead.x);
     await advance(2000);
-    expect(pointPositions.at(-1)![0].x).toBeCloseTo(firstHead.x - 80, 6);
+    expect(pointPositions[pointPositions.length - 1][0].x).toBeCloseTo(firstHead.x - 80, 6);
     const startButton = [...document.querySelectorAll("button")].find(b => b.textContent?.includes("Iniciar Calibração"));
     expect(startButton?.disabled).toBe(false);
     await renderCalibration(false);
@@ -390,12 +390,12 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     const canvas = container.querySelector("canvas")!;
     expect(canvas.width).toBe(1600);
     expect(canvas.height).toBe(900);
-    expect(pointPositions.at(-1)?.[0].x).toBeCloseTo(400);
+    expect(pointPositions[pointPositions.length - 1]?.[0].x).toBeCloseTo(400);
     previewWidth = 600; previewHeight = 400;
     await advance(32);
     expect(canvas.width).toBe(1200);
     expect(canvas.height).toBe(800);
-    expect(pointPositions.at(-1)?.[0].x).toBeCloseTo(300);
+    expect(pointPositions[pointPositions.length - 1]?.[0].x).toBeCloseTo(300);
   });
 
   it("shows live badges without inventing a distance and removes lighting warnings on recovery", async () => {

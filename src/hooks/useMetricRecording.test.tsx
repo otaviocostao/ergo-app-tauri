@@ -282,7 +282,7 @@ describe("useMetricRecording IPC lifecycle", () => {
     await render(); feed("danger"); await advance(21_000);
     await render(false);
     expect(attempts).toBe(2);
-    expect(commands().at(-1)).toBe("end_monitoring_session");
+    expect(commands().slice(-1)[0]).toBe("end_monitoring_session");
     expect(recorder.status).toBe("idle");
   });
 });
