@@ -230,7 +230,7 @@ describe("Monitoring classification and temporal alerts", () => {
 
   describe("with disabled modules", () => {
     const modules = (changes: Partial<ModuleSettings>) => vi.spyOn(settingsService, "get").mockResolvedValue({
-      id: 1, userId: 1, posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true,
+      id: "settings-1", userId: 1, posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true,
       createdAt: "", updatedAt: "", ...changes,
     });
     const inactiveCards = () => [...container.querySelectorAll("[data-module-inactive] h3")].map(title => title.textContent);
