@@ -305,7 +305,7 @@ export default function ReminderList({ kind }: ReminderListProps) {
                 <header>
                     <h2 className="text-base font-bold text-slate-800 dark:text-white">Avisos de ergonomia</h2>
                     <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
-                        Avisos definidos pelo sistema, enviados todos os dias ao longo do dia inteiro. Ative ou desative cada aviso abaixo; as alterações são salvas automaticamente.
+                        Avisos definidos pelo sistema, enviados todos os dias ao longo do dia inteiro. Ative ou desative cada aviso abaixo.
                     </p>
                 </header>
             ) : <Header
