@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod dashboard;
 pub mod company;
 pub mod reminder;
 pub mod user;

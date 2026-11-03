@@ -10,3 +10,4 @@ pub mod monitoring_session_service;
 pub mod posture_metric_snapshot_service;
 pub mod posture_alert_service;
 pub mod posture_service;
+pub mod dashboard_service;
