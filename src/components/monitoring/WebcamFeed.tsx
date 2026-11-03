@@ -24,6 +24,7 @@ import type { PostureCalibrationFrame } from "../../services/vision/postureCalib
 import type { PostureCalibrationDTO } from "../../types/postureCalibration";
 import type { UserPresenceState } from "../../types/vision";
 import { CanvasPose, metricColor } from "./canvasFeedback";
+import { LightingFeedback } from "./lightingFeedback";
 
 export type { UserPresenceState };
 
@@ -109,6 +110,12 @@ export default function WebcamFeed({
   const distanceReferenceRef = useRef(distanceReference);
   const calibrationRef = useRef(calibration);
   const derivedDistanceRef = useRef<ScreenDistanceReference | null>(null);
+  const lightingRef = useRef(new LightingFeedback());
+  const lightCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const lightSampleAtRef = useRef(-Infinity);
+  const uiPublishedAtRef = useRef(-Infinity);
+  const [feedback, setFeedback] = useState<PostureClassification | null>(null);
+  const [lowLight, setLowLight] = useState(false);
 
   // Estados de dispositivos e permissão
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -183,6 +190,10 @@ export default function WebcamFeed({
     onCalibrationFrameRef.current?.(null);
     lastClassificationRef.current = null;
     onClassificationUpdateRef.current?.(null);
+    setFeedback(null);
+    setLowLight(false);
+    lightingRef.current.reset();
+    lightSampleAtRef.current = uiPublishedAtRef.current = -Infinity;
   }, []);
 
   /**
@@ -487,6 +498,25 @@ export default function WebcamFeed({
       if (shouldRunInference) {
         lastInferenceTimeRef.current = currentTime - (elapsedSinceLastInference % INFERENCE_INTERVAL_MS);
 
+        if (video && video.readyState >= 2 && currentTime - lightSampleAtRef.current >= 500) {
+          lightSampleAtRef.current = currentTime;
+          const sample = lightCanvasRef.current ?? (lightCanvasRef.current = document.createElement("canvas"));
+          if (sample.width !== 32) sample.width = 32;
+          if (sample.height !== 18) sample.height = 18;
+          const lightContext = sample.getContext("2d", { willReadFrequently: true });
+          if (lightContext) {
+            try {
+              lightContext.drawImage(video, 0, 0, 32, 18);
+              setLowLight(lightingRef.current.update(lightContext.getImageData(0, 0, 32, 18).data, currentTime));
+              // Only transient, downsampled pixels; no image export, logging or IPC.
+              lightContext.clearRect(0, 0, 32, 18);
+            } catch {
+              lightingRef.current.reset();
+              setLowLight(false);
+            }
+          }
+        }
+
         if (poseDetector.isReady() && video && video.readyState >= 2) {
           // Inferência real através do MediaPipe WebGL / WebAssembly
           try {
@@ -657,6 +687,10 @@ export default function WebcamFeed({
         }, calibrationRef.current, classificationConfigRef.current);
         lastClassificationRef.current = classification;
         onClassificationUpdateRef.current?.(classification);
+        if (currentTime - uiPublishedAtRef.current >= 250) {
+          uiPublishedAtRef.current = currentTime;
+          setFeedback(classification);
+        }
         if (filteredAngles) {
           const distanceCm = frameOcular?.distanceCm ?? null;
           onPostureUpdateRef.current?.({
@@ -839,6 +873,24 @@ export default function WebcamFeed({
           className={`absolute inset-0 w-full h-full pointer-events-none z-10 transition-opacity duration-300 ${isHardwareBusy || !isMonitoring ? "opacity-0" : "opacity-100"
             }`}
         />
+
+        {isMonitoring && !isHardwareBusy && !isCameraMuted && hasCameraPermission && (
+          <>
+            <div aria-label="Métricas ao vivo" className="absolute bottom-20 left-3 right-3 z-20 flex flex-wrap justify-center gap-2 pointer-events-none">
+              {([['neck', 'Inclinação cervical', '°'], ['shoulders', 'Desvio dos ombros', '°'], ['distance', 'Distância', 'cm']] as const).map(([key, label, unit]) => {
+                const metric = feedback?.metrics[key];
+                return <div key={key} className="rounded-lg border bg-slate-950/90 px-3 py-2 text-xs text-white" style={{ borderColor: metricColor(metric?.status) }}>
+                  <span className="block text-slate-300">{label}</span>
+                  <strong style={{ color: metricColor(metric?.status) }}>{metric?.value == null ? 'Indisponível' : `${metric.value.toFixed(1)} ${unit}`}</strong>
+                </div>;
+              })}
+            </div>
+            <div className="absolute top-14 left-3 right-3 z-20 flex flex-col items-center gap-2 pointer-events-none" aria-live="polite">
+              {lowLight && <p className="rounded-lg border border-amber-500/40 bg-slate-950/95 px-3 py-2 text-xs text-amber-200">Iluminação insuficiente. Melhore a luz sobre o rosto e os ombros.</p>}
+              {feedback?.metrics.distance.value != null && feedback.metrics.distance.status !== PostureStatus.GOOD && <p className="rounded-lg border border-amber-500/40 bg-slate-950/95 px-3 py-2 text-xs text-amber-200">{feedback.metrics.distance.value < classificationConfig.distance.goodMinCm ? 'Afaste-se da tela para ajustar o enquadramento.' : 'Aproxime-se da tela para ajustar o enquadramento.'}</p>}
+            </div>
+          </>
+        )}
 
         {isMonitoring && !isHardwareBusy && hasCameraPermission && presenceState === "ABSENT" && (
           <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/90 border border-slate-700 text-slate-300 text-xs shadow-lg backdrop-blur-md animate-fadeIn">

@@ -37,6 +37,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   let baseline: PostureCalibrationDTO | null;
   let previewWidth: number;
   let previewHeight: number;
+  let lightLevel: number;
   let drawnFrames: { segments: number; points: number }[];
   let pointPositions: { x: number; y: number }[][];
   let streams: ReturnType<typeof makeStream>[];
@@ -116,6 +117,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     classificationUpdate.mockReset();
     previewWidth = 800;
     previewHeight = 450;
+    lightLevel = 128;
     drawnFrames = [];
     pointPositions = [];
     streams = [];
@@ -137,7 +139,8 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(1280);
     vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(720);
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => new DOMRect(0, 0, previewWidth, previewHeight));
-    const context = Object.fromEntries(["setTransform", "clearRect", "beginPath", "moveTo", "lineTo", "stroke", "arc", "fill", "setLineDash", "strokeRect"].map(name => [name, vi.fn()]));
+    const context = Object.fromEntries(["drawImage", "getImageData", "setTransform", "clearRect", "beginPath", "moveTo", "lineTo", "stroke", "arc", "fill", "setLineDash", "strokeRect"].map(name => [name, vi.fn()]));
+    context.getImageData.mockImplementation(() => ({ data: new Uint8ClampedArray([lightLevel, lightLevel, lightLevel, 255]) }));
     context.clearRect.mockImplementation(() => { drawnFrames.push({ segments: 0, points: 0 }); pointPositions.push([]); });
     context.lineTo.mockImplementation(() => { drawnFrames[drawnFrames.length - 1].segments += 1; });
     context.arc.mockImplementation((x: number, y: number) => {
@@ -374,9 +377,9 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     const setWidth = vi.spyOn(HTMLCanvasElement.prototype, "width", "set");
     const setHeight = vi.spyOn(HTMLCanvasElement.prototype, "height", "set");
     await render(); await advance(500);
-    expect(setWidth).toHaveBeenCalledOnce();
-    expect(setHeight).toHaveBeenCalledOnce();
     const canvas = container.querySelector("canvas")!;
+    expect(setWidth.mock.contexts.filter(context => context === canvas)).toHaveLength(1);
+    expect(setHeight.mock.contexts.filter(context => context === canvas)).toHaveLength(1);
     expect(canvas.width).toBe(800);
     expect(canvas.height).toBe(451);
   });
@@ -393,6 +396,20 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     expect(canvas.width).toBe(1200);
     expect(canvas.height).toBe(800);
     expect(pointPositions.at(-1)?.[0].x).toBeCloseTo(300);
+  });
+
+  it("shows live badges without inventing a distance and removes lighting warnings on recovery", async () => {
+    lightLevel = 20;
+    await render(); await advance(2600);
+    expect(container.textContent).toContain("Inclinação cervical");
+    expect(container.textContent).toContain("0.0 °");
+    expect(container.querySelector('[aria-label="Métricas ao vivo"]')?.textContent).toContain("DistânciaIndisponível");
+    expect(container.textContent).toContain("Iluminação insuficiente");
+    lightLevel = 100;
+    await advance(1800);
+    expect(container.textContent).not.toContain("Iluminação insuficiente");
+    await render(false);
+    expect(container.querySelector('[aria-label="Métricas ao vivo"]')).toBeNull();
   });
 
   it("converges to exactly neutral displayed values instead of accumulating integer rounding error", async () => {
