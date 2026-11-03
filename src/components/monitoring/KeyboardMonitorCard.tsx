@@ -1,14 +1,17 @@
 import { useState, useEffect, useRef } from "react";
-import { AlertCircle, CheckCircle2, Clock, RotateCcw } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock, KeyboardOff, RotateCcw } from "lucide-react";
 
 export interface KeyboardMonitorCardProps {
   onPauseRequested?: () => void;
   className?: string;
+  /** False when the typing analysis module is disabled: no keys are counted. */
+  enabled?: boolean;
 }
 
 export default function KeyboardMonitorCard({
   onPauseRequested,
   className = "",
+  enabled = true,
 }: KeyboardMonitorCardProps) {
   const [isActive, setIsActive] = useState(false);
   const [totalKeypresses, setTotalKeypresses] = useState(0);
@@ -17,6 +20,12 @@ export default function KeyboardMonitorCard({
   const keyCountWindow = useRef<number[]>([]);
 
   useEffect(() => {
+    if (!enabled) {
+      keyCountWindow.current = [];
+      setIsActive(false);
+      setCpm(0);
+      return;
+    }
     const handleKeyDown = (e: KeyboardEvent) => {
       if (["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) return;
 
@@ -30,9 +39,10 @@ export default function KeyboardMonitorCard({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
+    if (!enabled) return;
     const interval = setInterval(() => {
       const now = Date.now();
       keyCountWindow.current = keyCountWindow.current.filter(
@@ -47,9 +57,10 @@ export default function KeyboardMonitorCard({
     }, 1000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
+    if (!enabled) return;
     const minuteInterval = setInterval(() => {
       if (keyCountWindow.current.length > 5) {
         setContinuousMinutes((prev) => prev + 1);
@@ -57,7 +68,7 @@ export default function KeyboardMonitorCard({
     }, 60000);
 
     return () => clearInterval(minuteInterval);
-  }, []);
+  }, [enabled]);
 
   const resetTypingSession = () => {
     setContinuousMinutes(0);
@@ -69,6 +80,28 @@ export default function KeyboardMonitorCard({
 
   const isHighRisk = continuousMinutes >= 25;
   const isModerateRisk = continuousMinutes >= 15 && continuousMinutes < 25;
+
+  if (!enabled) {
+    return (
+      <div data-module-inactive="true" className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs ${className}`}>
+        <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">
+          <div>
+            <h3 className="font-semibold text-sm text-slate-800 dark:text-slate-200">
+              Atividade de Digitação
+            </h3>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              Monitoramento da cadência de teclas digitadas e tempo de uso contínuo.
+            </span>
+          </div>
+          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Módulo inativo</span>
+        </div>
+        <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+          <KeyboardOff size={15} className="shrink-0 text-slate-400" />
+          <span>Análise de digitação desativada em Configurações → Módulos. Nenhuma tecla está sendo contabilizada.</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

@@ -28,6 +28,8 @@ export type { UserPresenceState };
 
 export interface WebcamFeedProps {
   isMonitoring: boolean;
+  /** Why the camera is off regardless of the user's toggle; hides the start and calibrate actions. */
+  disabledMessage?: string | null;
   onToggleMonitoring?: () => void;
   onCalibrate?: () => void;
   onPostureUpdate?: (metrics: {
@@ -85,6 +87,7 @@ const metricColor = (status: PostureStatus | null | undefined) => status ? STATU
 
 export default function WebcamFeed({
   isMonitoring,
+  disabledMessage = null,
   onToggleMonitoring,
   onCalibrate,
   onPostureUpdate,
@@ -829,7 +832,7 @@ export default function WebcamFeed({
                   }`}
               >
                 {!isMonitoring
-                  ? "Monitoramento pausado"
+                  ? disabledMessage ? "Análises da câmera inativas" : "Monitoramento pausado"
                   : isHardwareBusy
                     ? "Conflito de hardware (Pausado)"
                     : isCameraMuted
@@ -952,12 +955,12 @@ export default function WebcamFeed({
             </div>
             <p className="text-sm font-semibold text-slate-300">Câmera Desativada</p>
             <p className="text-xs text-slate-500 mt-1 max-w-xs">
-              Clique em "Iniciar Monitoramento" para ativar a captura e inferência postural ao vivo.
+              {disabledMessage ?? "Clique em \"Iniciar Monitoramento\" para ativar a captura e inferência postural ao vivo."}
             </p>
           </div>
         )}
 
-        {(onToggleMonitoring || onCalibrate) && (
+        {(onToggleMonitoring || onCalibrate) && !disabledMessage && (
           <div className="absolute bottom-4 flex items-center justify-center gap-2 z-20">
             {onToggleMonitoring && (
               <Button

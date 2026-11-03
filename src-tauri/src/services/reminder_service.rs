@@ -5,8 +5,10 @@ use uuid::Uuid;
 use crate::models::reminder::{
     CreateReminderPayload, Reminder, ReminderFrequency, SystemReminderType, UpdateReminderPayload,
 };
+use crate::models::settings::Module;
 use crate::repositories::reminder_repository;
 use crate::services::auth_service::{require_authenticated_user_id, AuthState};
+use crate::services::settings_service;
 
 // System notices cover the whole day, every day; the end time is exclusive.
 const SYSTEM_START_TIME: &str = "00:00";
@@ -94,6 +96,41 @@ pub fn ensure_system_reminders(conn: &Connection, user_id: i64) -> Result<(), St
         }
     }
     transaction.commit().map_err(|error| error.to_string())
+}
+
+/// Turns off every active reminder linked to the module: system notices and custom categories.
+pub fn deactivate_module_reminders(
+    conn: &Connection,
+    user_id: i64,
+    module: Module,
+) -> Result<(), String> {
+    let now = Utc::now().to_rfc3339();
+    for reminder in reminder_repository::find_all(conn, user_id)
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .filter(|reminder| reminder.status == "ativo" && reminder.module() == Some(module))
+    {
+        reminder_repository::update_status(conn, user_id, &reminder.id, "inativo", &now)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+/// Reminders of a disabled module stay off until the module is enabled again.
+fn ensure_module_allows_activation(
+    conn: &Connection,
+    user_id: i64,
+    module: Option<Module>,
+) -> Result<(), String> {
+    match module {
+        Some(module) if !settings_service::is_module_enabled(conn, user_id, module)? => {
+            Err(format!(
+                "The {} module is disabled; enable it to activate this reminder",
+                module.as_str()
+            ))
+        }
+        _ => Ok(()),
+    }
 }
 
 pub fn parse_time_to_minutes(time_str: &str) -> Option<i32> {
@@ -271,6 +308,9 @@ pub fn create_reminder(
     };
 
     validate_schedule(&reminder)?;
+    if reminder.status == "ativo" {
+        ensure_module_allows_activation(conn, user_id, reminder.module())?;
+    }
     reminder_repository::insert(conn, &reminder).map_err(|e| e.to_string())?;
 
     Ok(reminder)
@@ -382,6 +422,10 @@ pub fn update_reminder(
     };
 
     validate_schedule(&updated_reminder)?;
+    // Checked on the final category, so moving an active reminder into a disabled module is refused.
+    if updated_reminder.status == "ativo" {
+        ensure_module_allows_activation(conn, user_id, updated_reminder.module())?;
+    }
     reminder_repository::update(conn, &updated_reminder).map_err(|e| e.to_string())?;
 
     Ok(updated_reminder)
@@ -419,6 +463,9 @@ pub fn toggle_reminder_status(
     } else {
         "ativo"
     };
+    if new_status == "ativo" {
+        ensure_module_allows_activation(conn, user_id, reminder.module())?;
+    }
 
     let now = Utc::now().to_rfc3339();
     reminder_repository::update_status(conn, user_id, id, new_status, &now)
