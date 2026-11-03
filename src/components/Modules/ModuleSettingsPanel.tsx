@@ -51,7 +51,7 @@ export default function ModuleSettingsPanel() {
       <header>
         <h2 className="text-base font-bold text-slate-800 dark:text-white">Módulos</h2>
         <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
-          Escolha quais análises o Ergo deve realizar. Ative ou desative cada módulo abaixo; as alterações são salvas automaticamente.
+          Escolha quais análises o Ergo deve realizar. Ative ou desative cada módulo abaixo.
         </p>
       </header>
 
