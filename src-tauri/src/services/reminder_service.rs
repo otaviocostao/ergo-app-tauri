@@ -8,64 +8,90 @@ use crate::models::reminder::{
 use crate::repositories::reminder_repository;
 use crate::services::auth_service::{require_authenticated_user_id, AuthState};
 
-/// Stable IDs keep one configuration per catalog entry and account without
+// System notices cover the whole day, every day; the end time is exclusive.
+const SYSTEM_START_TIME: &str = "00:00";
+const SYSTEM_END_TIME: &str = "23:59";
+
+fn system_reminder(kind: SystemReminderType, user_id: i64, now: &str) -> Reminder {
+    let (title, message, category, interval) = match kind {
+        SystemReminderType::PostureCheck => (
+            "Revise sua postura",
+            "Observe sua postura e ajuste os apoios para uma posição confortável.",
+            "Postura",
+            30,
+        ),
+        SystemReminderType::VisualBreak => (
+            "Faça uma pausa visual",
+            "Faça uma breve pausa da tela e direcione o olhar para um ponto distante.",
+            "Pausa Visual",
+            20,
+        ),
+        SystemReminderType::MovementBreak => (
+            "Mude de posição",
+            "Faça uma pausa para se movimentar e variar a posição, conforme seu conforto.",
+            "Exercício",
+            60,
+        ),
+    };
+    Reminder {
+        id: kind.reminder_id(user_id),
+        user_id: Some(user_id),
+        system_type: Some(kind),
+        title: title.into(),
+        message: message.into(),
+        description: Some(message.into()),
+        category: category.into(),
+        interval,
+        period: format!("{} - {}", SYSTEM_START_TIME, SYSTEM_END_TIME),
+        frequency: ReminderFrequency::Daily,
+        notification_tone: true,
+        status: "inativo".into(),
+        start_time: Some(SYSTEM_START_TIME.into()),
+        end_time: Some(SYSTEM_END_TIME.into()),
+        reminder_date: None,
+        custom_days: None,
+        last_sent_at: None,
+        created_at: Some(now.into()),
+        updated_at: Some(now.into()),
+    }
+}
+
+/// Stable IDs keep one record per catalog entry and account without
 /// modifying the existing database schema or its migration checksum.
+/// Existing entries are realigned with the catalog, keeping only the user's
+/// status and the last send time.
 pub fn ensure_system_reminders(conn: &Connection, user_id: i64) -> Result<(), String> {
     let transaction = conn
         .unchecked_transaction()
         .map_err(|error| error.to_string())?;
+    let now = Utc::now().to_rfc3339();
     for kind in SystemReminderType::ALL {
-        let id = kind.reminder_id(user_id);
-        if reminder_repository::find_by_id(&transaction, user_id, &id)
+        let catalog = system_reminder(kind, user_id, &now);
+        validate_schedule(&catalog)?;
+        match reminder_repository::find_by_id(&transaction, user_id, &catalog.id)
             .map_err(|error| error.to_string())?
-            .is_some()
         {
-            continue;
+            None => reminder_repository::insert(&transaction, &catalog)
+                .map(|_| ())
+                .map_err(|error| error.to_string())?,
+            Some(existing) => {
+                let normalized = Reminder {
+                    status: existing.status.clone(),
+                    last_sent_at: existing.last_sent_at.clone(),
+                    created_at: existing.created_at.clone(),
+                    updated_at: existing.updated_at.clone(),
+                    ..catalog
+                };
+                if normalized != existing {
+                    let normalized = Reminder {
+                        updated_at: Some(now.clone()),
+                        ..normalized
+                    };
+                    reminder_repository::update(&transaction, &normalized)
+                        .map_err(|error| error.to_string())?;
+                }
+            }
         }
-        let (title, message, category, interval) = match kind {
-            SystemReminderType::PostureCheck => (
-                "Revise sua postura",
-                "Observe sua postura e ajuste os apoios para uma posição confortável.",
-                "Postura",
-                30,
-            ),
-            SystemReminderType::VisualBreak => (
-                "Faça uma pausa visual",
-                "Faça uma breve pausa da tela e direcione o olhar para um ponto distante.",
-                "Pausa Visual",
-                20,
-            ),
-            SystemReminderType::MovementBreak => (
-                "Mude de posição",
-                "Faça uma pausa para se movimentar e variar a posição, conforme seu conforto.",
-                "Exercício",
-                60,
-            ),
-        };
-        let now = Utc::now().to_rfc3339();
-        let reminder = Reminder {
-            id,
-            user_id: Some(user_id),
-            system_type: Some(kind),
-            title: title.into(),
-            message: message.into(),
-            description: Some(message.into()),
-            category: category.into(),
-            interval,
-            period: "08:00 - 18:00".into(),
-            frequency: ReminderFrequency::BusinessDays,
-            notification_tone: true,
-            status: "inativo".into(),
-            start_time: Some("08:00".into()),
-            end_time: Some("18:00".into()),
-            reminder_date: None,
-            custom_days: None,
-            last_sent_at: None,
-            created_at: Some(now.clone()),
-            updated_at: Some(now),
-        };
-        validate_schedule(&reminder)?;
-        reminder_repository::insert(&transaction, &reminder).map_err(|error| error.to_string())?;
     }
     transaction.commit().map_err(|error| error.to_string())
 }
@@ -264,9 +290,17 @@ pub fn update_reminder(
         && (payload.title.is_some()
             || payload.message.is_some()
             || payload.description.is_some()
-            || payload.category.is_some())
+            || payload.category.is_some()
+            || payload.interval.is_some()
+            || payload.period.is_some()
+            || payload.frequency.is_some()
+            || payload.notification_tone.is_some()
+            || payload.start_time.is_some()
+            || payload.end_time.is_some()
+            || payload.reminder_date.is_some()
+            || payload.custom_days.is_some())
     {
-        return Err("System reminder content is fixed; only scheduling and notification settings can be changed".into());
+        return Err("System reminders are managed by the system; only the status can be changed".into());
     }
     if payload
         .status
@@ -548,7 +582,10 @@ mod tests {
             assert_eq!(reminder.id, kind.reminder_id(user_id));
             assert_eq!(reminder.user_id, Some(user_id));
             assert_eq!(reminder.status, "inativo");
-            assert_eq!(reminder.frequency, ReminderFrequency::BusinessDays);
+            assert_eq!(reminder.frequency, ReminderFrequency::Daily);
+            assert_eq!(reminder.start_time.as_deref(), Some("00:00"));
+            assert_eq!(reminder.end_time.as_deref(), Some("23:59"));
+            assert_eq!(reminder.period, "00:00 - 23:59");
             assert_eq!(
                 serde_json::to_value(reminder).unwrap()["systemType"],
                 kind.as_str()
@@ -565,19 +602,19 @@ mod tests {
         ensure_system_reminders(&conn, user_id).unwrap();
         let original = get_reminders(&conn, &state).unwrap().remove(0);
         let payload = serde_json::from_value(serde_json::json!({
-            "id": original.id, "interval": 15, "period": "09:00 - 17:00",
-            "startTime": "09:00", "endTime": "17:00", "frequency": "CUSTOM",
-            "customDays": ["MON", "WED"], "notificationTone": false, "status": "ativo"
+            "id": original.id, "status": "ativo"
         }))
         .unwrap();
         let updated = update_reminder(&conn, &state, payload).unwrap();
-        assert_eq!(updated.system_type, original.system_type);
-        assert_eq!(updated.title, original.title);
-        assert_eq!(updated.message, original.message);
-        assert_eq!(updated.category, original.category);
-        assert_eq!(updated.interval, 15);
         assert_eq!(updated.status, "ativo");
-        assert!(!updated.notification_tone);
+        assert_eq!(
+            Reminder {
+                status: original.status.clone(),
+                updated_at: original.updated_at.clone(),
+                ..updated.clone()
+            },
+            original
+        );
         let sent_at = "2026-10-19T12:00:00Z";
         reminder_repository::update_last_sent_at(&conn, user_id, &updated.id, sent_at).unwrap();
         let stored = get_reminder_by_id(&conn, &state, &updated.id).unwrap();
@@ -596,9 +633,22 @@ mod tests {
         let user_id = authenticate_test_user(&conn, &state, "owner@example.com");
         ensure_system_reminders(&conn, user_id).unwrap();
         let original = get_reminders(&conn, &state).unwrap().remove(0);
-        for field in ["title", "message", "description", "category"] {
-            let mut payload = serde_json::json!({ "id": original.id });
-            payload[field] = serde_json::json!("Changed content");
+        for (field, value) in [
+            ("title", serde_json::json!("Changed content")),
+            ("message", serde_json::json!("Changed content")),
+            ("description", serde_json::json!("Changed content")),
+            ("category", serde_json::json!("Changed content")),
+            ("interval", serde_json::json!(15)),
+            ("period", serde_json::json!("09:00 - 17:00")),
+            ("frequency", serde_json::json!("BUSINESS_DAYS")),
+            ("notificationTone", serde_json::json!(false)),
+            ("startTime", serde_json::json!("09:00")),
+            ("endTime", serde_json::json!("17:00")),
+            ("reminderDate", serde_json::json!("2026-10-31")),
+            ("customDays", serde_json::json!(["MON"])),
+        ] {
+            let mut payload = serde_json::json!({ "id": original.id, "status": "ativo" });
+            payload[field] = value;
             assert!(
                 update_reminder(&conn, &state, serde_json::from_value(payload).unwrap()).is_err()
             );
@@ -683,7 +733,7 @@ mod tests {
         ensure_system_reminders(&conn, user_id).unwrap();
         let id = SystemReminderType::VisualBreak.reminder_id(user_id);
         let payload = serde_json::from_value(
-            serde_json::json!({ "id": id, "interval": 10, "status": "ativo" }),
+            serde_json::json!({ "id": id, "status": "ativo" }),
         )
         .unwrap();
         let configured = update_reminder(&conn, &state, payload).unwrap();
@@ -692,6 +742,48 @@ mod tests {
         ensure_system_reminders(&conn, user_id).unwrap();
         assert_eq!(get_reminder_by_id(&conn, &state, &id).unwrap(), configured);
         assert_eq!(get_reminders(&conn, &state).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn previously_configured_system_reminders_are_realigned_with_the_catalog() {
+        let conn = setup_test_db();
+        let state = AuthState::new().unwrap();
+        let user_id = authenticate_test_user(&conn, &state, "owner@example.com");
+        ensure_system_reminders(&conn, user_id).unwrap();
+        let catalog = get_reminders(&conn, &state).unwrap().remove(0);
+        let legacy = Reminder {
+            interval: 15,
+            period: "08:00 - 18:00".into(),
+            frequency: ReminderFrequency::Custom,
+            custom_days: Some(vec!["MON".into()]),
+            notification_tone: false,
+            status: "ativo".into(),
+            start_time: Some("08:00".into()),
+            end_time: Some("18:00".into()),
+            ..catalog.clone()
+        };
+        reminder_repository::update(&conn, &legacy).unwrap();
+        let sent_at = "2026-10-19T12:00:00Z";
+        reminder_repository::update_last_sent_at(&conn, user_id, &legacy.id, sent_at).unwrap();
+
+        ensure_system_reminders(&conn, user_id).unwrap();
+        let realigned = get_reminder_by_id(&conn, &state, &legacy.id).unwrap();
+        assert_eq!(realigned.status, "ativo");
+        assert_eq!(realigned.last_sent_at.as_deref(), Some(sent_at));
+        assert_eq!(
+            Reminder {
+                status: catalog.status.clone(),
+                last_sent_at: None,
+                updated_at: catalog.updated_at.clone(),
+                ..realigned.clone()
+            },
+            catalog
+        );
+        ensure_system_reminders(&conn, user_id).unwrap();
+        assert_eq!(
+            get_reminder_by_id(&conn, &state, &legacy.id).unwrap(),
+            realigned
+        );
     }
 
     #[test]

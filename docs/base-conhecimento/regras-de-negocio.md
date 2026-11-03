@@ -46,7 +46,7 @@ Estes registros descrevem o produto existente. Não são apresentados como novos
 
 - Origem e aprovação: solicitação do responsável pelo projeto em 21/10/2026 para concentrar os avisos padrão em Configurações.
 - **Configurações → Avisos de ergonomia** apresenta os três avisos padrão da conta, inicialmente inativos, com ativação e desativação individual por interruptor. A preferência é salva automaticamente; uma falha informa o erro e mantém o estado anterior.
-- O botão **Configurar** reutiliza o formulário para horários, dias, frequência, intervalo e som. Lembretes personalizados continuam em **Lembretes**. A rota anterior de avisos redireciona para a aba de Configurações.
+- Os avisos padrão são do sistema e não podem ser configurados: frequência diária (todos os dias, não apenas úteis), período de 00:00 às 23:59, intervalo e som fixos. O backend aceita apenas a alteração de status e, no login, realinha avisos configurados anteriormente, preservando estado e último envio (solicitação de 31/10/2026). Lembretes personalizados continuam em **Lembretes**. A rota anterior de avisos redireciona para a aba de Configurações.
 - Evidências: build TypeScript/Vite e testes de lembretes do backend, incluindo preservação de preferências e isolamento por usuário. O roteiro de verificação manual está no README.
 
 ### RN-12 Contas locais e sessão

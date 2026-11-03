@@ -131,8 +131,8 @@ beforeEach(() => {
     {
       id: "system-reminder:1:VISUAL_BREAK", systemType: "VISUAL_BREAK", userId: 1,
       title: "Faça uma pausa visual", message: "Descanse os olhos", category: "Pausa Visual",
-      interval: 20, period: "08:00 - 18:00", frequency: "BUSINESS_DAYS", notificationTone: true,
-      status: "inativo", startTime: "08:00", endTime: "18:00",
+      interval: 20, period: "00:00 - 23:59", frequency: "DAILY", notificationTone: true,
+      status: "inativo", startTime: "00:00", endTime: "23:59",
     },
     {
       id: "custom-reminder", userId: 1, title: "Meu lembrete personalizado", message: "Beba água",
