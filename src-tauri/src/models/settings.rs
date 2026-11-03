@@ -28,7 +28,7 @@ impl Module {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
-    pub id: i64,
+    pub id: String,
     pub user_id: i64,
     pub postural_analysis: bool,
     pub ocular_analysis: bool,
