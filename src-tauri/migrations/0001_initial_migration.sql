@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS reminders (
 CREATE INDEX IF NOT EXISTS idx_reminders_user_id ON reminders(user_id);
 
 CREATE TABLE IF NOT EXISTS settings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT PRIMARY KEY NOT NULL,
     user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
     postural_analysis INTEGER NOT NULL DEFAULT 1 CHECK (postural_analysis IN (0, 1)),
     ocular_analysis INTEGER NOT NULL DEFAULT 1 CHECK (ocular_analysis IN (0, 1)),
