@@ -147,7 +147,13 @@ export function useMetricRecording(
         await writes;
         for (const [id, resolution] of resolutions) await resolveEpisode(id, resolution);
         if (sessionId) {
-          await monitoringSessionService.endSession({ id: sessionId, endedAt, ...recorder?.aggregation.sessionSummary() });
+          // A cancelled start may have created a backend session without a recorder.
+          // Do not preserve the backend's initial 100% defaults as measured history.
+          const summary = recorder?.aggregation.sessionSummary() ?? {
+            durationSeconds: 0, averageScore: 0, goodPosturePercentage: 0,
+            warningPosturePercentage: 0, dangerPosturePercentage: 0,
+          };
+          await monitoringSessionService.endSession({ id: sessionId, endedAt, ...summary });
         }
         closed = true;
         if (unfinishedClose === close) unfinishedClose = null;

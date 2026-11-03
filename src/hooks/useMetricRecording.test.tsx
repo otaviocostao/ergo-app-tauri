@@ -201,7 +201,9 @@ describe("useMetricRecording IPC lifecycle", () => {
     const history = commands();
     expect(history.filter(command => command === "start_monitoring_session")).toHaveLength(2);
     expect(history.indexOf("end_monitoring_session")).toBeLessThan(history.lastIndexOf("start_monitoring_session"));
-    expect(ipc.invoke).toHaveBeenCalledWith("end_monitoring_session", { payload: expect.objectContaining({ id: "late-session" }) });
+    expect(ipc.invoke).toHaveBeenCalledWith("end_monitoring_session", { payload: expect.objectContaining({
+      id: "late-session", durationSeconds: 0, averageScore: 0, goodPosturePercentage: 0,
+    }) });
   });
 
   it("does not duplicate sessions, snapshots or timers under StrictMode", async () => {
@@ -284,5 +286,22 @@ describe("useMetricRecording IPC lifecycle", () => {
     expect(attempts).toBe(2);
     expect(commands().slice(-1)[0]).toBe("end_monitoring_session");
     expect(recorder.status).toBe("idle");
+  });
+
+  it("does not open another session while the previous session still fails to close", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const implementation = ipc.invoke.getMockImplementation()!;
+    let unavailable = true;
+    ipc.invoke.mockImplementation((command: string, args?: { payload?: unknown }) => {
+      if (command === "end_monitoring_session" && unavailable) return Promise.reject(new Error("busy"));
+      return implementation(command, args);
+    });
+    await render(); await render(false); await render(true);
+    expect(recorder.status).toBe("error");
+    expect(sessionNumber).toBe(1);
+    unavailable = false;
+    await act(async () => recorder.retry());
+    expect(recorder.status).toBe("active");
+    expect(sessionNumber).toBe(2);
   });
 });
