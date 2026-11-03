@@ -31,7 +31,7 @@ describe("Configurações → Módulos", () => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     auth.userId = 1;
     stored = {
-      id: 1, userId: 1, posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true, webCam: null,
+      id: "settings-1", userId: 1, posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true, webCam: null,
       createdAt: "2026-10-31T00:00:00Z", updatedAt: "2026-10-31T00:00:00Z",
     };
     ipc.invoke.mockImplementation(async (command: string, args?: { payload: { module: string; enabled: boolean } }) => {
@@ -81,7 +81,7 @@ describe("Configurações → Módulos", () => {
 
   it("restaura o estado anterior e informa o erro quando a gravação falha", async () => {
     await render();
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => { });
     ipc.invoke.mockRejectedValueOnce("database locked");
     await act(async () => switchOf("Análise ocular").click());
     expect(switchOf("Análise ocular").checked).toBe(true);

@@ -1,4 +1,5 @@
 use rusqlite::Connection;
+use uuid::Uuid;
 
 use crate::models::settings::{
     Module, SetModuleEnabledPayload, Settings, UpdateSettingsPayload, WEB_CAM_MAX_LENGTH,
@@ -11,7 +12,8 @@ const AUTHENTICATION_REQUIRED: &str = "Authentication is required to manage sett
 
 /// Accounts get their row on first use, with every module enabled.
 fn find_or_create(conn: &Connection, user_id: i64) -> Result<Settings, String> {
-    settings_repository::insert(conn, user_id).map_err(|error| error.to_string())?;
+    settings_repository::insert(conn, &Uuid::new_v4().to_string(), user_id)
+        .map_err(|error| error.to_string())?;
     settings_repository::find_by_user_id(conn, user_id)
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "Settings not found".to_string())
@@ -590,8 +592,14 @@ mod tests {
             )
             .is_err());
         assert!(conn
-            .execute("INSERT INTO settings (user_id) VALUES (?1)", [user_id])
+            .execute(
+                "INSERT INTO settings (id, user_id) VALUES ('duplicate', ?1)",
+                [user_id]
+            )
             .is_err());
-        assert_eq!(settings_repository::insert(&conn, user_id).unwrap(), 0);
+        assert_eq!(
+            settings_repository::insert(&conn, "duplicate", user_id).unwrap(),
+            0
+        );
     }
 }

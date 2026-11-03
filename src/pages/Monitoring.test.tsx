@@ -198,8 +198,10 @@ describe("Monitoring classification and temporal alerts", () => {
     await act(async () => view.feed!.onToggleMonitoring!());
     await act(async () => {
       for (let timestampMs = 0; timestampMs <= 30_000; timestampMs += 100) {
-        obsolete(classifyPosture({ timestampMs, captureId: 1, neckAngle: 35, shoulderAngle: 2,
-          distanceCm: 60, blinkRate: null }, baseline));
+        obsolete(classifyPosture({
+          timestampMs, captureId: 1, neckAngle: 35, shoulderAngle: 2,
+          distanceCm: 60, blinkRate: null
+        }, baseline));
       }
     });
     expect(alerts()).toEqual([]);
@@ -209,8 +211,10 @@ describe("Monitoring classification and temporal alerts", () => {
     await act(async () => view.feed!.onToggleMonitoring!());
     await act(async () => {
       for (let timestampMs = 30_100; timestampMs <= 60_000; timestampMs += 100) {
-        obsolete(classifyPosture({ timestampMs, captureId: 1, neckAngle: 35, shoulderAngle: 2,
-          distanceCm: 60, blinkRate: null }, baseline));
+        obsolete(classifyPosture({
+          timestampMs, captureId: 1, neckAngle: 35, shoulderAngle: 2,
+          distanceCm: 60, blinkRate: null
+        }, baseline));
       }
     });
     expect(alerts()).toEqual([]);
@@ -266,7 +270,7 @@ describe("Monitoring classification and temporal alerts", () => {
 
     it("keeps the chosen camera and reports when the default cannot be saved", async () => {
       vi.spyOn(settingsService, "get").mockResolvedValue(saved(null));
-      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(console, "error").mockImplementation(() => { });
       await render();
       ipc.invoke.mockRejectedValueOnce("database locked");
       await act(async () => view.feed!.onDeviceSelect!("camera-2"));
@@ -286,7 +290,7 @@ describe("Monitoring classification and temporal alerts", () => {
 
   describe("with disabled modules", () => {
     const modules = (changes: Partial<ModuleSettings>) => vi.spyOn(settingsService, "get").mockResolvedValue({
-      id: 1, userId: 1, posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true,
+      id: "settings-1", userId: 1, posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true,
       webCam: null, createdAt: "", updatedAt: "", ...changes,
     });
     const inactiveCards = () => [...container.querySelectorAll("[data-module-inactive] h3")].map(title => title.textContent);
