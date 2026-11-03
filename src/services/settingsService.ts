@@ -3,7 +3,7 @@ import { Module } from "../enums/module";
 import type { ReminderItem, SystemReminderType } from "./reminderService";
 
 export interface ModuleSettings {
-  id: number;
+  id: string;
   userId: number;
   posturalAnalysis: boolean;
   ocularAnalysis: boolean;
