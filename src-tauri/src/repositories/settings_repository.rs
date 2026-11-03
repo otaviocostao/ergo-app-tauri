@@ -30,10 +30,10 @@ pub fn find_by_user_id(
 }
 
 /// Creates the user's row with every module enabled; an existing row is kept.
-pub fn insert(conn: &Connection, user_id: i64) -> Result<usize, rusqlite::Error> {
+pub fn insert(conn: &Connection, id: &str, user_id: i64) -> Result<usize, rusqlite::Error> {
     conn.execute(
-        "INSERT INTO settings (user_id) VALUES (?1) ON CONFLICT(user_id) DO NOTHING",
-        params![user_id],
+        "INSERT INTO settings (id, user_id) VALUES (?1, ?2) ON CONFLICT(user_id) DO NOTHING",
+        params![id, user_id],
     )
 }
 
