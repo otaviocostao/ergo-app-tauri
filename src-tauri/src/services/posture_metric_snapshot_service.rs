@@ -36,11 +36,17 @@ pub fn validate_snapshot_payload(
         return Err("Samples count cannot be negative".to_string());
     }
 
-    if !payload.avg_neck_angle.is_finite()
-        || !payload.max_neck_angle.is_finite()
-        || !payload.avg_shoulder_balance.is_finite()
-        || !payload.min_shoulder_balance.is_finite()
-        || !payload.avg_distance_cm.is_finite()
+    // None means the metric was unavailable for the whole window.
+    if [
+        payload.avg_neck_angle,
+        payload.max_neck_angle,
+        payload.avg_shoulder_balance,
+        payload.min_shoulder_balance,
+        payload.avg_distance_cm,
+    ]
+    .iter()
+    .flatten()
+    .any(|value| !value.is_finite())
     {
         return Err("Metric angle and distance values must be valid numbers".to_string());
     }
@@ -176,16 +182,37 @@ mod tests {
     }
 
     #[test]
+    fn test_unavailable_metrics_are_stored_as_null_and_non_finite_rejected() {
+        let conn = setup_test_db();
+        let payload: CreateSnapshotPayload = serde_json::from_str(
+            r#"{"sessionId":"test-session-1","avgNeckAngle":4.5,"maxNeckAngle":9.0,
+                "avgShoulderBalance":null,"minShoulderBalance":null,"avgDistanceCm":null,
+                "blinkCount":12,"dominantStatus":"good","score":98.0,"samplesCount":660}"#,
+        )
+        .unwrap();
+        let snapshot = record_metric_snapshot(&conn, payload.clone()).unwrap();
+        let fetched = posture_metric_snapshot_repository::find_by_id(&conn, &snapshot.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(fetched.avg_neck_angle, Some(4.5));
+        assert_eq!(fetched.avg_shoulder_balance, None);
+        assert_eq!(fetched.avg_distance_cm, None);
+
+        let invalid = CreateSnapshotPayload { avg_distance_cm: Some(f64::NAN), ..payload };
+        assert!(record_metric_snapshot(&conn, invalid).is_err());
+    }
+
+    #[test]
     fn test_record_single_snapshot_success() {
         let conn = setup_test_db();
         let payload = CreateSnapshotPayload {
             session_id: "test-session-1".to_string(),
             timestamp: Some("2026-10-10T10:01:00Z".to_string()),
-            avg_neck_angle: 14.5,
-            max_neck_angle: 22.0,
-            avg_shoulder_balance: 0.96,
-            min_shoulder_balance: 0.90,
-            avg_distance_cm: 58.0,
+            avg_neck_angle: Some(14.5),
+            max_neck_angle: Some(22.0),
+            avg_shoulder_balance: Some(0.96),
+            min_shoulder_balance: Some(0.90),
+            avg_distance_cm: Some(58.0),
             blink_count: 18,
             dominant_status: PostureStatus::Good,
             score: 95.0,
@@ -215,11 +242,11 @@ mod tests {
             CreateSnapshotPayload {
                 session_id: "test-session-1".to_string(),
                 timestamp: Some("2026-10-10T10:01:00Z".to_string()),
-                avg_neck_angle: 12.0,
-                max_neck_angle: 15.0,
-                avg_shoulder_balance: 0.98,
-                min_shoulder_balance: 0.95,
-                avg_distance_cm: 60.0,
+                avg_neck_angle: Some(12.0),
+                max_neck_angle: Some(15.0),
+                avg_shoulder_balance: Some(0.98),
+                min_shoulder_balance: Some(0.95),
+                avg_distance_cm: Some(60.0),
                 blink_count: 20,
                 dominant_status: PostureStatus::Good,
                 score: 98.0,
@@ -228,11 +255,11 @@ mod tests {
             CreateSnapshotPayload {
                 session_id: "test-session-1".to_string(),
                 timestamp: Some("2026-10-10T10:02:00Z".to_string()),
-                avg_neck_angle: 25.0,
-                max_neck_angle: 32.0,
-                avg_shoulder_balance: 0.85,
-                min_shoulder_balance: 0.80,
-                avg_distance_cm: 45.0,
+                avg_neck_angle: Some(25.0),
+                max_neck_angle: Some(32.0),
+                avg_shoulder_balance: Some(0.85),
+                min_shoulder_balance: Some(0.80),
+                avg_distance_cm: Some(45.0),
                 blink_count: 12,
                 dominant_status: PostureStatus::Warning,
                 score: 75.0,
@@ -258,11 +285,11 @@ mod tests {
             CreateSnapshotPayload {
                 session_id: "test-session-1".to_string(),
                 timestamp: Some("2026-10-10T10:01:00Z".to_string()),
-                avg_neck_angle: 10.0,
-                max_neck_angle: 12.0,
-                avg_shoulder_balance: 0.99,
-                min_shoulder_balance: 0.95,
-                avg_distance_cm: 60.0,
+                avg_neck_angle: Some(10.0),
+                max_neck_angle: Some(12.0),
+                avg_shoulder_balance: Some(0.99),
+                min_shoulder_balance: Some(0.95),
+                avg_distance_cm: Some(60.0),
                 blink_count: 18,
                 dominant_status: PostureStatus::Good,
                 score: 95.0,
@@ -271,11 +298,11 @@ mod tests {
             CreateSnapshotPayload {
                 session_id: "test-session-1".to_string(),
                 timestamp: Some("2026-10-10T10:05:00Z".to_string()),
-                avg_neck_angle: 15.0,
-                max_neck_angle: 20.0,
-                avg_shoulder_balance: 0.95,
-                min_shoulder_balance: 0.90,
-                avg_distance_cm: 58.0,
+                avg_neck_angle: Some(15.0),
+                max_neck_angle: Some(20.0),
+                avg_shoulder_balance: Some(0.95),
+                min_shoulder_balance: Some(0.90),
+                avg_distance_cm: Some(58.0),
                 blink_count: 15,
                 dominant_status: PostureStatus::Good,
                 score: 90.0,
@@ -284,11 +311,11 @@ mod tests {
             CreateSnapshotPayload {
                 session_id: "test-session-1".to_string(),
                 timestamp: Some("2026-10-10T10:10:00Z".to_string()),
-                avg_neck_angle: 30.0,
-                max_neck_angle: 35.0,
-                avg_shoulder_balance: 0.70,
-                min_shoulder_balance: 0.65,
-                avg_distance_cm: 40.0,
+                avg_neck_angle: Some(30.0),
+                max_neck_angle: Some(35.0),
+                avg_shoulder_balance: Some(0.70),
+                min_shoulder_balance: Some(0.65),
+                avg_distance_cm: Some(40.0),
                 blink_count: 8,
                 dominant_status: PostureStatus::Danger,
                 score: 50.0,
@@ -336,11 +363,11 @@ mod tests {
             CreateSnapshotPayload {
                 session_id: "non-existent-session".to_string(),
                 timestamp: None,
-                avg_neck_angle: 10.0,
-                max_neck_angle: 15.0,
-                avg_shoulder_balance: 0.9,
-                min_shoulder_balance: 0.8,
-                avg_distance_cm: 60.0,
+                avg_neck_angle: Some(10.0),
+                max_neck_angle: Some(15.0),
+                avg_shoulder_balance: Some(0.9),
+                min_shoulder_balance: Some(0.8),
+                avg_distance_cm: Some(60.0),
                 blink_count: 10,
                 dominant_status: PostureStatus::Good,
                 score: 90.0,
@@ -356,11 +383,11 @@ mod tests {
             CreateSnapshotPayload {
                 session_id: "test-session-1".to_string(),
                 timestamp: None,
-                avg_neck_angle: 10.0,
-                max_neck_angle: 15.0,
-                avg_shoulder_balance: 0.9,
-                min_shoulder_balance: 0.8,
-                avg_distance_cm: 60.0,
+                avg_neck_angle: Some(10.0),
+                max_neck_angle: Some(15.0),
+                avg_shoulder_balance: Some(0.9),
+                min_shoulder_balance: Some(0.8),
+                avg_distance_cm: Some(60.0),
                 blink_count: 10,
                 dominant_status: PostureStatus::Good,
                 score: 120.0,
@@ -381,11 +408,11 @@ mod tests {
             CreateSnapshotPayload {
                 session_id: "test-session-1".to_string(),
                 timestamp: None,
-                avg_neck_angle: 10.0,
-                max_neck_angle: 15.0,
-                avg_shoulder_balance: 0.9,
-                min_shoulder_balance: 0.8,
-                avg_distance_cm: 60.0,
+                avg_neck_angle: Some(10.0),
+                max_neck_angle: Some(15.0),
+                avg_shoulder_balance: Some(0.9),
+                min_shoulder_balance: Some(0.8),
+                avg_distance_cm: Some(60.0),
                 blink_count: -1,
                 dominant_status: PostureStatus::Good,
                 score: 80.0,
@@ -404,11 +431,11 @@ mod tests {
             CreateSnapshotPayload {
                 session_id: "test-session-1".to_string(),
                 timestamp: None,
-                avg_neck_angle: 10.0,
-                max_neck_angle: 15.0,
-                avg_shoulder_balance: 0.9,
-                min_shoulder_balance: 0.8,
-                avg_distance_cm: 60.0,
+                avg_neck_angle: Some(10.0),
+                max_neck_angle: Some(15.0),
+                avg_shoulder_balance: Some(0.9),
+                min_shoulder_balance: Some(0.8),
+                avg_distance_cm: Some(60.0),
                 blink_count: 10,
                 dominant_status: PostureStatus::Good,
                 score: 90.0,

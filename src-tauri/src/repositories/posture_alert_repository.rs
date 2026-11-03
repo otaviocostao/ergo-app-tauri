@@ -128,10 +128,12 @@ pub fn resolve_alert(
     conn: &Connection,
     id: &str,
     resolved_at: &str,
+    duration_seconds: i64,
+    severity: &str,
 ) -> Result<usize, rusqlite::Error> {
     conn.execute(
-        "UPDATE posture_alerts SET resolved_at = ?1 WHERE id = ?2",
-        params![resolved_at, id],
+        "UPDATE posture_alerts SET resolved_at = ?1, duration_seconds = ?2, severity = ?3 WHERE id = ?4",
+        params![resolved_at, duration_seconds, severity, id],
     )
 }
 

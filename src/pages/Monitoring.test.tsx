@@ -10,6 +10,11 @@ import type { PostureCalibrationDTO } from "../types/postureCalibration";
 import type { PostureObservation } from "../types/postureClassification";
 import { postureService } from "../services/postureService";
 import { classifyPosture } from "../services/vision/postureClassifier";
+import type { OcularMetrics } from "../services/vision/ocularMetrics";
+
+// Browser previews have no IPC; one test enables a simulated desktop runtime.
+const ipc = vi.hoisted(() => ({ invoke: vi.fn(), desktop: false }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: ipc.invoke, isTauri: () => ipc.desktop }));
 
 const view = vi.hoisted(() => ({
   feed: null as WebcamFeedProps | null,
@@ -58,6 +63,37 @@ describe("Monitoring classification and temporal alerts", () => {
   });
   afterEach(async () => {
     await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks();
+    ipc.desktop = false; ipc.invoke.mockReset();
+  });
+
+  it("persists snapshots with real blinks and one alert per episode from the page's hysteresis", async () => {
+    ipc.desktop = true;
+    ipc.invoke.mockImplementation(async (command: string, args?: { payload?: Record<string, unknown> }) => {
+      if (command === "start_monitoring_session") return { id: "session-1" };
+      if (command === "record_posture_alert") return { ...args?.payload, id: "alert-1" };
+      return args?.payload;
+    });
+    const calls = (command: string) => ipc.invoke.mock.calls.filter(([name]) => name === command).map(([, args]) => args.payload);
+    // Far above performance.now(), so the page's 1s timer never mistakes the test clock for a gap.
+    const base = 1e9;
+    await render();
+    expect(calls("start_monitoring_session")).toEqual([{ userId: 1 }]);
+    const blink = { blinkEvent: "blink", distanceCm: 60, blinkRate: { blinkCount: 1, observedMs: 0, blinksPerMinute: null, isWarmingUp: true } };
+    await act(async () => {
+      for (let index = 0; index < 3; index++) view.feed!.onOcularUpdate!(blink as unknown as OcularMetrics);
+    });
+    await publish(base, base + 20_100, { neckAngle: 35 });
+    expect(calls("record_posture_alert")).toEqual([expect.objectContaining({
+      sessionId: "session-1", alertType: "neck_posture", severity: "danger", durationSeconds: 20,
+    })]);
+    await publish(base + 20_200, base + 60_000, { neckAngle: 35 });
+    expect(calls("record_metric_snapshot")).toEqual([expect.objectContaining({
+      sessionId: "session-1", samplesCount: 600, blinkCount: 3, dominantStatus: "danger", avgNeckAngle: 25,
+    })]);
+    await act(async () => view.feed!.onPresenceChange!("ABSENT"));
+    expect(calls("resolve_posture_alert")).toEqual([expect.objectContaining({
+      id: "alert-1", durationSeconds: 60, severity: "danger",
+    })]);
   });
 
   it("runs good posture, sustained danger, first alert, cooldown and a repeat through the existing history", async () => {

@@ -26,6 +26,10 @@ export interface CreateAlertPayload {
 export interface ResolveAlertPayload {
   id: string;
   resolvedAt?: string | null;
+  /** Final episode duration; keeps the recorded value when omitted. */
+  durationSeconds?: number | null;
+  /** Highest severity observed in the episode; keeps the recorded value when omitted. */
+  severity?: string | null;
 }
 
 export interface AlertFilter {
