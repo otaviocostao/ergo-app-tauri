@@ -21,6 +21,11 @@ interface Recorder {
 let sessionLifecycle: Promise<void> = Promise.resolve();
 let unfinishedClose: (() => Promise<void>) | null = null;
 
+/** Navigation may mount the dashboard while the previous page is still saving. */
+export function waitForRecordingWrites(): Promise<void> {
+  return sessionLifecycle;
+}
+
 export type RecordingStatus = "idle" | "starting" | "active" | "ending" | "error";
 
 /**

@@ -9,6 +9,7 @@ import { useAuth } from "../auth/AuthContext";
 import { dashboardService } from "../services/dashboardService";
 import { buildDashboard, dashboardPeriod } from "../services/dashboardMetrics";
 import type { DashboardData } from "../types/dashboard";
+import { waitForRecordingWrites } from "../hooks/useMetricRecording";
 
 type LoadState = { owner: number | null; day: string } & (
   | { kind: "loading" }
@@ -40,8 +41,10 @@ export default function Dashboard() {
       setLoad({ ...context, kind: "error", message: "Entre na sua conta para consultar o histórico." });
       return;
     }
-    dashboardService.getData(dashboardPeriod(today).filter).then(data => {
-      if (active) setLoad({ ...context, kind: "ready", data });
+    waitForRecordingWrites().then(() => {
+      if (active) return dashboardService.getData(dashboardPeriod(today).filter);
+    }).then(data => {
+      if (active && data) setLoad({ ...context, kind: "ready", data });
     }).catch((error: unknown) => {
       if (active) setLoad({ ...context, kind: "error", message: error instanceof Error ? error.message : "Não foi possível carregar o histórico. Tente novamente." });
     });

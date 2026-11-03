@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Dashboard from "./Dashboard";
 import { dashboardService } from "../services/dashboardService";
 import type { DashboardData } from "../types/dashboard";
+import * as recording from "../hooks/useMetricRecording";
 
 const auth = vi.hoisted(() => ({ userId: 1 }));
 vi.mock("../auth/AuthContext", () => ({ useAuth: () => ({ session: { kind: "authenticated", user: { id: auth.userId } } }) }));
@@ -67,5 +68,17 @@ describe("persisted dashboard UI", () => {
     expect(container.textContent).toContain("Dados salvos");
     expect(container.textContent).toContain("Ver relatórios demonstrativos");
     expect(container.textContent).not.toContain("Nenhuma sessão registrada");
+  });
+
+  it("waits for the previous page's pending session writes before reading history", async () => {
+    let finishWrites!: () => void;
+    vi.spyOn(recording, "waitForRecordingWrites").mockImplementation(() => new Promise<void>(resolve => { finishWrites = resolve; }));
+    const read = vi.spyOn(dashboardService, "getData").mockResolvedValue(empty);
+    await render();
+    expect(read).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Carregando");
+    await act(async () => finishWrites());
+    expect(read).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("Nenhuma sessão registrada hoje");
   });
 });
