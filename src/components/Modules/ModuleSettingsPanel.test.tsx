@@ -31,7 +31,7 @@ describe("Configurações → Módulos", () => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     auth.userId = 1;
     stored = {
-      id: 1, userId: 1, posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true,
+      id: "settings-1", userId: 1, posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true,
       createdAt: "2026-10-31T00:00:00Z", updatedAt: "2026-10-31T00:00:00Z",
     };
     ipc.invoke.mockImplementation(async (command: string, args?: { payload: { module: string; enabled: boolean } }) => {
