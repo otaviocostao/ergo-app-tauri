@@ -39,6 +39,7 @@ describe("Monitoring classification and temporal alerts", () => {
 
   async function render(strict = false) {
     await act(async () => root.render(strict ? <StrictMode><Monitoring /></StrictMode> : <Monitoring />));
+    if (view.feed!.recordingStatus === "idle" && !view.feed!.isMonitoring) await act(async () => view.feed!.onToggleMonitoring!());
     await act(async () => view.feed!.onPresenceChange!("ACTIVE"));
   }
 
@@ -94,6 +95,32 @@ describe("Monitoring classification and temporal alerts", () => {
     expect(calls("resolve_posture_alert")).toEqual([expect.objectContaining({
       id: "alert-1", durationSeconds: 60, severity: "danger",
     })]);
+  });
+
+  it("starts only on request, ignores duplicate clicks and waits for end IPC", async () => {
+    ipc.desktop = true;
+    let finishStart!: (value: { id: string }) => void;
+    let finishEnd!: () => void;
+    ipc.invoke.mockImplementation((command: string) => {
+      if (command === "start_monitoring_session") return new Promise(resolve => { finishStart = resolve; });
+      if (command === "end_monitoring_session") return new Promise<void>(resolve => { finishEnd = resolve; });
+      return Promise.resolve();
+    });
+    await act(async () => root.render(<StrictMode><Monitoring /></StrictMode>));
+    expect(ipc.invoke).not.toHaveBeenCalled();
+    expect(view.feed!.isMonitoring).toBe(false);
+    await act(async () => { view.feed!.onToggleMonitoring!(); view.feed!.onToggleMonitoring!(); });
+    expect(view.feed!.recordingStatus).toBe("starting");
+    expect(view.feed!.isMonitoring).toBe(false);
+    expect(ipc.invoke).toHaveBeenCalledTimes(1);
+    await act(async () => finishStart({ id: "one" }));
+    expect(view.feed!.isMonitoring).toBe(true);
+    await act(async () => { view.feed!.onToggleMonitoring!(); view.feed!.onToggleMonitoring!(); });
+    expect(view.feed!.recordingStatus).toBe("ending");
+    expect(view.feed!.isMonitoring).toBe(false);
+    await act(async () => finishEnd());
+    expect(view.feed!.recordingStatus).toBe("idle");
+    expect(ipc.invoke.mock.calls.map(([command]) => command)).toEqual(["start_monitoring_session", "end_monitoring_session"]);
   });
 
   it("runs good posture, sustained danger, first alert, cooldown and a repeat through the existing history", async () => {

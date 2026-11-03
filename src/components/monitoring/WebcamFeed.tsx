@@ -25,12 +25,14 @@ import type { PostureCalibrationDTO } from "../../types/postureCalibration";
 import type { UserPresenceState } from "../../types/vision";
 import { CanvasPose, metricColor } from "./canvasFeedback";
 import { LightingFeedback } from "./lightingFeedback";
+import type { RecordingStatus } from "../../hooks/useMetricRecording";
 
 export type { UserPresenceState };
 
 export interface WebcamFeedProps {
   isMonitoring: boolean;
   onToggleMonitoring?: () => void;
+  recordingStatus?: RecordingStatus;
   onCalibrate?: () => void;
   onPostureUpdate?: (metrics: {
     neckAngle: number;
@@ -81,6 +83,7 @@ function drawJoint(ctx: CanvasRenderingContext2D, x: number, y: number, radius: 
 export default function WebcamFeed({
   isMonitoring,
   onToggleMonitoring,
+  recordingStatus,
   onCalibrate,
   onPostureUpdate,
   onPresenceChange,
@@ -975,11 +978,13 @@ export default function WebcamFeed({
                 variant="primary"
                 size="md"
                 onClick={onToggleMonitoring}
+                disabled={recordingStatus === "starting" || recordingStatus === "ending"}
+                isLoading={recordingStatus === "starting" || recordingStatus === "ending"}
                 className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white  backdrop-blur-md transition-all shadow-lg"
               >
-                {isMonitoring ? (
+                {recordingStatus === "starting" ? "Iniciando Monitoramento" : recordingStatus === "ending" ? "Encerrando Monitoramento" : recordingStatus === "error" ? "Tentar Novamente" : isMonitoring ? (
                   <>
-                    <VideoOff size={16} /> Pausar Monitoramento
+                    <VideoOff size={16} /> Encerrar Monitoramento
                   </>
                 ) : (
                   <>
@@ -993,6 +998,7 @@ export default function WebcamFeed({
               <Button
                 size="md"
                 onClick={onCalibrate}
+                disabled={recordingStatus === "starting" || recordingStatus === "ending" || recordingStatus === "error"}
                 className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white backdrop-blur-md transition-all shadow-lg"
               >
                 <Crosshair size={14} />

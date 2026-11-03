@@ -67,9 +67,12 @@ function getShoulderCardValue(
 export default function Monitoring() {
   const auth = useOptionalAuth();
   const userId = auth?.session.kind === "authenticated" ? auth.session.user.id : null;
-  const [isMonitoring, setIsMonitoring] = useState(true);
+  const [isMonitoring, setIsMonitoring] = useState(false);
   const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
-  const monitoringContextRef = useRef({ enabled: true, userId });
+  const monitoringContextRef = useRef({ enabled: false, userId });
+  const uiPublishedAtRef = useRef(-Infinity);
+  const ocularPublishedAtRef = useRef(-Infinity);
+  const transitionRequestedRef = useRef(false);
   const [calibration, setCalibration] = useState<PostureCalibrationDTO | null>(null);
   const [sessionBlinkCount, setSessionBlinkCount] = useState(0);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
@@ -97,6 +100,25 @@ export default function Monitoring() {
       timestamp: new Date().toLocaleTimeString(),
     }, ...previous].slice(0, 100));
   });
+  const captureEnabled = isMonitoring && !isCalibrationOpen && recording.status === "active";
+  monitoringContextRef.current = { enabled: captureEnabled, userId };
+
+  const toggleMonitoring = () => {
+    if (transitionRequestedRef.current || recording.status === "starting" || recording.status === "ending") return;
+    transitionRequestedRef.current = true;
+    if (recording.status === "error") { recording.retry(); return; }
+    if (!isMonitoring) {
+      setSessionBlinkCount(0);
+      pendingBlinksRef.current = 0;
+      alertState.hysteresis.resetContinuity();
+      uiPublishedAtRef.current = ocularPublishedAtRef.current = -Infinity;
+    }
+    setIsMonitoring(previous => !previous);
+  };
+
+  useEffect(() => {
+    if (recording.status !== "starting" && recording.status !== "ending") transitionRequestedRef.current = false;
+  }, [recording.status]);
 
   const handlePostureUpdate = (metrics: {
     neckAngle: number;
@@ -117,13 +139,18 @@ export default function Monitoring() {
       return;
     }
 
-    setClassification(context.enabled ? current : null);
-
     if (!current || !context.enabled) {
+      setClassification(null);
+      uiPublishedAtRef.current = -Infinity;
       alertState.hysteresis.resetContinuity();
       recording.pause();
       pendingBlinksRef.current = 0;
       return;
+    }
+
+    if (current.timestampMs - uiPublishedAtRef.current >= 250) {
+      uiPublishedAtRef.current = current.timestampMs;
+      setClassification(current);
     }
 
     const temporal = alertState.hysteresis.update(current);
@@ -148,14 +175,11 @@ export default function Monitoring() {
   };
 
   useEffect(() => {
-    const enabled = isMonitoring && !isCalibrationOpen;
-    monitoringContextRef.current = { enabled, userId };
-
-    if (!enabled) {
+    if (!captureEnabled) {
       alertState.hysteresis.resetContinuity();
     }
 
-  }, [isMonitoring, isCalibrationOpen, userId]);
+  }, [captureEnabled, userId]);
 
   const handlePresenceChange = (presence: UserPresenceState) => {
     setUserPresence(presence);
@@ -241,7 +265,11 @@ export default function Monitoring() {
   };
 
   const handleOcularUpdate = (metrics: OcularMetrics | null) => {
-    setOcularMetrics(metrics);
+    const now = performance.now();
+    if (!metrics || now - ocularPublishedAtRef.current >= 250) {
+      ocularPublishedAtRef.current = metrics ? now : -Infinity;
+      setOcularMetrics(metrics);
+    }
 
     if (metrics?.blinkEvent === "blink") {
       setSessionBlinkCount((prev) => prev + 1);
@@ -249,7 +277,7 @@ export default function Monitoring() {
     }
   };
 
-  const isPaused = !isMonitoring || isCalibrationOpen || userPresence !== "ACTIVE";
+  const isPaused = !captureEnabled || userPresence !== "ACTIVE";
   const blinkRate = ocularMetrics?.blinkRate.blinksPerMinute ?? null;
   const neck = classification?.metrics.neck;
   const shoulders = classification?.metrics.shoulders;
@@ -280,14 +308,18 @@ export default function Monitoring() {
           </div>
         }
       />
+      {recording.error && <div role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-200">
+        {recording.error} <button className="ml-2 font-semibold underline" onClick={recording.retry}>Tentar novamente</button>
+      </div>}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <div className="lg:col-span-7 flex flex-col gap-6">
           <WebcamFeed
-            isMonitoring={isMonitoring && !isCalibrationOpen}
+            isMonitoring={captureEnabled}
+            recordingStatus={recording.status}
             calibration={calibration}
             classificationConfig={classificationConfig}
             onClassificationUpdate={handleClassificationUpdate}
-            onToggleMonitoring={() => setIsMonitoring(!isMonitoring)}
+            onToggleMonitoring={toggleMonitoring}
             onCalibrate={() => setIsCalibrationOpen(true)}
             onPostureUpdate={handlePostureUpdate}
             onPresenceChange={handlePresenceChange}
@@ -381,7 +413,7 @@ export default function Monitoring() {
                 <div className="flex flex-col">
                   <span className="text-slate-400">Sessão:</span>
                   <span className="font-semibold text-white">
-                    {isPaused ? "Em pausa" : "42 min monitorados"}
+                    {recording.status === "starting" ? "Iniciando" : recording.status === "ending" ? "Encerrando" : `${Math.floor(recording.elapsedSeconds / 60)} min ${recording.elapsedSeconds % 60} s monitorados`}
                   </span>
                 </div>
               </div>

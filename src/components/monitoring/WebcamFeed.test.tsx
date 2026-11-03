@@ -256,8 +256,8 @@ describe("WebcamFeed and deterministic biomechanics", () => {
 
   it.each([true, false])("hands the camera to calibration and restores the previous monitoring state (%s)", async running => {
     await act(async () => root.render(<Monitoring />)); mounted = true;
+    if (running) await clickButton("Iniciar Monitoramento");
     await advance(200);
-    if (!running) await clickButton("Pausar Monitoramento");
     await clickButton("Calibrar Postura Base");
     expect(streams.filter(item => item.track.stop.mock.calls.length === 0)).toHaveLength(0);
     await reachCalibrationCamera(); await advance(200);
@@ -505,16 +505,17 @@ describe("WebcamFeed and deterministic biomechanics", () => {
 
   it("pauses the monitoring page until a valid measurement after unmute", async () => {
     await act(async () => root.render(<Monitoring />)); mounted = true;
+    await clickButton("Iniciar Monitoramento");
     await advance(200);
-    expect(container.textContent).toContain("42 min monitorados");
+    expect(container.textContent).toContain("Monitoramento ativo");
     const track = streams[streams.length - 1].track;
     await setTrackMuted(track, true);
-    expect(container.textContent).not.toContain("42 min monitorados");
+    expect(container.textContent).not.toContain("Monitoramento ativo");
     expect(container.textContent).toContain("Detecção parcial");
     await setTrackMuted(track, false);
-    expect(container.textContent).not.toContain("42 min monitorados");
+    expect(container.textContent).not.toContain("Monitoramento ativo");
     await advance(100);
-    expect(container.textContent).toContain("42 min monitorados");
+    expect(container.textContent).toContain("Monitoramento ativo");
   });
 
   it("detaches mute listeners and ignores old callbacks after replacing the camera", async () => {
@@ -711,6 +712,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   it("renders blink warm-up and uncalibrated distance without an early fatigue classification", async () => {
     faceLandmarks = ocularFace();
     await act(async () => root.render(<Monitoring />)); mounted = true;
+    await clickButton("Iniciar Monitoramento");
     await advance(200);
     expect(container.textContent).toContain("Taxa de Piscadas");
     expect(container.textContent).toContain("Aguardando dados");
@@ -830,6 +832,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   it("displays session blink counts and window counts in Monitoring cards", async () => {
     faceLandmarks = ocularFace();
     await act(async () => root.render(<Monitoring />)); mounted = true;
+    await clickButton("Iniciar Monitoramento");
     await advance(200);
     expect(container.textContent).toContain("Piscadas na janela:");
     expect(container.textContent).toContain("Total da sessão:");
