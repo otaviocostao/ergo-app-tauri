@@ -99,7 +99,7 @@ Para autenticação, use `src/auth/authService.ts`, que chama os comandos `regis
 
 As permissões de SQL genérico foram removidas de `src-tauri/capabilities/default.json` para impedir leitura/alteração da tabela de credenciais pelo WebView. O helper antigo `src/db.ts` não é usado nesse fluxo. Novas operações de dados devem ser implementadas como comandos Rust específicos, validando a sessão no backend quando precisarem de autenticação.
 
-As contas e os lembretes por usuário são persistidos no SQLite local. As rotas internas exigem uma conta autenticada. As métricas de ergonomia continuam demonstrativas.
+As contas, os lembretes e as métricas de monitoramento são persistidos no SQLite local. As rotas internas exigem uma conta autenticada. A tela inicial consulta o histórico da conta conectada; os relatórios detalhados ainda usam dados demonstrativos.
 
 ### Preferência de tema por usuário
 
@@ -154,14 +154,24 @@ Para conferir manualmente: entre novamente na conta e abra **Configurações →
 
 ### Relatórios de postura
 
-A opção **Relatórios** no menu abre `/reports`. Os três cartões **Ver detalhes** da tela inicial abrem as respectivas seções: índice ergonômico, boa postura e alertas. Os endereços antigos em `/dashboard/` redirecionam para essas seções.
+A opção **Relatórios** no menu abre `/reports`. O link da tela inicial identifica esses relatórios como demonstrativos. Os endereços antigos em `/dashboard/` redirecionam para as seções correspondentes de índice ergonômico, boa postura e alertas.
 
 - Filtros de dia, semana (domingo a sábado) e mês, com seleção de data e navegação entre períodos. Filtros e seção ficam na URL para preservar a navegação de voltar/avançar.
 - Visão geral com evolução em pontos percentuais, tempo em boa postura, alertas por hora, tempo em monitoramento, meta demonstrativa de 6h e histórico diário. A seção de alertas inclui a contagem de alertas críticos.
 - Detalhes com distribuição do tempo dentro/fora da faixa, mapa de intervalos de 10 minutos, melhores horários e registro de alertas por tipo.
 - O índice é ponderado pelo tempo monitorado; dias sem leituras não recebem pontuação. Períodos em andamento comparam os dias decorridos com o mesmo trecho do período anterior (limitado ao tamanho do mês anterior).
 
-O **histórico demonstrativo** é gerado em `src/data/reports.ts` para os últimos 120 dias, com leituras em dias úteis. A tela inicial usa essa mesma fonte; o aviso demonstrativo foi removido da interface. Os relatórios ainda não consultam as medições persistidas pelo backend nem o monitoramento ao vivo; a evolução exibida é ilustrativa.
+O **histórico demonstrativo dos relatórios** é gerado em `src/data/reports.ts` para os últimos 120 dias, com leituras em dias úteis. Os relatórios ainda não consultam as medições persistidas pelo backend nem o monitoramento ao vivo; a evolução exibida é ilustrativa.
+
+### Monitoramento e Dashboard reais (Task 4.5)
+
+O Monitoramento começa ocioso. **Iniciar Monitoramento** abre a sessão pelo gravador existente e ativa a câmera; **Encerrar Monitoramento** libera a captura, aguarda as escritas, resolve episódios de alerta e salva o resumo da sessão. Os botões indicam início/encerramento em andamento e bloqueiam cliques repetidos. Falhas de IPC permitem nova tentativa, preservando um fechamento pendente antes de abrir outra sessão. Calibrar ou sair da tela conserva o encerramento da Task 4.4; janelas incompletas de snapshots continuam sendo descartadas.
+
+O canvas suaviza somente o desenho e acompanha espelhamento, recorte e resolução da tela. Badges apresentam desvio cervical e dos ombros em graus e distância em centímetros, com as cores do classificador existente. Valores ausentes aparecem como indisponíveis. Avisos indicam enquadramento, distância inadequada e pouca luz. A luminosidade é estimada localmente em uma imagem transitória de 32 × 18 pixels, no máximo duas vezes por segundo: aviso abaixo de 40/255 por 2 segundos e recuperação acima de 55/255 por 1 segundo. Esses parâmetros são provisórios e dependem de validação com a webcam; não representam avaliação clínica. Imagens e landmarks não são enviados por IPC nem persistidos.
+
+A tela inicial real é `src/pages/Dashboard.tsx`; `Home.tsx` não é a página usada pelas rotas. O comando `get_dashboard_data` deriva o proprietário da sessão autenticada no Rust. O índice é o percentual de boa postura ponderado pela duração das sessões encerradas; sessões sem duração válida e valores iniciais de sessões abertas não pontuam. Os resumos são atribuídos ao dia local de início da sessão. O gráfico usa o score já salvo, ponderado pelas amostras de cada snapshot, agrupado pelo horário da leitura. Horários sem dados ficam indisponíveis. A meta de 6h permanece demonstrativa e pausas confirmadas aparecem como **Não registrado**. A navegação aguarda as escritas da tela anterior; carregamento, vazio, erro e troca de conta possuem tratamento próprio. A prévia web informa que o histórico exige o aplicativo desktop, sem criar dados de exemplo.
+
+O [relatório da Task 4.5](docs/task-4.5-feedback-ui.md) reúne evidências por requisito, resultados dos testes, limites e roteiro de validação manual.
 
 ### Testes
 
