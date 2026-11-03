@@ -7,7 +7,7 @@ import { getInactiveModule, restrictClassificationToModules } from "./moduleClas
 
 const settings = (changes: Partial<ModuleSettings> = {}): ModuleSettings => ({
   id: "settings-1", userId: 1, posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true,
-  createdAt: "", updatedAt: "", ...changes,
+  webCam: null, createdAt: "", updatedAt: "", ...changes,
 });
 
 const classification: PostureClassification = {

@@ -198,8 +198,10 @@ describe("Monitoring classification and temporal alerts", () => {
     await act(async () => view.feed!.onToggleMonitoring!());
     await act(async () => {
       for (let timestampMs = 0; timestampMs <= 30_000; timestampMs += 100) {
-        obsolete(classifyPosture({ timestampMs, captureId: 1, neckAngle: 35, shoulderAngle: 2,
-          distanceCm: 60, blinkRate: null }, baseline));
+        obsolete(classifyPosture({
+          timestampMs, captureId: 1, neckAngle: 35, shoulderAngle: 2,
+          distanceCm: 60, blinkRate: null
+        }, baseline));
       }
     });
     expect(alerts()).toEqual([]);
@@ -209,8 +211,10 @@ describe("Monitoring classification and temporal alerts", () => {
     await act(async () => view.feed!.onToggleMonitoring!());
     await act(async () => {
       for (let timestampMs = 30_100; timestampMs <= 60_000; timestampMs += 100) {
-        obsolete(classifyPosture({ timestampMs, captureId: 1, neckAngle: 35, shoulderAngle: 2,
-          distanceCm: 60, blinkRate: null }, baseline));
+        obsolete(classifyPosture({
+          timestampMs, captureId: 1, neckAngle: 35, shoulderAngle: 2,
+          distanceCm: 60, blinkRate: null
+        }, baseline));
       }
     });
     expect(alerts()).toEqual([]);
@@ -228,10 +232,66 @@ describe("Monitoring classification and temporal alerts", () => {
     expect(container.textContent).toContain("80%");
   });
 
+  describe("default webcam", () => {
+    const saved = (webCam: string | null): ModuleSettings => ({
+      id: 1, userId: 1, posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true,
+      webCam, createdAt: "", updatedAt: "",
+    });
+    const updates = () => ipc.invoke.mock.calls.filter(([name]) => name === "update_settings").map(([, args]) => args);
+
+    beforeEach(() => {
+      ipc.desktop = true;
+      ipc.invoke.mockImplementation(async (command: string, args?: { payload?: Record<string, unknown> }) => {
+        if (command === "update_settings") return { ...saved(null), ...args?.payload };
+        if (command === "start_monitoring_session") return { id: "session-1" };
+        return args?.payload;
+      });
+    });
+
+    it("hands the saved webcam to monitoring and calibration", async () => {
+      vi.spyOn(settingsService, "get").mockResolvedValue(saved("camera-2"));
+      await render();
+      expect(view.feed!.preferredDeviceId).toBe("camera-2");
+      expect(view.modal!.preferredDeviceId).toBe("camera-2");
+    });
+
+    it("saves the camera picked in the select as the new default", async () => {
+      vi.spyOn(settingsService, "get").mockResolvedValue(saved("camera-1"));
+      await render();
+      await act(async () => view.feed!.onDeviceSelect!("camera-2"));
+      expect(updates()).toEqual([{ payload: { webCam: "camera-2" } }]);
+      expect(view.feed!.preferredDeviceId).toBe("camera-2");
+      expect(view.modal!.preferredDeviceId).toBe("camera-2");
+
+      await act(async () => view.modal!.onDeviceSelect!("camera-3"));
+      expect(updates()).toEqual([{ payload: { webCam: "camera-2" } }, { payload: { webCam: "camera-3" } }]);
+      expect(view.feed!.preferredDeviceId).toBe("camera-3");
+    });
+
+    it("keeps the chosen camera and reports when the default cannot be saved", async () => {
+      vi.spyOn(settingsService, "get").mockResolvedValue(saved(null));
+      vi.spyOn(console, "error").mockImplementation(() => { });
+      await render();
+      ipc.invoke.mockRejectedValueOnce("database locked");
+      await act(async () => view.feed!.onDeviceSelect!("camera-2"));
+      expect(updates()).toEqual([{ payload: { webCam: "camera-2" } }]);
+      expect(view.feed!.preferredDeviceId).toBe("camera-2");
+      expect(view.logs[0]).toMatchObject({ type: "error", message: "Não foi possível salvar a câmera padrão." });
+    });
+
+    it("does not save anything without account settings", async () => {
+      vi.spyOn(settingsService, "get").mockResolvedValue(null);
+      await render();
+      expect(view.feed!.preferredDeviceId).toBeNull();
+      await act(async () => view.feed!.onDeviceSelect!("camera-2"));
+      expect(updates()).toEqual([]);
+    });
+  });
+
   describe("with disabled modules", () => {
     const modules = (changes: Partial<ModuleSettings>) => vi.spyOn(settingsService, "get").mockResolvedValue({
       id: "settings-1", userId: 1, posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true,
-      createdAt: "", updatedAt: "", ...changes,
+      webCam: null, createdAt: "", updatedAt: "", ...changes,
     });
     const inactiveCards = () => [...container.querySelectorAll("[data-module-inactive] h3")].map(title => title.textContent);
     const persisted = (command: string) => ipc.invoke.mock.calls.filter(([name]) => name === command);

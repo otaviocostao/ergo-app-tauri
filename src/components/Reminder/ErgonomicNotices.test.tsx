@@ -73,7 +73,7 @@ describe("Avisos de ergonomia em Configurações", () => {
   it("bloqueia a ativação dos avisos de um módulo inativo", async () => {
     auth.userId = 1;
     vi.spyOn(settingsService, "get").mockResolvedValue({
-      id: "settings-1", userId: 1, posturalAnalysis: false, ocularAnalysis: true, typingAnalysis: true, createdAt: "", updatedAt: "",
+      id: "settings-1", userId: 1, posturalAnalysis: false, ocularAnalysis: true, typingAnalysis: true, webCam: null, createdAt: "", updatedAt: "",
     });
     await render();
     for (const title of ["Revise sua postura", "Mude de posição"]) {
@@ -126,7 +126,7 @@ describe("Avisos de ergonomia em Configurações", () => {
   it("restaura o estado anterior e informa o erro quando a gravação falha", async () => {
     await render();
     ipc.invoke.mockRejectedValueOnce("System reminders are managed by the system; only the status can be changed");
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => { });
     await toggle("Faça uma pausa visual");
     expect(switchOf("Faça uma pausa visual").checked).toBe(false);
     expect(container.querySelector('[role="alert"]')!.textContent).toContain("Não foi possível alterar o aviso");
@@ -136,7 +136,7 @@ describe("Avisos de ergonomia em Configurações", () => {
   it("salva como inativo um lembrete personalizado cuja categoria pertence a um módulo inativo", async () => {
     auth.userId = 1;
     vi.spyOn(settingsService, "get").mockResolvedValue({
-      id: "settings-1", userId: 1, posturalAnalysis: false, ocularAnalysis: true, typingAnalysis: true, createdAt: "", updatedAt: "",
+      id: "settings-1", userId: 1, posturalAnalysis: false, ocularAnalysis: true, typingAnalysis: true, webCam: null, createdAt: "", updatedAt: "",
     });
     reminders.push({ ...custom, id: "posture-reminder", title: "Alongar costas", category: "Postura", status: "inativo" });
     await render("custom");

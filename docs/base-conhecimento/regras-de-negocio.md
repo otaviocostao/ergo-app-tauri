@@ -77,6 +77,15 @@ Estes registros descrevem o produto existente. Não são apresentados como novos
 - Sessões de monitoramento só são abertas com a análise postural ativa, para não gravar sessões vazias. Com as análises postural e ocular inativas, a câmera não é ligada. O Monitoramento aguarda os módulos carregarem antes de ligar a câmera ou abrir uma sessão.
 - Situação: implementada.
 
+### RN-15 Webcam padrão
+
+- Origem e aprovação: solicitação do responsável pelo projeto em 01/11/2026.
+- `settings.web_cam` guarda o identificador (`deviceId`) da webcam padrão da conta; começa vazio. O valor é salvo quando o usuário escolhe uma câmera no seletor do Monitoramento, inclusive no da etapa de câmera da calibração.
+- Toda análise visual (Monitoramento e calibração) abre a webcam salva quando ela está conectada; sem valor salvo ou com a câmera desconectada, usa a primeira câmera disponível, sem apagar a preferência. Uma troca no seletor é mantida durante a sessão, mesmo se a gravação falhar; nesse caso o histórico informa o erro.
+- O backend aceita o identificador como enviado, recusando apenas valores em branco ou com mais de 512 caracteres; `null` remove a preferência. Visitantes não salvam a webcam.
+- Evidências: testes de `settings_service` (gravação, manutenção, remoção, validação e isolamento por conta) e testes Vitest do `WebcamFeed` e da página de Monitoramento.
+- Situação: implementada.
+
 ## Propostas pendentes de aprovação
 
 | ID | Proposta | Motivação e decisão necessária |

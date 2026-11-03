@@ -30,6 +30,10 @@ export interface WebcamFeedProps {
   isMonitoring: boolean;
   /** Why the camera is off regardless of the user's toggle; hides the start and calibrate actions. */
   disabledMessage?: string | null;
+  /** Saved default webcam; used whenever it is connected, otherwise the first camera. */
+  preferredDeviceId?: string | null;
+  /** Called only when the user picks a camera in the select, never for automatic choices. */
+  onDeviceSelect?: (deviceId: string) => void;
   onToggleMonitoring?: () => void;
   onCalibrate?: () => void;
   onPostureUpdate?: (metrics: {
@@ -88,6 +92,8 @@ const metricColor = (status: PostureStatus | null | undefined) => status ? STATU
 export default function WebcamFeed({
   isMonitoring,
   disabledMessage = null,
+  preferredDeviceId = null,
+  onDeviceSelect,
   onToggleMonitoring,
   onCalibrate,
   onPostureUpdate,
@@ -122,6 +128,8 @@ export default function WebcamFeed({
   // Estados de dispositivos e permissão
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
+  const preferredDeviceIdRef = useRef(preferredDeviceId);
+  preferredDeviceIdRef.current = preferredDeviceId;
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [isCameraMuted, setIsCameraMuted] = useState(false);
@@ -236,8 +244,14 @@ export default function WebcamFeed({
 
       if (videoInputs.length > 0) {
         setSelectedDeviceId((prev) => {
-          if (prev && videoInputs.some((d) => d.deviceId === prev)) {
+          const isConnected = (id: string | null) => Boolean(id) && videoInputs.some((d) => d.deviceId === id);
+          if (isConnected(prev)) {
             return prev;
+          }
+          // Without a valid selection (first load, IDs revealed after consent, unplugged camera)
+          // the saved default wins over the first camera.
+          if (isConnected(preferredDeviceIdRef.current)) {
+            return preferredDeviceIdRef.current!;
           }
           return videoInputs[0].deviceId;
         });
@@ -260,6 +274,17 @@ export default function WebcamFeed({
       navigator.mediaDevices?.removeEventListener("devicechange", handleDeviceChange);
     };
   }, [enumerateCameras]);
+
+  // A default loaded (or saved elsewhere) after the enumeration switches to it once connected.
+  // Applied once per value, so later enumerations keep a camera the user picked in the meantime.
+  const appliedPreferredDeviceIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (preferredDeviceId && preferredDeviceId !== appliedPreferredDeviceIdRef.current &&
+      devices.some((d) => d.deviceId === preferredDeviceId)) {
+      appliedPreferredDeviceIdRef.current = preferredDeviceId;
+      setSelectedDeviceId(preferredDeviceId);
+    }
+  }, [preferredDeviceId, devices]);
 
   const stopCurrentStream = useCallback(() => {
     resetOcularTracking();
@@ -853,7 +878,11 @@ export default function WebcamFeed({
               <Select
                 selectSize="sm"
                 value={selectedDeviceId}
-                onChange={(e) => setSelectedDeviceId(e.target.value)}
+                aria-label="Câmera"
+                onChange={(e) => {
+                  setSelectedDeviceId(e.target.value);
+                  onDeviceSelect?.(e.target.value);
+                }}
                 options={devices.map((d, i) => ({
                   label: d.label || `Câmera ${i + 1}`,
                   value: d.deviceId,

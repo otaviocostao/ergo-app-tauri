@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS settings (
     postural_analysis INTEGER NOT NULL DEFAULT 1 CHECK (postural_analysis IN (0, 1)),
     ocular_analysis INTEGER NOT NULL DEFAULT 1 CHECK (ocular_analysis IN (0, 1)),
     typing_analysis INTEGER NOT NULL DEFAULT 1 CHECK (typing_analysis IN (0, 1)),
+    web_cam TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );

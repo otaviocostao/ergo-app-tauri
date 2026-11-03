@@ -8,13 +8,16 @@ export interface ModuleSettings {
   posturalAnalysis: boolean;
   ocularAnalysis: boolean;
   typingAnalysis: boolean;
+  /** Device ID of the default webcam used by every visual analysis; null until one is chosen. */
+  webCam: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export type UpdateModuleSettingsPayload = Partial<Pick<ModuleSettings, "posturalAnalysis" | "ocularAnalysis" | "typingAnalysis">>;
+export type UpdateModuleSettingsPayload = Partial<Pick<ModuleSettings, "posturalAnalysis" | "ocularAnalysis" | "typingAnalysis" | "webCam">>;
+type ModuleField = "posturalAnalysis" | "ocularAnalysis" | "typingAnalysis";
 
-const MODULE_FIELDS: Record<Module, keyof UpdateModuleSettingsPayload> = {
+const MODULE_FIELDS: Record<Module, ModuleField> = {
   [Module.POSTURAL_ANALYSIS]: "posturalAnalysis",
   [Module.OCULAR_ANALYSIS]: "ocularAnalysis",
   [Module.TYPING_ANALYSIS]: "typingAnalysis",
@@ -52,5 +55,6 @@ export const settingsService = {
   update: (payload: UpdateModuleSettingsPayload): Promise<ModuleSettings> => invoke("update_settings", { payload }),
   setModuleEnabled: (module: Module, enabled: boolean): Promise<ModuleSettings> =>
     invoke("set_module_enabled", { payload: { module, enabled } }),
+  setWebCam: (webCam: string | null): Promise<ModuleSettings> => invoke("update_settings", { payload: { webCam } }),
   delete: (): Promise<boolean> => invoke("delete_settings"),
 };
