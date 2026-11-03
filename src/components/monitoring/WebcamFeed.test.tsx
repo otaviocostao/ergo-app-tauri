@@ -137,7 +137,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(1280);
     vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(720);
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => new DOMRect(0, 0, previewWidth, previewHeight));
-    const context = Object.fromEntries(["clearRect", "beginPath", "moveTo", "lineTo", "stroke", "arc", "fill", "setLineDash", "strokeRect"].map(name => [name, vi.fn()]));
+    const context = Object.fromEntries(["setTransform", "clearRect", "beginPath", "moveTo", "lineTo", "stroke", "arc", "fill", "setLineDash", "strokeRect"].map(name => [name, vi.fn()]));
     context.clearRect.mockImplementation(() => { drawnFrames.push({ segments: 0, points: 0 }); pointPositions.push([]); });
     context.lineTo.mockImplementation(() => { drawnFrames[drawnFrames.length - 1].segments += 1; });
     context.arc.mockImplementation((x: number, y: number) => {
@@ -204,7 +204,10 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     const firstHead = pointPositions[pointPositions.length - 1][0];
     for (const point of landmarks!) point.x += 0.1;
     await advance(200);
-    expect(pointPositions[pointPositions.length - 1][0].x).toBeCloseTo(firstHead.x - 80, 6);
+    expect(pointPositions.at(-1)![0].x).toBeGreaterThan(firstHead.x - 80);
+    expect(pointPositions.at(-1)![0].x).toBeLessThan(firstHead.x);
+    await advance(2000);
+    expect(pointPositions.at(-1)![0].x).toBeCloseTo(firstHead.x - 80, 6);
     const startButton = [...document.querySelectorAll("button")].find(b => b.textContent?.includes("Iniciar Calibração"));
     expect(startButton?.disabled).toBe(false);
     await renderCalibration(false);
@@ -376,6 +379,20 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     const canvas = container.querySelector("canvas")!;
     expect(canvas.width).toBe(800);
     expect(canvas.height).toBe(451);
+  });
+
+  it("scales the drawing buffer for DPR without changing the projected CSS coordinates", async () => {
+    vi.stubGlobal("devicePixelRatio", 2);
+    await render(); await advance(200);
+    const canvas = container.querySelector("canvas")!;
+    expect(canvas.width).toBe(1600);
+    expect(canvas.height).toBe(900);
+    expect(pointPositions.at(-1)?.[0].x).toBeCloseTo(400);
+    previewWidth = 600; previewHeight = 400;
+    await advance(32);
+    expect(canvas.width).toBe(1200);
+    expect(canvas.height).toBe(800);
+    expect(pointPositions.at(-1)?.[0].x).toBeCloseTo(300);
   });
 
   it("converges to exactly neutral displayed values instead of accumulating integer rounding error", async () => {

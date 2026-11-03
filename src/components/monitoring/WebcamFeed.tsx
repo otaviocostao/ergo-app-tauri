@@ -13,7 +13,7 @@ import Button from "../Button";
 import Select from "../Select";
 import { poseDetector, type LandmarkPoint, POSE_LANDMARK_INDEX } from "../../services/vision";
 import { calculatePoseAngles, type PoseAngles } from "../../services/vision/poseAngles";
-import { calculateHeadPitch, type Point2D } from "../../services/vision/biomechanics";
+import { calculateHeadPitch } from "../../services/vision/biomechanics";
 import { TemporalPostureFilter, type PostureAngles } from "../../services/vision/temporalPostureFilter";
 import { classifyPosture, getPostureStatusLabel } from "../../services/vision/postureClassifier";
 import { DEFAULT_POSTURE_CLASSIFICATION_CONFIG, type PostureClassificationConfig } from "../../services/vision/postureClassificationConfig";
@@ -23,6 +23,7 @@ import { createOcularMetricsState, isScreenDistancePoseUsable, updateOcularMetri
 import type { PostureCalibrationFrame } from "../../services/vision/postureCalibration";
 import type { PostureCalibrationDTO } from "../../types/postureCalibration";
 import type { UserPresenceState } from "../../types/vision";
+import { CanvasPose, metricColor } from "./canvasFeedback";
 
 export type { UserPresenceState };
 
@@ -61,27 +62,20 @@ export interface WebcamFeedProps {
  */
 const INFERENCE_INTERVAL_MS = 90;
 
-// Bridge short detection gaps without retaining stale body positions indefinitely.
-const OVERLAY_MAX_AGE_MS = 300;
-
-interface PoseOverlay {
-  head: Point2D;
-  leftShoulder: Point2D;
-  rightShoulder: Point2D;
-  detectedAt: number;
-}
-
 /**
  * Tempo de tolerância para ausência do usuário: 5 segundos.
  */
 const ABSENCE_THRESHOLD_MS = 5000;
 
-const STATUS_COLORS: Record<PostureStatus, string> = {
-  [PostureStatus.GOOD]: "rgba(16, 185, 129, 0.85)",
-  [PostureStatus.WARNING]: "rgba(245, 158, 11, 0.85)",
-  [PostureStatus.DANGER]: "rgba(239, 68, 68, 0.85)",
-};
-const metricColor = (status: PostureStatus | null | undefined) => status ? STATUS_COLORS[status] : "rgba(148, 163, 184, 0.85)";
+function drawJoint(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, color: string) {
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "#ffffff";
+  ctx.stroke();
+}
 
 export default function WebcamFeed({
   isMonitoring,
@@ -105,7 +99,7 @@ export default function WebcamFeed({
   const streamRef = useRef<MediaStream | null>(null);
   const cameraRequestRef = useRef(0);
   const postureFilterRef = useRef(new TemporalPostureFilter());
-  const lastOverlayRef = useRef<PoseOverlay | null>(null);
+  const overlayRef = useRef(new CanvasPose());
   const ocularStateRef = useRef(createOcularMetricsState());
   const onOcularUpdateRef = useRef(onOcularUpdate);
   const onCalibrationFrameRef = useRef(onCalibrationFrame);
@@ -262,7 +256,7 @@ export default function WebcamFeed({
     resetOcularTracking();
     cameraRequestRef.current += 1;
     postureFilterRef.current.reset();
-    lastOverlayRef.current = null;
+    overlayRef.current.reset();
     isCameraMutedRef.current = false;
     setIsCameraMuted(false);
     if (streamRef.current) {
@@ -351,7 +345,7 @@ export default function WebcamFeed({
           isCameraMutedRef.current = muted;
           setIsCameraMuted(muted);
           postureFilterRef.current.reset();
-          lastOverlayRef.current = null;
+          overlayRef.current.reset();
           lastLandmarksDetectedTimeRef.current = Date.now();
           // Keep metrics paused after unmute until a fresh valid frame arrives.
           if (presenceRef.current !== "PARTIALLY_OCCLUDED") {
@@ -454,17 +448,14 @@ export default function WebcamFeed({
         return;
       }
 
-      // Ajusta resolução do canvas para coincidir exatamente com as dimensões do container
-      if (canvas.parentElement) {
-        const rect = canvas.parentElement.getBoundingClientRect();
-        const width = Math.max(1, Math.round(rect.width));
-        const height = Math.max(1, Math.round(rect.height));
-        if (canvas.width !== width) canvas.width = width;
-        if (canvas.height !== height) canvas.height = height;
-      }
-
-      const w = canvas.width;
-      const h = canvas.height;
+      const rect = canvas.parentElement?.getBoundingClientRect();
+      const w = Math.max(1, Math.round(rect?.width ?? canvas.width));
+      const h = Math.max(1, Math.round(rect?.height ?? canvas.height));
+      const dpr = window.devicePixelRatio || 1;
+      const width = Math.round(w * dpr), height = Math.round(h * dpr);
+      if (canvas.width !== width) canvas.width = width;
+      if (canvas.height !== height) canvas.height = height;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       // Limpa canvas para novo desenho
       ctx.clearRect(0, 0, w, h);
@@ -621,12 +612,7 @@ export default function WebcamFeed({
         // 3. EXTRAÇÃO DE ÂNGULOS BIOMECÂNICOS & ATUALIZAÇÃO DE MÉTRICAS
         // -------------------------------------------------------------
         if (currentPoseDetected && poseAngles && headPitch !== null && detectionTimestampMs !== null && leftShoulderPt && rightShoulderPt) {
-          lastOverlayRef.current = {
-            head: { ...poseAngles.headCenter },
-            leftShoulder: { x: leftShoulderPt.x, y: leftShoulderPt.y },
-            rightShoulder: { x: rightShoulderPt.x, y: rightShoulderPt.y },
-            detectedAt: currentTime,
-          };
+          overlayRef.current.update(poseAngles.headCenter, leftShoulderPt, rightShoulderPt, currentTime);
           // Keep both upward and downward deviations; opposite signs must not
           // cancel in the filter, nor hide behind a centered image-plane vector.
           const rawNeckAngle = Math.max(poseAngles.neckAngle, Math.abs(headPitch));
@@ -688,29 +674,12 @@ export default function WebcamFeed({
       // -------------------------------------------------------------
       // 4. DESENHO DO ESQUELETO ERGONÔMICO NO CANVAS
       // -------------------------------------------------------------
-      const overlay = lastOverlayRef.current;
-      if (overlay && currentTime - overlay.detectedAt > OVERLAY_MAX_AGE_MS) {
-        lastOverlayRef.current = null;
-      }
       if (showOverlay && presenceRef.current !== "ABSENT") {
-        // Redraw the latest valid pose on every animation frame, between inferences.
-        if (lastOverlayRef.current) {
-          const { head: headPt, leftShoulder: leftShoulderPt, rightShoulder: rightShoulderPt } = lastOverlayRef.current;
-          // Match the video's centered object-cover crop and horizontal mirror.
-          const frameWidth = video?.videoWidth ? video.videoWidth : w;
-          const frameHeight = video?.videoHeight ? video.videoHeight : h;
-          const scale = Math.max(w / frameWidth, h / frameHeight);
-          const renderedWidth = frameWidth * scale;
-          const renderedHeight = frameHeight * scale;
-          const offsetX = (w - renderedWidth) / 2;
-          const offsetY = (h - renderedHeight) / 2;
-          const project = (point: Point2D) => ({
-            x: (1 - point.x) * renderedWidth + offsetX,
-            y: point.y * renderedHeight + offsetY,
-          });
-          const { x: headCanvasX, y: headCanvasY } = project(headPt);
-          const { x: leftShoulderCanvasX, y: leftShoulderCanvasY } = project(leftShoulderPt);
-          const { x: rightShoulderCanvasX, y: rightShoulderCanvasY } = project(rightShoulderPt);
+        const positions = overlayRef.current.drawPositions(currentTime, w, h, video?.videoWidth || w, video?.videoHeight || h);
+        if (positions) {
+          const headCanvasX = positions[0], headCanvasY = positions[1];
+          const leftShoulderCanvasX = positions[2], leftShoulderCanvasY = positions[3];
+          const rightShoulderCanvasX = positions[4], rightShoulderCanvasY = positions[5];
 
           const neckCanvasX = (leftShoulderCanvasX + rightShoulderCanvasX) / 2;
           const neckCanvasY = (leftShoulderCanvasY + rightShoulderCanvasY) / 2;
@@ -733,7 +702,7 @@ export default function WebcamFeed({
 
           // Alinhamento Escapular com o Tronco
           ctx.beginPath();
-          ctx.strokeStyle = "rgba(99, 102, 241, 0.55)";
+          ctx.strokeStyle = metricColor(lastClassificationRef.current?.metrics.shoulders.status);
           ctx.moveTo(neckCanvasX, neckCanvasY);
           ctx.lineTo(leftShoulderCanvasX, leftShoulderCanvasY);
           ctx.moveTo(neckCanvasX, neckCanvasY);
@@ -741,22 +710,12 @@ export default function WebcamFeed({
           ctx.stroke();
 
           // Pontos articulares com halo suave
-          const points = [
-            { x: headCanvasX, y: headCanvasY, r: 7, color: "#10b981" },
-            { x: neckCanvasX, y: neckCanvasY, r: 5, color: "#6366f1" },
-            { x: leftShoulderCanvasX, y: leftShoulderCanvasY, r: 6, color: "#3b82f6" },
-            { x: rightShoulderCanvasX, y: rightShoulderCanvasY, r: 6, color: "#3b82f6" },
-          ];
-
-          points.forEach((p) => {
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-            ctx.fillStyle = p.color;
-            ctx.fill();
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = "#ffffff";
-            ctx.stroke();
-          });
+          const neckColor = metricColor(lastClassificationRef.current?.metrics.neck.status);
+          const shoulderColor = metricColor(lastClassificationRef.current?.metrics.shoulders.status);
+          drawJoint(ctx, headCanvasX, headCanvasY, 7, neckColor);
+          drawJoint(ctx, neckCanvasX, neckCanvasY, 5, neckColor);
+          drawJoint(ctx, leftShoulderCanvasX, leftShoulderCanvasY, 6, shoulderColor);
+          drawJoint(ctx, rightShoulderCanvasX, rightShoulderCanvasY, 6, shoulderColor);
         }
 
         // Guia Ergonômico de Enquadramento Facial / Distância
