@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { monitoringSessionService } from "../services/monitoringSessionService";
 import { postureMetricSnapshotService } from "../services/postureMetricSnapshotService";
 import { postureAlertService } from "../services/postureAlertService";
 import { MetricAggregation, frameFromClassification } from "../services/monitoring/metricAggregation";
-import { PostureAlertEpisodes } from "../services/monitoring/postureAlertEpisodes";
+import { PostureAlertEpisodes, type AlertResolution } from "../services/monitoring/postureAlertEpisodes";
 import type { PostureAlertCondition, PostureClassification, PostureMetric } from "../types/postureClassification";
 
 export interface RecordingEvent {
@@ -19,6 +19,9 @@ interface Recorder {
 // A new page/session must wait for pending writes and the previous session's end.
 // This also handles React StrictMode's setup/cleanup/setup cycle.
 let sessionLifecycle: Promise<void> = Promise.resolve();
+let unfinishedClose: (() => Promise<void>) | null = null;
+
+export type RecordingStatus = "idle" | "starting" | "active" | "ending" | "error";
 
 /**
  * Persists a monitoring session: 60s aggregate snapshots and one alert per confirmed
@@ -32,30 +35,66 @@ export function useMetricRecording(
   const recorderRef = useRef<Recorder | null>(null);
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
+  const ownerRef = useRef(userId);
+  ownerRef.current = userId;
+  const mountedRef = useRef(false);
+  const generationRef = useRef(0);
+  const [retryKey, setRetryKey] = useState(0);
+  const [status, setStatus] = useState<RecordingStatus>("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     if (!enabled) return;
+    const generation = ++generationRef.current;
     let cancelled = false;
+    let closed = false;
     let sessionId: string | null = null;
     let recorder: Recorder | null = null;
     let timer: ReturnType<typeof setInterval> | undefined;
     let writes = Promise.resolve();
     const openAlertIds = new Map<PostureMetric, string | null>();
+    const resolutions = new Map<string, AlertResolution>();
+
+    const publish = (next: RecordingStatus, message: string | null = null) => {
+      if (mountedRef.current && ownerRef.current === userId && generationRef.current === generation) {
+        setStatus(next);
+        setError(message);
+      }
+    };
 
     const reportError = (message: string, error: unknown) => {
       console.error(message, error);
-      if (!cancelled) onEventRef.current({ type: "error", message });
+      if (mountedRef.current && ownerRef.current === userId && generationRef.current === generation) onEventRef.current({ type: "error", message });
     };
     const enqueue = (write: () => Promise<unknown>, errorMessage: string) => {
       writes = writes.then(write).then(() => undefined).catch(error => reportError(errorMessage, error));
     };
 
+    publish("starting");
+    setElapsedSeconds(0);
+    const resolveEpisode = async (id: string, resolution: AlertResolution) => {
+      await postureAlertService.resolveAlert({ id, ...resolution });
+      resolutions.delete(id);
+    };
+
     sessionLifecycle = sessionLifecycle.then(async () => {
+      if (cancelled) return;
+      if (unfinishedClose) {
+        await unfinishedClose();
+        unfinishedClose = null;
+      }
       if (cancelled) return;
       const session = await monitoringSessionService.startSession({ userId });
       sessionId = session?.id ?? null;
       // Services return null in browser previews; no fabricated session IDs.
-      if (cancelled || !sessionId) return;
+      if (cancelled) return;
+      if (!sessionId) { publish("active"); return; }
       recorder = {
         aggregation: new MetricAggregation({
           sessionId,
@@ -71,19 +110,29 @@ export function useMetricRecording(
             "Não foi possível salvar o alerta de postura.",
           ),
           // Writes are serialized, so the alert's ID is known when its resolution runs.
-          onAlertResolved: (metric, resolution) => enqueue(
-            async () => {
+          onAlertResolved: (metric, resolution) => {
+            enqueue(async () => {
               const id = openAlertIds.get(metric);
               openAlertIds.delete(metric);
-              if (id) await postureAlertService.resolveAlert({ id, ...resolution });
-            },
-            "Não foi possível atualizar a duração do alerta de postura.",
-          ),
+              if (id) {
+                resolutions.set(id, resolution);
+                await resolveEpisode(id, resolution);
+              }
+            }, "Não foi possível atualizar a duração do alerta de postura.");
+          },
         }),
       };
       recorderRef.current = recorder;
-      timer = setInterval(() => recorder?.aggregation.tick(performance.now()), 1000);
-    }).catch(error => reportError("Não foi possível iniciar a sessão de monitoramento.", error));
+      publish("active");
+      timer = setInterval(() => {
+        recorder?.aggregation.tick(performance.now());
+        if (!cancelled) setElapsedSeconds(recorder?.aggregation.sessionSummary().durationSeconds ?? 0);
+      }, 1000);
+    }).catch(error => {
+      const message = unfinishedClose ? "Não foi possível finalizar a sessão anterior. Tente novamente." : "Não foi possível iniciar a sessão de monitoramento.";
+      publish("error", message);
+      reportError(message, error);
+    });
 
     return () => {
       cancelled = true;
@@ -92,14 +141,44 @@ export function useMetricRecording(
       recorder?.aggregation.pause();
       recorder?.episodes.pause();
       const endedAt = new Date().toISOString();
-      sessionLifecycle = sessionLifecycle.then(async () => {
+      publish("ending");
+      const close = async () => {
+        if (closed) return;
         await writes;
+        for (const [id, resolution] of resolutions) await resolveEpisode(id, resolution);
         if (sessionId) {
           await monitoringSessionService.endSession({ id: sessionId, endedAt, ...recorder?.aggregation.sessionSummary() });
         }
-      }).catch(error => reportError("Não foi possível finalizar a sessão de monitoramento.", error));
+        closed = true;
+        if (unfinishedClose === close) unfinishedClose = null;
+      };
+      sessionLifecycle = sessionLifecycle.then(close).then(() => publish("idle")).catch(error => {
+        unfinishedClose = close;
+        const message = "Não foi possível finalizar a sessão de monitoramento. Tente novamente.";
+        publish("error", message);
+        reportError(message, error);
+      });
     };
-  }, [enabled, userId]);
+  }, [enabled, userId, retryKey]);
+
+  const retry = useCallback(() => {
+    if (status !== "error") return;
+    if (enabled) { setRetryKey(value => value + 1); return; }
+    if (!unfinishedClose) { setStatus("idle"); setError(null); return; }
+    const owner = userId;
+    setStatus("ending"); setError(null);
+    sessionLifecycle = sessionLifecycle.then(async () => {
+      await unfinishedClose?.();
+      unfinishedClose = null;
+      if (mountedRef.current && ownerRef.current === owner) setStatus("idle");
+    }).catch(error => {
+      console.error("Failed to finalize monitoring session", error);
+      if (mountedRef.current && ownerRef.current === owner) {
+        setStatus("error");
+        setError("Não foi possível finalizar a sessão de monitoramento. Tente novamente.");
+      }
+    });
+  }, [enabled, status, userId]);
 
   /** Call per classification with the hysteresis alerts and blinks since the previous call. */
   const recordClassification = useCallback((
@@ -117,5 +196,5 @@ export function useMetricRecording(
     recorderRef.current?.aggregation.pause();
     recorderRef.current?.episodes.pause();
   }, []);
-  return { recordClassification, pause };
+  return { recordClassification, pause, status, error, elapsedSeconds, retry };
 }

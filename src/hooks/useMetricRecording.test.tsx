@@ -221,4 +221,68 @@ describe("useMetricRecording IPC lifecycle", () => {
     clearInterval(frameTimer);
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it("publishes starting and ending until pending IPC operations actually complete", async () => {
+    let finishStart!: (session: { id: string }) => void;
+    let finishEnd!: () => void;
+    ipc.invoke.mockImplementation((command: string) => {
+      if (command === "start_monitoring_session") return new Promise(resolve => { finishStart = resolve; });
+      if (command === "end_monitoring_session") return new Promise<void>(resolve => { finishEnd = resolve; });
+      return Promise.resolve();
+    });
+    await render();
+    expect(recorder.status).toBe("starting");
+    await act(async () => finishStart({ id: "pending" }));
+    expect(recorder.status).toBe("active");
+    await render(false);
+    expect(recorder.status).toBe("ending");
+    await act(async () => finishEnd());
+    expect(recorder.status).toBe("idle");
+    expect(commands()).toEqual(["start_monitoring_session", "end_monitoring_session"]);
+  });
+
+  it("reports a failed end and retries the same session without creating another", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const implementation = ipc.invoke.getMockImplementation()!;
+    let fail = true;
+    ipc.invoke.mockImplementation((command: string, args?: { payload?: unknown }) => {
+      if (command === "end_monitoring_session" && fail) { fail = false; return Promise.reject(new Error("offline")); }
+      return implementation(command, args);
+    });
+    await render(); await render(false);
+    expect(recorder.status).toBe("error");
+    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("finalizar") }));
+    await act(async () => recorder.retry());
+    expect(recorder.status).toBe("idle");
+    expect(sessionNumber).toBe(1);
+    const ends = ipc.invoke.mock.calls.filter(([command]) => command === "end_monitoring_session");
+    expect(ends).toHaveLength(2);
+    expect(ends[0][1]).toEqual(ends[1][1]);
+  });
+
+  it("recovers from a failed start without leaving a timer or ending an invented session", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    ipc.invoke.mockRejectedValueOnce(new Error("unavailable"));
+    await render();
+    expect(recorder.status).toBe("error");
+    expect(vi.getTimerCount()).toBe(0);
+    await act(async () => recorder.retry());
+    expect(recorder.status).toBe("active");
+    expect(commands().filter(command => command === "end_monitoring_session")).toHaveLength(0);
+  });
+
+  it("retries failed alert resolutions before closing the session", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const implementation = ipc.invoke.getMockImplementation()!;
+    let attempts = 0;
+    ipc.invoke.mockImplementation((command: string, args?: { payload?: unknown }) => {
+      if (command === "resolve_posture_alert" && attempts++ === 0) return Promise.reject(new Error("busy"));
+      return implementation(command, args);
+    });
+    await render(); feed("danger"); await advance(21_000);
+    await render(false);
+    expect(attempts).toBe(2);
+    expect(commands().at(-1)).toBe("end_monitoring_session");
+    expect(recorder.status).toBe("idle");
+  });
 });
