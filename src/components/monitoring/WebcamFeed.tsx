@@ -851,9 +851,10 @@ export default function WebcamFeed({
         </div>
 
         <div className="flex items-center gap-2">
-          {devices.length > 0 && !isHardwareBusy && (
+          {devices.length > 0 && (
             <div className="hidden sm:block w-48">
               <Select
+                aria-label="Selecionar câmera"
                 selectSize="sm"
                 value={selectedDeviceId}
                 onChange={(e) => setSelectedDeviceId(e.target.value)}

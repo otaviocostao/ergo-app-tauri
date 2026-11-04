@@ -47,7 +47,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   const ocularUpdate = vi.fn<(metrics: OcularMetrics | null) => void>();
   const calibrationUpdate = vi.fn<(frame: PostureCalibrationFrame | null) => void>();
   const classificationUpdate = vi.fn<(classification: PostureClassification | null) => void>();
-  const getUserMedia = vi.fn<() => Promise<MediaStream>>();
+  const getUserMedia = vi.fn<(constraints: MediaStreamConstraints) => Promise<MediaStream>>();
 
   function makeStream(muted = false) {
     const track = {
@@ -599,6 +599,64 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     expect(oldTrack.stop).toHaveBeenCalledOnce();
     expect(select.value).toBe("camera-2");
     expect(update.mock.calls[0][0]).toMatchObject({ neckAngle: 0, shoulderBalance: 100 });
+  });
+
+  it.each(["NotReadableError", "TrackStartError", "AbortError"])("keeps the camera selector usable after a virtual camera fails with %s", async errorName => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(navigator.mediaDevices.enumerateDevices).mockResolvedValue([
+      { kind: "videoinput", deviceId: "camera-1", label: "USB camera" },
+      { kind: "videoinput", deviceId: "obs", label: "OBS Virtual Camera" },
+    ] as MediaDeviceInfo[]);
+    getUserMedia.mockImplementation(async constraints => {
+      const id = typeof constraints.video === "object" ? constraints.video.deviceId : null;
+      if (typeof id === "object" && id !== null && "exact" in id && id.exact === "obs") {
+        throw new DOMException("Could not start video source", errorName);
+      }
+      const item = makeStream(); streams.push(item); return item.stream;
+    });
+    await render(); await advance(200);
+    const select = container.querySelector("select")!;
+    const originalTrack = streams[streams.length - 1].track;
+    await act(async () => {
+      select.value = "obs";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await advance(200);
+    expect(originalTrack.stop).toHaveBeenCalledOnce();
+    expect(hardware.mock.lastCall?.[0]).toBe(true);
+    expect(container.querySelector("select")).toBe(select);
+    expect(select.disabled).toBe(false);
+    expect(select.value).toBe("obs");
+    expect([...select.options].map(option => option.value)).toEqual(["camera-1", "obs"]);
+    await act(async () => {
+      select.value = "camera-1";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await advance(200);
+    expect(hardware.mock.lastCall?.[0]).toBe(false);
+    expect(container.querySelector("video")?.srcObject).toBe(streams[streams.length - 1].stream);
+    expect(update.mock.lastCall?.[0].presence).toBe("ACTIVE");
+  });
+
+  it("lets users choose another camera after the active track ends", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(navigator.mediaDevices.enumerateDevices).mockResolvedValue([
+      { kind: "videoinput", deviceId: "camera-1", label: "First camera" },
+      { kind: "videoinput", deviceId: "camera-2", label: "Second camera" },
+    ] as MediaDeviceInfo[]);
+    await render(); await advance(200);
+    const select = container.querySelector("select")!;
+    const track = streams[streams.length - 1].track;
+    await act(async () => track.onended?.call(track as unknown as MediaStreamTrack, new Event("ended")));
+    expect(container.querySelector("select")).toBe(select);
+    await act(async () => {
+      select.value = "camera-2";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await advance(200);
+    expect(select.value).toBe("camera-2");
+    expect(hardware.mock.lastCall?.[0]).toBe(false);
+    expect(update.mock.lastCall?.[0].presence).toBe("ACTIVE");
   });
 
   it("resets angular history after the hardware ends a previously active stream", async () => {
