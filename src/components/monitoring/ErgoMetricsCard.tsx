@@ -15,6 +15,8 @@ export interface ErgoMetricsCardProps {
   details?: { label: string; value: string }[];
   className?: string;
   isPaused?: boolean;
+  /** Label of the disabled module this card depends on; replaces the measurement. */
+  inactiveModule?: string | null;
 }
 
 export default function ErgoMetricsCard({
@@ -30,6 +32,7 @@ export default function ErgoMetricsCard({
   details,
   className = "",
   isPaused = false,
+  inactiveModule = null,
 }: ErgoMetricsCardProps) {
   const statusStyles: Record<MetricStatus, { bg: string; text: string; badgeBg: string; badgeText: string; progressBg: string }> = {
     good: {
@@ -69,7 +72,24 @@ export default function ErgoMetricsCard({
     },
   };
 
-  const style = isPaused ? statusStyles.paused : statusStyles[status];
+  const style = isPaused || inactiveModule ? statusStyles.paused : statusStyles[status];
+
+  if (inactiveModule) {
+    return (
+      <div data-module-inactive="true" className={`relative rounded-xl border p-4 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 ${className}`}>
+        <div className="flex items-center gap-2.5 mb-3">
+          <div className={`p-2 rounded-lg ${style.badgeBg} ${style.text}`}>
+            <Icon size={18} />
+          </div>
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">{title}</h3>
+        </div>
+        <p className="text-base font-semibold text-slate-500 dark:text-slate-400">Módulo inativo</p>
+        <p className="mt-1 text-xs leading-5 text-slate-400 dark:text-slate-500">
+          {inactiveModule} desativada em Configurações → Módulos.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div

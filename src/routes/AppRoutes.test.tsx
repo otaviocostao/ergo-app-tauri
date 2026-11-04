@@ -11,6 +11,8 @@ import { postureService } from "../services/postureService";
 import { classifyPosture } from "../services/vision/postureClassifier";
 import { waitForRecordingWrites } from "../hooks/useMetricRecording";
 import type { PostureCalibrationDTO } from "../types/postureCalibration";
+import { settingsService, type ModuleSettings } from "../services/settingsService";
+import { Module } from "../enums/module";
 
 const ipc = vi.hoisted(() => ({ invoke: vi.fn() }));
 const view = vi.hoisted(() => ({
@@ -138,6 +140,44 @@ describe("monitoring across authenticated routes", () => {
     expect(view.feed!.recordingStatus).toBe("idle");
     expect(calls("start_monitoring_session")).toHaveLength(1);
     expect(calls("end_monitoring_session")).toHaveLength(1);
+  });
+
+  it("applies module and webcam changes from Settings without remounting or restarting unchanged monitoring", async () => {
+    let settings: ModuleSettings = {
+      id: "settings-1", userId: 1, posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true,
+      webCam: "camera-1", createdAt: "", updatedAt: "",
+    };
+    ipc.invoke.mockImplementation(async (command: string, args?: { payload?: Record<string, unknown> }) => {
+      if (command === "get_settings") return settings;
+      if (command === "set_module_enabled") {
+        const field = args?.payload?.module === Module.POSTURAL_ANALYSIS ? "posturalAnalysis" : "ocularAnalysis";
+        settings = { ...settings, [field]: args?.payload?.enabled };
+        return settings;
+      }
+      if (command === "update_settings") { settings = { ...settings, ...args?.payload }; return settings; }
+      if (command === "start_monitoring_session") return { id: `session-${calls(command).length}` };
+      return args?.payload;
+    });
+    await render(); await navigate("Monitorar"); await toggle();
+    const originalCamera = camera();
+    await navigate("Configurações");
+    await act(async () => { await settingsService.setWebCam("camera-2"); });
+    expect(view.feed!.preferredDeviceId).toBe("camera-2");
+    expect(view.modal!.preferredDeviceId).toBe("camera-2");
+    expect(calls("start_monitoring_session")).toHaveLength(1);
+    expect(calls("end_monitoring_session")).toHaveLength(0);
+    await act(async () => { await settingsService.setModuleEnabled(Module.POSTURAL_ANALYSIS, false); });
+    expect(calls("end_monitoring_session")).toHaveLength(1);
+    expect(view.feed!.isMonitoring).toBe(true); // Ocular capture continues without a posture session.
+    expect(view.feed!.moduleSettings?.posturalAnalysis).toBe(false);
+    await act(async () => { await settingsService.setModuleEnabled(Module.OCULAR_ANALYSIS, false); });
+    expect(view.feed!.isMonitoring).toBe(false);
+    await act(async () => { await settingsService.setModuleEnabled(Module.POSTURAL_ANALYSIS, true); });
+    expect(view.feed!.isMonitoring).toBe(true);
+    expect(calls("start_monitoring_session")).toHaveLength(2);
+    await navigate("Monitorar");
+    expect(camera()).toBe(originalCamera);
+    expect(view.feed!.preferredDeviceId).toBe("camera-2");
   });
 
   it.each(["/MONITORING", "/monitoring/"])("recognizes the monitoring route at %s", async path => {

@@ -2,6 +2,7 @@ pub mod auth;
 pub mod dashboard;
 pub mod company;
 pub mod reminder;
+pub mod settings;
 pub mod user;
 pub mod user_theme;
 pub mod workspace;

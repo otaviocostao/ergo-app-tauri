@@ -59,6 +59,11 @@ pub fn run() {
             commands::reminder::update_reminder,
             commands::reminder::delete_reminder,
             commands::reminder::toggle_reminder_status,
+            // Settings (analysis modules)
+            commands::settings::get_settings,
+            commands::settings::update_settings,
+            commands::settings::delete_settings,
+            commands::settings::set_module_enabled,
             // Companies
             commands::company::get_companies,
             commands::company::get_company_by_id,

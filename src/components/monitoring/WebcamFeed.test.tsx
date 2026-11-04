@@ -412,6 +412,20 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     expect(container.querySelector('[aria-label="Métricas ao vivo"]')).toBeNull();
   });
 
+  it("does not display metrics of a disabled posture module in live badges", async () => {
+    faceLandmarks = ocularFace();
+    await act(async () => root.render(<WebcamFeed isMonitoring calibration={baseline}
+      onClassificationUpdate={classificationUpdate} onOcularUpdate={ocularUpdate}
+      moduleSettings={{ id: "settings-1", userId: 1, posturalAnalysis: false, ocularAnalysis: true,
+        typingAnalysis: true, webCam: null, createdAt: "", updatedAt: "" }} />));
+    mounted = true; await advance(300);
+    expect(classificationUpdate.mock.lastCall?.[0]?.metrics.neck.value).toBeNull();
+    expect(classificationUpdate.mock.lastCall?.[0]?.metrics.shoulders.value).toBeNull();
+    expect(classificationUpdate.mock.lastCall?.[0]?.metrics.distance.value).toBeNull();
+    expect(container.querySelector('[aria-label="Métricas ao vivo"]')?.textContent).not.toContain("0.0 °");
+    expect(ocularUpdate.mock.lastCall?.[0]?.distanceCm).toBeCloseTo(60);
+  });
+
   it("continues classifying video when the retained page has no visible preview size", async () => {
     await render(); await advance(400);
     const stream = streams.find(item => item.track.stop.mock.calls.length === 0)!;
@@ -657,6 +671,70 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     expect(select.value).toBe("camera-2");
     expect(hardware.mock.lastCall?.[0]).toBe(false);
     expect(update.mock.lastCall?.[0].presence).toBe("ACTIVE");
+  });
+
+  describe("default webcam", () => {
+    const deviceSelect = vi.fn<(deviceId: string) => void>();
+    const requestedDevice = () => {
+      const [constraints] = getUserMedia.mock.lastCall as unknown as [MediaStreamConstraints];
+      return ((constraints.video as MediaTrackConstraints).deviceId as ConstrainDOMStringParameters).exact;
+    };
+
+    async function renderWithDefault(preferredDeviceId: string | null) {
+      await act(async () => root.render(<WebcamFeed isMonitoring preferredDeviceId={preferredDeviceId} onDeviceSelect={deviceSelect} />));
+      mounted = true;
+      await advance(200);
+    }
+
+    beforeEach(() => {
+      deviceSelect.mockReset();
+      vi.mocked(navigator.mediaDevices.enumerateDevices).mockResolvedValue([
+        { kind: "videoinput", deviceId: "camera-1", label: "First camera" },
+        { kind: "videoinput", deviceId: "camera-2", label: "Second camera" },
+      ] as MediaDeviceInfo[]);
+    });
+
+    it("opens the saved webcam and reports only the user's own choice", async () => {
+      await renderWithDefault("camera-2");
+      const select = container.querySelector<HTMLSelectElement>('select[aria-label="Selecionar câmera"]')!;
+      expect(select.value).toBe("camera-2");
+      expect(requestedDevice()).toBe("camera-2");
+      expect(deviceSelect).not.toHaveBeenCalled();
+
+      await act(async () => {
+        select.value = "camera-1";
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await advance(100);
+      expect(deviceSelect).toHaveBeenCalledExactlyOnceWith("camera-1");
+      expect(requestedDevice()).toBe("camera-1");
+    });
+
+    it("uses the first camera while the saved one is missing and switches once it is available", async () => {
+      await renderWithDefault("camera-9");
+      expect(container.querySelector("select")!.value).toBe("camera-1");
+      expect(requestedDevice()).toBe("camera-1");
+
+      await renderWithDefault("camera-2");
+      expect(container.querySelector("select")!.value).toBe("camera-2");
+      expect(requestedDevice()).toBe("camera-2");
+      expect(deviceSelect).not.toHaveBeenCalled();
+    });
+
+    it("keeps the first camera when there is no saved default", async () => {
+      await renderWithDefault(null);
+      expect(requestedDevice()).toBe("camera-1");
+      expect(deviceSelect).not.toHaveBeenCalled();
+    });
+
+    it("calibrates with the saved webcam", async () => {
+      await act(async () => root.render(<WorkspaceCalibrationModal isOpen onClose={vi.fn()} onCalibrateSubmit={vi.fn()}
+        preferredDeviceId="camera-2" onDeviceSelect={deviceSelect} />));
+      mounted = true;
+      await reachCalibrationCamera(); await advance(200);
+      expect(container.ownerDocument.querySelector<HTMLSelectElement>('select[aria-label="Selecionar câmera"]')!.value).toBe("camera-2");
+      expect(requestedDevice()).toBe("camera-2");
+    });
   });
 
   it("resets angular history after the hardware ends a previously active stream", async () => {

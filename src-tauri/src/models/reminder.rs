@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
+use crate::models::settings::Module;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SystemReminderType {
@@ -32,6 +34,23 @@ impl SystemReminderType {
         Self::ALL
             .into_iter()
             .find(|kind| kind.reminder_id(user_id) == id)
+    }
+
+    /// Disabling this module turns the notice off and keeps it off until re-enabled.
+    pub fn module(self) -> Module {
+        match self {
+            Self::PostureCheck | Self::MovementBreak => Module::PosturalAnalysis,
+            Self::VisualBreak => Module::OcularAnalysis,
+        }
+    }
+}
+
+/// Custom reminders follow their category, with the same links as the system notices.
+pub fn category_module(category: &str) -> Option<Module> {
+    match category {
+        "Postura" | "Exercício" => Some(Module::PosturalAnalysis),
+        "Pausa Visual" => Some(Module::OcularAnalysis),
+        _ => None,
     }
 }
 
@@ -120,6 +139,15 @@ pub struct Reminder {
     pub last_sent_at: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
+}
+
+impl Reminder {
+    /// Module whose deactivation turns this reminder off; none for unrelated categories.
+    pub fn module(&self) -> Option<Module> {
+        self.system_type
+            .map(SystemReminderType::module)
+            .or_else(|| category_module(&self.category))
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -57,6 +57,9 @@ export interface WorkspaceCalibrationModalProps {
   onPostureUpdate?: WebcamFeedProps["onPostureUpdate"];
   onPresenceChange?: WebcamFeedProps["onPresenceChange"];
   userId?: number | null;
+  /** The user's default webcam, so calibration uses the same camera as monitoring. */
+  preferredDeviceId?: WebcamFeedProps["preferredDeviceId"];
+  onDeviceSelect?: WebcamFeedProps["onDeviceSelect"];
 }
 
 export interface SetupStep {
@@ -75,6 +78,8 @@ export default function WorkspaceCalibrationModal({
   onPostureUpdate,
   onPresenceChange,
   userId: propUserId,
+  preferredDeviceId,
+  onDeviceSelect,
 }: WorkspaceCalibrationModalProps) {
   const auth = useOptionalAuth();
   const currentUserId = propUserId ?? (auth?.session.kind === "authenticated" ? auth.session.user.id : null);
@@ -651,6 +656,8 @@ export default function WorkspaceCalibrationModal({
             <WebcamFeed
               isMonitoring={isOpen}
               showMetricBadges={false}
+              preferredDeviceId={preferredDeviceId}
+              onDeviceSelect={onDeviceSelect}
               onPostureUpdate={onPostureUpdate}
               onPresenceChange={onPresenceChange}
               onCalibrationFrame={(frame) => {

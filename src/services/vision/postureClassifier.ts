@@ -87,11 +87,18 @@ export function classifyPosture(
     distance: measurement(observation.distanceCm, classifyScreenDistance(observation.distanceCm, config)),
     "blink-rate": measurement(observation.blinkRate?.blinksPerMinute ?? null, classifyBlinkFrequency(observation.blinkRate, config)),
   };
+  return {
+    timestampMs: observation.timestampMs, captureId: observation.captureId, baselineId: active?.id ?? null,
+    metrics, postureStatus: getPostureStatus(metrics),
+  };
+}
+
+/** Worst available neck/shoulder/distance status; the blink rate does not affect posture. */
+export function getPostureStatus(metrics: PostureClassification["metrics"]): PostureStatus | null {
   const statuses = [metrics.neck.status, metrics.shoulders.status, metrics.distance.status];
-  const postureStatus = statuses.includes(PostureStatus.DANGER) ? PostureStatus.DANGER
+  return statuses.includes(PostureStatus.DANGER) ? PostureStatus.DANGER
     : statuses.includes(PostureStatus.WARNING) ? PostureStatus.WARNING
       : statuses.includes(PostureStatus.GOOD) ? PostureStatus.GOOD : null;
-  return { timestampMs: observation.timestampMs, captureId: observation.captureId, baselineId: active?.id ?? null, metrics, postureStatus };
 }
 
 /** Existing status output labels, derived from the same metric classification as the cards. */

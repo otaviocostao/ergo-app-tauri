@@ -12,10 +12,12 @@ import { userService } from "../services/userService";
 import { workspaceService, type WorkspaceItem } from "../services/workspaceService";
 import { FormatterHelper } from "../helpers/FormatterHelper";
 import ReminderList from "../components/Reminder/ReminderList";
+import ModuleSettingsPanel from "../components/Modules/ModuleSettingsPanel";
 import { useTheme } from "../theme/ThemeContext";
 import { themeOptions, type ThemePreference } from "../theme/theme";
 
-type SettingsTab = "user" | "company" | "theme" | "workspace" | "notices";
+type SettingsTab = "user" | "company" | "theme" | "workspace" | "modules" | "notices";
+const SETTINGS_TABS: readonly SettingsTab[] = ["user", "company", "theme", "workspace", "modules", "notices"];
 
 const yesNoOptions = [
   { label: "Sim", value: "sim" },
@@ -39,7 +41,7 @@ export default function Settings() {
   const user = session.kind === "authenticated" ? session.user : null;
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get("tab");
-  const activeTab: SettingsTab = requestedTab === "company" || requestedTab === "theme" || requestedTab === "workspace" || requestedTab === "notices" ? requestedTab : "user";
+  const activeTab: SettingsTab = SETTINGS_TABS.find((tab) => tab === requestedTab) ?? "user";
   const setActiveTab = useCallback((tab: SettingsTab) => {
     setSearchParams((previous) => {
       const next = new URLSearchParams(previous);
@@ -219,6 +221,7 @@ export default function Settings() {
     ...(company ? [{ id: "company" as const, label: "Empresa" }] : []),
     { id: "theme", label: "Tema" },
     { id: "workspace", label: "Ambiente de Trabalho" },
+    { id: "modules", label: "Módulos" },
     { id: "notices", label: "Avisos de ergonomia" },
   ];
 
@@ -405,7 +408,7 @@ export default function Settings() {
     <div className="w-full min-h-full pb-8">
       <Header
         title="Configurações"
-        subtitle="Gerencie seu perfil, aparência, ambiente de trabalho e avisos de ergonomia."
+        subtitle="Gerencie seu perfil, aparência, ambiente de trabalho, módulos e avisos de ergonomia."
       />
 
       <div className="mb-6 flex gap-6 overflow-x-auto border-b border-gray-200 dark:border-slate-800">
@@ -424,6 +427,8 @@ export default function Settings() {
           </button>
         ))}
       </div>
+
+      {activeTab === "modules" && <ModuleSettingsPanel />}
 
       {activeTab === "notices" && <ReminderList kind="system" />}
 

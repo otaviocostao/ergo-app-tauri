@@ -26,11 +26,19 @@ import type { UserPresenceState } from "../../types/vision";
 import { CanvasPose, metricColor } from "./canvasFeedback";
 import { LightingFeedback } from "./lightingFeedback";
 import type { RecordingStatus } from "../../hooks/useMetricRecording";
+import type { ModuleSettings } from "../../services/settingsService";
+import { restrictClassificationToModules } from "../../services/monitoring/moduleClassification";
 
 export type { UserPresenceState };
 
 export interface WebcamFeedProps {
   isMonitoring: boolean;
+  /** Why the camera is off regardless of the user's toggle; hides the start and calibrate actions. */
+  disabledMessage?: string | null;
+  /** Saved default webcam; used whenever it is connected, otherwise the first camera. */
+  preferredDeviceId?: string | null;
+  /** Called only when the user picks a camera in the select, never for automatic choices. */
+  onDeviceSelect?: (deviceId: string) => void;
   onToggleMonitoring?: () => void;
   recordingStatus?: RecordingStatus;
   onCalibrate?: () => void;
@@ -52,6 +60,7 @@ export interface WebcamFeedProps {
   /** Per-inference classification, including unavailable metrics. Null on capture reset. */
   onClassificationUpdate?: (classification: PostureClassification | null) => void;
   classificationConfig?: PostureClassificationConfig;
+  moduleSettings?: ModuleSettings | null;
   /** Explicit calibration context; absent until the distance calibration flow exists. */
   distanceReference?: ScreenDistanceReference | null;
   /** Saved posture calibration containing distance baseline. Used to derive distanceReference dynamically when video dimensions are known. */
@@ -84,6 +93,9 @@ function drawJoint(ctx: CanvasRenderingContext2D, x: number, y: number, radius: 
 
 export default function WebcamFeed({
   isMonitoring,
+  disabledMessage = null,
+  preferredDeviceId = null,
+  onDeviceSelect,
   onToggleMonitoring,
   recordingStatus,
   onCalibrate,
@@ -95,6 +107,7 @@ export default function WebcamFeed({
   onCalibrationFrame,
   onClassificationUpdate,
   classificationConfig = DEFAULT_POSTURE_CLASSIFICATION_CONFIG,
+  moduleSettings = null,
   distanceReference = null,
   calibration = null,
   showMetricBadges = true,
@@ -115,6 +128,7 @@ export default function WebcamFeed({
   const lastClassificationRef = useRef<PostureClassification | null>(null);
   const distanceReferenceRef = useRef(distanceReference);
   const calibrationRef = useRef(calibration);
+  const moduleSettingsRef = useRef(moduleSettings);
   const derivedDistanceRef = useRef<ScreenDistanceReference | null>(null);
   const lightingRef = useRef(new LightingFeedback());
   const lightCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -127,6 +141,8 @@ export default function WebcamFeed({
   // Estados de dispositivos e permissão
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
+  const preferredDeviceIdRef = useRef(preferredDeviceId);
+  preferredDeviceIdRef.current = preferredDeviceId;
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [isCameraMuted, setIsCameraMuted] = useState(false);
@@ -189,7 +205,8 @@ export default function WebcamFeed({
     classificationConfigRef.current = classificationConfig;
     distanceReferenceRef.current = distanceReference;
     calibrationRef.current = calibration;
-  }, [onOcularUpdate, onCalibrationFrame, onClassificationUpdate, classificationConfig, distanceReference, calibration]);
+    moduleSettingsRef.current = moduleSettings;
+  }, [onOcularUpdate, onCalibrationFrame, onClassificationUpdate, classificationConfig, distanceReference, calibration, moduleSettings]);
 
   const resetOcularTracking = useCallback(() => {
     ocularStateRef.current = createOcularMetricsState();
@@ -246,8 +263,14 @@ export default function WebcamFeed({
 
       if (videoInputs.length > 0) {
         setSelectedDeviceId((prev) => {
-          if (prev && videoInputs.some((d) => d.deviceId === prev)) {
+          const isConnected = (id: string | null) => Boolean(id) && videoInputs.some((d) => d.deviceId === id);
+          if (isConnected(prev)) {
             return prev;
+          }
+          // Without a valid selection (first load, IDs revealed after consent, unplugged camera)
+          // the saved default wins over the first camera.
+          if (isConnected(preferredDeviceIdRef.current)) {
+            return preferredDeviceIdRef.current!;
           }
           return videoInputs[0].deviceId;
         });
@@ -270,6 +293,17 @@ export default function WebcamFeed({
       navigator.mediaDevices?.removeEventListener("devicechange", handleDeviceChange);
     };
   }, [enumerateCameras]);
+
+  // A default loaded (or saved elsewhere) after the enumeration switches to it once connected.
+  // Applied once per value, so later enumerations keep a camera the user picked in the meantime.
+  const appliedPreferredDeviceIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (preferredDeviceId && preferredDeviceId !== appliedPreferredDeviceIdRef.current &&
+      devices.some((d) => d.deviceId === preferredDeviceId)) {
+      appliedPreferredDeviceIdRef.current = preferredDeviceId;
+      setSelectedDeviceId(preferredDeviceId);
+    }
+  }, [preferredDeviceId, devices]);
 
   const stopCurrentStream = useCallback(() => {
     resetOcularTracking();
@@ -689,14 +723,14 @@ export default function WebcamFeed({
 
           }
         }
-        const classification = classifyPosture({
+        const classification = restrictClassificationToModules(classifyPosture({
           timestampMs: detectionTimestampMs ?? currentTime,
           captureId: cameraRequestRef.current,
           neckAngle: filteredAngles?.neckAngle ?? null,
           shoulderAngle: filteredAngles?.shoulderAngle ?? null,
           distanceCm: frameOcular?.distanceCm ?? null,
           blinkRate: frameOcular?.available ? frameOcular.blinkRate : null,
-        }, calibrationRef.current, classificationConfigRef.current);
+        }, calibrationRef.current, classificationConfigRef.current), moduleSettingsRef.current);
         lastClassificationRef.current = classification;
         onClassificationUpdateRef.current?.(classification);
         if (currentTime - uiPublishedAtRef.current >= 250) {
@@ -835,7 +869,7 @@ export default function WebcamFeed({
                   }`}
               >
                 {!isMonitoring
-                  ? "Monitoramento pausado"
+                  ? disabledMessage ? "Análises da câmera inativas" : "Monitoramento pausado"
                   : isHardwareBusy
                     ? "Conflito de hardware (Pausado)"
                     : isCameraMuted
@@ -857,7 +891,10 @@ export default function WebcamFeed({
                 aria-label="Selecionar câmera"
                 selectSize="sm"
                 value={selectedDeviceId}
-                onChange={(e) => setSelectedDeviceId(e.target.value)}
+                onChange={(e) => {
+                  setSelectedDeviceId(e.target.value);
+                  onDeviceSelect?.(e.target.value);
+                }}
                 options={devices.map((d, i) => ({
                   label: d.label || `Câmera ${i + 1}`,
                   value: d.deviceId,
@@ -981,12 +1018,12 @@ export default function WebcamFeed({
             </div>
             <p className="text-sm font-semibold text-slate-300">Câmera Desativada</p>
             <p className="text-xs text-slate-500 mt-1 max-w-xs">
-              Clique em "Iniciar Monitoramento" para ativar a captura e inferência postural ao vivo.
+              {disabledMessage ?? "Clique em \"Iniciar Monitoramento\" para ativar a captura e inferência postural ao vivo."}
             </p>
           </div>
         )}
 
-        {(onToggleMonitoring || onCalibrate) && (
+        {(onToggleMonitoring || onCalibrate) && !disabledMessage && (
           <div className="absolute bottom-4 flex items-center justify-center gap-2 z-20">
             {onToggleMonitoring && (
               <Button

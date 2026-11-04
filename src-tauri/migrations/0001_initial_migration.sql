@@ -37,6 +37,17 @@ CREATE TABLE IF NOT EXISTS reminders (
 
 CREATE INDEX IF NOT EXISTS idx_reminders_user_id ON reminders(user_id);
 
+CREATE TABLE IF NOT EXISTS settings (
+    id TEXT PRIMARY KEY NOT NULL,
+    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    postural_analysis INTEGER NOT NULL DEFAULT 1 CHECK (postural_analysis IN (0, 1)),
+    ocular_analysis INTEGER NOT NULL DEFAULT 1 CHECK (ocular_analysis IN (0, 1)),
+    typing_analysis INTEGER NOT NULL DEFAULT 1 CHECK (typing_analysis IN (0, 1)),
+    web_cam TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
 CREATE TABLE IF NOT EXISTS companies (
     id TEXT PRIMARY KEY NOT NULL,
     external_id TEXT,
