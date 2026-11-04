@@ -28,6 +28,9 @@ describe("single registration flow", () => {
 
   it("opens registration directly without asking for an account type", async () => {
     await render();
+    expect(container.textContent).not.toContain("Como deseja se cadastrar?");
+    expect(container.textContent).not.toContain("Cadastrar online");
+    expect(container.textContent).not.toContain("Cadastrar offline");
     const register = [...container.querySelectorAll("button")].find(button => button.textContent?.includes("Cadastre-se"))!;
     await act(async () => register.click());
     expect(container.querySelector("h1")?.textContent).toBe("Criar conta");

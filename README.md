@@ -31,6 +31,7 @@ O [índice da base de conhecimento](docs/base-conhecimento/README.md) reúne o e
 
 - Ao abrir o app, a tela inicial é o login (`/login`).
 - **Cadastre-se** abre diretamente o formulário de criação da conta (`/cadastro`), sem seleção de tipo de conta.
+- Os modais anteriores de opções de cadastro e apresentação da plataforma estão preservados em `src/pages/Login.tsx`, temporariamente ocultos por `SHOW_REGISTRATION_OPTIONS = false`. Alterar essa constante para `true` restaura o fluxo de escolha.
 - O cadastro pede nome, sobrenome, e-mail, senha de 8 a 70 caracteres e confirmação da senha. Telefone e data de nascimento são opcionais. Se preenchido, o telefone deve conter DDD e 9 dígitos; o nascimento deve ser uma data real, não futura, correspondente a uma idade de 14 a 100 anos completos. Datas digitadas usam DD/MM/AAAA e são enviadas ao backend como YYYY-MM-DD. Após o sucesso, uma animação de verificação é exibida antes do retorno ao login.
 - A conta permanece no SQLite após encerrar o app. A sessão fica somente na memória do processo Rust: recarregar a tela ou ocultar a janela pelo X mantém a sessão; usar **Sair do Ergo** e abrir novamente exige novo login.
 - Senhas são armazenadas como hash **Argon2id**, com salt aleatório por cadastro. O hash nunca é retornado ao frontend. Após cinco tentativas de login em 30 segundos, novas tentativas aguardam o fim dessa janela.
