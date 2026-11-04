@@ -234,7 +234,7 @@ describe("Monitoring classification and temporal alerts", () => {
 
   describe("default webcam", () => {
     const saved = (webCam: string | null): ModuleSettings => ({
-      id: 1, userId: 1, posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true,
+      id: "settings-1", userId: 1, posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true,
       webCam, createdAt: "", updatedAt: "",
     });
     const updates = () => ipc.invoke.mock.calls.filter(([name]) => name === "update_settings").map(([, args]) => args);
