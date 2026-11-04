@@ -79,6 +79,24 @@ test("camera layout remains stable at scrollbar thresholds", { timeout: 90000 },
     }
     assert.ok(ready, "Browser fixture did not initialize.");
 
+    const verifyFailedCameraRecovery = async () => {
+      await evaluate('window.cameraLayoutFixture.selectCamera("unavailable")');
+      const failed = await evaluate("window.cameraLayoutFixture.cameraState()");
+      assert.equal(failed.selectorVisible, true, "A failed camera must not hide the selector.");
+      assert.equal(failed.selectorEnabled, true, "The selector must stay usable during the camera error.");
+      assert.equal(failed.selected, "unavailable");
+      assert.deepEqual(failed.options, ["first", "second", "unavailable"]);
+      assert.equal(failed.hasStream, false);
+      assert.equal(failed.liveTracks, 0, "The failed selection must release the previous camera.");
+      await evaluate('window.cameraLayoutFixture.selectCamera("first")');
+      const recovered = await evaluate("window.cameraLayoutFixture.cameraState()");
+      assert.equal(recovered.selected, "first");
+      assert.equal(recovered.selectorVisible, true);
+      assert.equal(recovered.hasStream, true);
+      assert.equal(recovered.ready, true, "Selecting another camera must resume video playback.");
+      assert.equal(recovered.liveTracks, 1, "Only the selected camera may remain active.");
+    };
+
     await t.test("does not alternate between two sizes during repeated camera switches", async () => {
       const unstable = [];
       const sourceSizes = new Set();
@@ -92,6 +110,8 @@ test("camera layout remains stable at scrollbar thresholds", { timeout: 90000 },
       assert.deepEqual([...sourceSizes].sort(), ["1280x720", "640x480"], "Both camera resolutions must really be played.");
       assert.deepEqual(unstable, [], "Layout changes between consecutive frames with unchanged detection.");
     });
+
+    await t.test("recovers from a failed virtual camera in calibration", verifyFailedCameraRecovery);
 
     await t.test("keeps the monitoring viewport width when main content starts and stops overflowing", async () => {
       await viewport(1440, 2000);
@@ -107,6 +127,7 @@ test("camera layout remains stable at scrollbar thresholds", { timeout: 90000 },
       assert.deepEqual(overflowing.frames[0].video, before.frames[0].video, "Adding a scrollbar changes camera dimensions.");
       assert.deepEqual(restored.frames[0].video, before.frames[0].video, "Removing a scrollbar changes camera dimensions.");
     });
+    await t.test("recovers from a failed virtual camera in monitoring", verifyFailedCameraRecovery);
     assert.deepEqual(exceptions, [], "Browser runtime errors.");
     await evaluate("window.cameraLayoutFixture.stop()");
     await send("Browser.close");

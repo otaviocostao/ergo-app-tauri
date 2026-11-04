@@ -32,6 +32,9 @@ const streams: MediaStream[] = [];
 Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: {
   getUserMedia: async (constraints: MediaStreamConstraints) => {
     const id = typeof constraints.video === "object" ? constraints.video.deviceId : null;
+    if (typeof id === "object" && id !== null && "exact" in id && id.exact === "unavailable") {
+      throw new DOMException("Could not start video source", "NotReadableError");
+    }
     const second = typeof id === "object" && id !== null && "exact" in id && id.exact === "second";
     const stream = sources[second ? 1 : 0].captureStream(30);
     streams.push(stream); return stream;
@@ -39,6 +42,7 @@ Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: {
   enumerateDevices: async () => [
     { kind: "videoinput", deviceId: "first", label: "Synthetic camera 16:9" },
     { kind: "videoinput", deviceId: "second", label: "Synthetic camera 4:3" },
+    { kind: "videoinput", deviceId: "unavailable", label: "OBS Virtual Camera (simulated failure)" },
   ],
   addEventListener() {}, removeEventListener() {},
 } });
@@ -73,6 +77,26 @@ const fixture = {
     select.value = select.value === "second" ? "first" : "second";
     select.dispatchEvent(new Event("change", { bubbles: true }));
     await delay(300);
+  },
+  async selectCamera(id: string) {
+    const scope = document.querySelector('[role="dialog"]') ?? document.querySelector("main")!;
+    const select = scope.querySelector("select");
+    if (!select) throw new Error("Camera selector is missing.");
+    select.value = id;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    await delay(300);
+  },
+  cameraState() {
+    const scope = document.querySelector('[role="dialog"]') ?? document.querySelector("main")!;
+    const select = scope.querySelector("select");
+    const video = scope.querySelector("video")!;
+    return {
+      selectorVisible: Boolean(select && select.getBoundingClientRect().width > 0 && select.getBoundingClientRect().height > 0),
+      selectorEnabled: Boolean(select && !select.disabled), selected: select?.value,
+      options: select ? [...select.options].map(option => option.value) : [],
+      hasStream: video.srcObject !== null, ready: video.readyState >= 2,
+      liveTracks: streams.flatMap(stream => stream.getTracks()).filter(track => track.readyState === "live").length,
+    };
   },
   async sample() {
     const frames = [];
