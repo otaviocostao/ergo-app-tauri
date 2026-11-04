@@ -151,3 +151,15 @@ Foi adicionado um teste permanente executado por `npm run test:camera-layout`, u
 Para conferir no Tauri, reinicie o aplicativo e alterne repetidamente entre as câmeras no Monitoramento e na última etapa da calibragem. Teste a janela maximizada e diferentes alturas. Os avisos podem mudar conforme a leitura, mas a barra de rolagem não deve provocar o ciclo contínuo. O driver do DroidCam e a webcam física permanecem fora desta validação automatizada.
 
 A alteração anterior em `src-tauri/Cargo.toml` foi preservada fora dos commits. Não houve instalação de dependências, alteração do banco ou push desta rodada.
+
+## 10. Seleção de outra câmera após falha da fonte virtual — 04/11/2026
+
+O seletor era renderizado somente quando havia dispositivos e `isHardwareBusy` era falso. Falhas como `NotReadableError`, `TrackStartError` e `AbortError`, ou o encerramento do track em uso, ativavam esse estado e removiam o controle necessário para escolher uma câmera funcional.
+
+O seletor agora permanece montado e habilitado quando há câmeras enumeradas, inclusive durante a falha de captura. Recebeu também o nome acessível **Selecionar câmera**. Escolher outro dispositivo usa o mesmo ciclo de captura existente, que limpa o estado de indisponibilidade e inicia o novo stream; o botão de nova tentativa continua disponível para a câmera atual. A correção não altera a lista de dispositivos nem remove a OBS Virtual Camera das opções.
+
+Foram adicionadas quatro regressões no teste de `WebcamFeed`: três erros de abertura de uma fonte virtual e a interrupção do track ativo. Os quatro cenários falharam antes da correção porque o seletor desaparecia. Depois, passaram verificando que o controle e as opções permanecem, o stream anterior é liberado e a escolha de outra câmera retoma captura e publicação de postura.
+
+O teste permanente de navegador agora inclui uma fonte virtual que rejeita a abertura. Ele confirma, na calibragem e no Monitoramento, que o seletor continua visível e habilitado, a lista mantém as opções, nenhum track anterior fica ativo e selecionar uma fonte funcional retoma a reprodução com um único track. A falha da OBS é simulada; o programa e o driver OBS reais não foram usados nessa verificação.
+
+**Validação:** 661 testes Vitest em 30 arquivos passaram; os quatro cenários do teste de navegador passaram, incluindo as vinte trocas e os limites de rolagem anteriores; `npm run build` passou, com o aviso de tamanho de bundle já existente. Nenhuma dependência ou arquivo de banco foi alterado. Os três commits deste ajuste permanecem locais, sem push.

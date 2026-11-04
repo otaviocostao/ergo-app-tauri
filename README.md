@@ -177,6 +177,8 @@ A calibragem e a área principal reservam o espaço da barra de rolagem com `scr
 
 Execute `npm run test:camera-layout` para verificar esse comportamento em um navegador real. O teste usa Chrome/Edge instalado (ou o caminho em `CHROME_PATH`), vídeo sintético e o layout do aplicativo; não acessa webcam física nem banco. Ele alterna vinte vezes entre câmeras 16:9 e 4:3 perto dos limites de rolagem e confere também a entrada e saída de rolagem no Monitoramento.
 
+Se uma câmera não iniciar ou sua transmissão for interrompida, o seletor continua disponível para escolher outro dispositivo. O teste de navegador também simula uma OBS Virtual Camera que falha ao abrir e verifica a recuperação com outra câmera, tanto na calibragem quanto no Monitoramento.
+
 ### Testes
 
 ```bash
