@@ -163,3 +163,23 @@ Foram adicionadas quatro regressões no teste de `WebcamFeed`: três erros de ab
 O teste permanente de navegador agora inclui uma fonte virtual que rejeita a abertura. Ele confirma, na calibragem e no Monitoramento, que o seletor continua visível e habilitado, a lista mantém as opções, nenhum track anterior fica ativo e selecionar uma fonte funcional retoma a reprodução com um único track. A falha da OBS é simulada; o programa e o driver OBS reais não foram usados nessa verificação.
 
 **Validação:** 661 testes Vitest em 30 arquivos passaram; os quatro cenários do teste de navegador passaram, incluindo as vinte trocas e os limites de rolagem anteriores; `npm run build` passou, com o aviso de tamanho de bundle já existente. Nenhuma dependência ou arquivo de banco foi alterado. Os três commits deste ajuste permanecem locais, sem push.
+
+## 11. Integração com `origin/master` — 04/11/2026
+
+O merge `421c3c8` integra a base remota `fc2a818` à branch, preservando ambos os históricos. A feature já estava sincronizada com sua própria remota; os conflitos eram com a `master`, que acrescentou módulos de análise e webcam padrão por conta.
+
+Os conflitos em `Monitoring.tsx`, `WorkspaceCalibrationModal.tsx` e `WebcamFeed.test.tsx` foram combinados para preservar as duas implementações: início explícito, captura após a abertura da sessão, bloqueio de cliques duplicados, continuidade entre páginas, badges ocultos na calibragem, estabilidade de rolagem, troca após falha da OBS, módulos ativos/inativos e câmera padrão. A duplicação automática do nome acessível do seletor foi removida e os testes mantêm **Selecionar câmera**. Os identificadores de settings nos testes seguem o contrato `string` do backend.
+
+A integração também sincroniza alterações salvas de settings entre páginas montadas da mesma conta. O evento interno `ergo:settings-updated` informa apenas os campos alterados, preservando outras mudanças concorrentes e ignorando contas diferentes. Uma leitura antiga pendente não sobrescreve a atualização. Isso permite que Configurações controle a captura em segundo plano sem remontar o Monitoramento nem reiniciar uma sessão ao mudar somente a webcam.
+
+O gravador continua restrito à análise postural. A câmera pode funcionar apenas com o módulo ocular, sem abrir sessão postural vazia. Os badges aplicam o mesmo filtro de módulos usado pelos cards, alertas e gravação. Foram adicionadas regressões para a propagação entre rotas e para os badges de métricas desativadas; os testes de carregamento das configurações respeitam o início manual.
+
+Validação da integração, executada em uma cópia isolada:
+
+- **694 testes Vitest em 33 arquivos passaram.**
+- **103 testes Rust de biblioteca passaram**, com bancos temporários/em memória.
+- **24 testes Node de tema e integração passaram.**
+- Os **quatro cenários do navegador passaram**: vinte trocas de câmera, recuperação de fonte virtual na calibragem e no Monitoramento e estabilidade nos limites da barra de rolagem.
+- **Build de produção e TypeScript passaram**, com o aviso anterior de bundle acima de 500 kB. Nenhum marcador de conflito permaneceu.
+
+A `master` altera a migração inicial para incluir as configurações e a webcam padrão. O requisito já documentado nela permanece: bancos antigos com checksum diferente podem exigir recriação no ambiente de desenvolvimento ou uma migração incremental quando os dados precisarem ser preservados. Nenhum banco real foi apagado, recriado ou alterado durante esta integração. A modificação local do usuário em `src-tauri/Cargo.toml` foi mantida fora dos commits.
