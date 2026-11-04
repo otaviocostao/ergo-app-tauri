@@ -650,6 +650,7 @@ export default function WorkspaceCalibrationModal({
 
             <WebcamFeed
               isMonitoring={isOpen}
+              showMetricBadges={false}
               onPostureUpdate={onPostureUpdate}
               onPresenceChange={onPresenceChange}
               onCalibrationFrame={(frame) => {

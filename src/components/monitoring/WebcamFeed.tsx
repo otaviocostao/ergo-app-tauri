@@ -56,6 +56,8 @@ export interface WebcamFeedProps {
   distanceReference?: ScreenDistanceReference | null;
   /** Saved posture calibration containing distance baseline. Used to derive distanceReference dynamically when video dimensions are known. */
   calibration?: PostureCalibrationDTO | null;
+  /** Hide monitoring values while collecting a calibration baseline. */
+  showMetricBadges?: boolean;
   className?: string;
 }
 
@@ -95,6 +97,7 @@ export default function WebcamFeed({
   classificationConfig = DEFAULT_POSTURE_CLASSIFICATION_CONFIG,
   distanceReference = null,
   calibration = null,
+  showMetricBadges = true,
   className = "",
 }: WebcamFeedProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -888,7 +891,7 @@ export default function WebcamFeed({
           <div className="absolute top-3 left-3 right-3 z-20 flex flex-col items-start gap-2 pointer-events-none">
             {!isCameraMuted && (
               <>
-                <div aria-label="Métricas ao vivo" className="flex max-w-full flex-col items-start gap-1">
+                {showMetricBadges && <div aria-label="Métricas ao vivo" className="flex max-w-full flex-col items-start gap-1">
                   {([['neck', 'Inclinação cervical', '°'], ['shoulders', 'Desvio dos ombros', '°'], ['distance', 'Distância', 'cm']] as const).map(([key, label, unit]) => {
                     const metric = feedback?.metrics[key];
                     return <div key={key} className="flex max-w-full items-center gap-2 rounded-md border bg-slate-950/85 px-2 py-1 text-[11px] leading-tight text-white" style={{ borderColor: metricColor(metric?.status) }}>
@@ -896,7 +899,7 @@ export default function WebcamFeed({
                       <strong className="shrink-0 tabular-nums" style={{ color: metricColor(metric?.status) }}>{metric?.value == null ? 'Indisponível' : `${metric.value.toFixed(1)} ${unit}`}</strong>
                     </div>;
                   })}
-                </div>
+                </div>}
                 <div className="flex flex-col items-start gap-2" aria-live="polite">
                   {lowLight && <p className="rounded-lg border border-amber-500/40 bg-slate-950/95 px-3 py-2 text-xs text-amber-200">Iluminação insuficiente. Melhore a luz sobre o rosto e os ombros.</p>}
                   {feedback?.metrics.distance.value != null && feedback.metrics.distance.status !== PostureStatus.GOOD && <p className="rounded-lg border border-amber-500/40 bg-slate-950/95 px-3 py-2 text-xs text-amber-200">{feedback.metrics.distance.value < classificationConfig.distance.goodMinCm ? 'Afaste-se da tela para ajustar o enquadramento.' : 'Aproxime-se da tela para ajustar o enquadramento.'}</p>}
