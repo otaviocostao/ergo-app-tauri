@@ -173,6 +173,10 @@ A tela inicial real é `src/pages/Dashboard.tsx`; `Home.tsx` não é a página u
 
 O [relatório da Task 4.5](docs/task-4.5-feedback-ui.md) reúne evidências por requisito, resultados dos testes, limites e roteiro de validação manual.
 
+A calibragem e a área principal reservam o espaço da barra de rolagem com `scrollbar-gutter: stable`. Isso impede um ciclo em que a barra aparece, estreita o vídeo, reduz sua altura proporcional e some, ampliando o vídeo novamente a cada quadro. A correção preserva a captura, as métricas e os avisos existentes.
+
+Execute `npm run test:camera-layout` para verificar esse comportamento em um navegador real. O teste usa Chrome/Edge instalado (ou o caminho em `CHROME_PATH`), vídeo sintético e o layout do aplicativo; não acessa webcam física nem banco. Ele alterna vinte vezes entre câmeras 16:9 e 4:3 perto dos limites de rolagem e confere também a entrada e saída de rolagem no Monitoramento.
+
 ### Testes
 
 ```bash

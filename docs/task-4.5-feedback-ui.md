@@ -127,3 +127,27 @@ Validação desta alteração:
 - O teste com hardware no aplicativo Tauri permanece manual: iniciar, navegar por outras páginas por pelo menos um minuto, voltar e encerrar; conferir o resumo salvo. Abrir a calibragem, conferir ausência dos indicadores e coletar/salvar a referência. Sair da conta deve liberar a câmera.
 
 Não houve mudança no backend, no banco, nas dependências nem nos critérios científicos de classificação e calibragem. Os commits desta alteração permanecem locais até autorização para push.
+
+## 9. Ciclo contínuo de redimensionamento ao trocar de câmera — 04/11/2026
+
+Os cinco commits da tentativa anterior foram removidos a pedido do usuário. A nova investigação manteve a ausência de detecção constante e mediu o layout a cada `requestAnimationFrame`, durante abertura da calibragem e vinte trocas entre streams de canvas 1280 × 720 e 640 × 480. Foram usados os componentes reais, o CSS do app e Chrome, sem webcam física, MediaPipe real ou banco.
+
+Foi reproduzido um ciclo contínuo próximo do limite de rolagem do modal: a barra vertical reduz a largura disponível, o vídeo com proporção fixa fica mais baixo, o conteúdo deixa de transbordar e a barra desaparece. A largura e a altura aumentam novamente e fazem a barra reaparecer. O loop de desenho acompanha essa mudança a cada quadro.
+
+Na linha de base, em janela de 880 × 1003 px, a prévia alternou entre **716 × 402,75** e **701 × 394,3125 px**. A posição e a altura do modal também alternaram. Houve **23 mudanças entre os 24 quadros consecutivos** observados, sem mudar as entradas do detector. O mesmo comportamento apareceu nas alturas 1001, 1005, 1007 e 1010 px durante a varredura. Isso explica a persistência apenas em algumas dimensões e após certas trocas de câmera.
+
+A correção no aplicativo se limita a `scrollbarGutter: "stable"` no corpo rolável de `Modal.tsx` e em `main` de `MainLayout.tsx`. A largura reservada fica constante quando a rolagem aparece ou desaparece. Nenhum ajuste da tentativa anterior no gravador, na aquisição da câmera, no tratamento de Escape, no cabeçalho ou nos avisos foi reaplicado.
+
+Foi adicionado um teste permanente executado por `npm run test:camera-layout`, usando o servidor Vite e um Chrome/Edge local com perfil temporário. A fixture em `scripts/fixtures/camera-layout.*` substitui somente dispositivos e detecções dentro do teste e não faz parte da entrada do build de produção. O teste verifica:
+
+- Vinte trocas de câmera reais entre dois streams sintéticos, em vinte alturas próximas do limite da barra de rolagem, medindo 24 quadros por altura e confirmando que ambas as resoluções chegaram ao elemento de vídeo.
+- Aparição e remoção efetivas de transbordamento no `main` do layout real, verificando que isso não altera as dimensões da prévia de monitoramento.
+- Ausência de exceções no navegador e liberação dos streams, servidor, processo do navegador e perfil temporário ao terminar.
+
+**Antes da correção:** os dois cenários do teste falharam. A calibragem alternava continuamente em cinco alturas; no Monitoramento, a prévia mudava de 660 × 371,25 para 651,25 × 366,328125 px ao aparecer a barra.
+
+**Depois da correção:** os dois cenários passaram, sem alternância durante as vinte trocas, e a prévia de monitoramento manteve as dimensões ao adicionar/remover rolagem. O teste de navegador passou também com a confirmação explícita de que o conteúdo realmente passou de sem transbordamento para com transbordamento e voltou. **657 testes Vitest em 30 arquivos passaram; `npm run build` passou**, mantendo o aviso anterior de bundle acima de 500 kB.
+
+Para conferir no Tauri, reinicie o aplicativo e alterne repetidamente entre as câmeras no Monitoramento e na última etapa da calibragem. Teste a janela maximizada e diferentes alturas. Os avisos podem mudar conforme a leitura, mas a barra de rolagem não deve provocar o ciclo contínuo. O driver do DroidCam e a webcam física permanecem fora desta validação automatizada.
+
+A alteração anterior em `src-tauri/Cargo.toml` foi preservada fora dos commits. Não houve instalação de dependências, alteração do banco ou push desta rodada.
