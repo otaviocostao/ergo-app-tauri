@@ -1,9 +1,10 @@
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use crate::db::AppState;
 use crate::models::auth::{AuthError, Session};
 use crate::models::user::{CreateUserPayload, User};
 use crate::services::auth_service::AuthState;
+use crate::services::typing_monitor_service::TypingMonitorControl;
 use crate::services::{auth_service, user_service};
 
 #[tauri::command]
@@ -37,6 +38,10 @@ pub fn continue_offline(auth_state: State<'_, AuthState>) -> Result<Session, Aut
 }
 
 #[tauri::command]
-pub fn logout(auth_state: State<'_, AuthState>) -> Result<(), AuthError> {
-    auth_service::logout(&auth_state)
+pub fn logout(app: AppHandle, auth_state: State<'_, AuthState>) -> Result<(), AuthError> {
+    auth_service::logout(&auth_state)?;
+    if let Some(monitor) = app.try_state::<TypingMonitorControl>() {
+        let _ = monitor.clear_all();
+    }
+    Ok(())
 }
