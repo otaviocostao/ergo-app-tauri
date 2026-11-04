@@ -80,7 +80,7 @@ Use uma conta de teste em ambiente com dados descartáveis; o roteiro abaixo cri
 6. Reduza a iluminação por mais de 2 segundos e depois ilumine o rosto por mais de 1 segundo. Confira a entrada e saída do aviso, considerando exposição automática e contraluz.
 7. Mantenha leituras válidas por pelo menos um minuto completo. Encerre: a câmera deve parar, as gravações devem terminar e o botão voltar ao estado inicial. Abrir e fechar calibração deve preservar o estado anterior de execução, conforme o ciclo existente.
 8. Abra Início e confira percentual, tempo em boa postura, episódios e gráfico do score salvo. Sessão sem minuto completo pode ter resumo, mas não terá snapshot no gráfico. A meta deve estar identificada como demonstrativa, e pausas como **Não registrado**.
-9. Saia do Monitoramento diretamente para Início enquanto há gravação pendente; a leitura deve aguardar a fila. Reinicie o app e confirme que os dados continuam presentes.
+9. Durante o monitoramento, navegue para Início, Configurações e Relatórios e volte. A câmera, a sessão e a coleta devem continuar, sem precisar iniciar novamente. Depois encerre explicitamente e confirme o resumo no Início; reinicie o app e confira a persistência dos dados.
 10. Entre em outra conta: o Dashboard não deve apresentar o histórico da anterior. Uma conta sem registros deve mostrar vazio. No preview web, não devem aparecer métricas simuladas.
 11. Em ambiente de teste, simule falha de IPC no início, resolução de alerta e encerramento. Confira mensagem, nova tentativa, bloqueio de abertura sobre fechamento pendente e ausência de duplicação. Os testes automatizados já exercitam essas falhas com IPC simulado.
 
@@ -109,3 +109,21 @@ Use uma conta de teste em ambiente com dados descartáveis; o roteiro abaixo cri
 ## 7. Confirmação de escopo
 
 As alterações se limitam à Task 4.5, seus testes, registros de módulos/comando e documentação correspondente. Não foram alterados dependências, esquema, migração inicial, modelos de visão, algoritmos de classificação/histerese, calibração, agregação de métricas ou política de descarte/persistência da Task 4.4. O hook recebeu somente as mudanças necessárias para orquestrar o mesmo ciclo e consumir seus resultados com segurança na UI. Nenhum banco existente foi apagado. Não houve push.
+
+## 8. Continuidade entre páginas e indicadores compactos — 04/11/2026
+
+O layout autenticado mantém uma única instância do Monitoramento após a primeira visita à rota. Ao navegar, somente sua apresentação fica oculta: o vídeo, a inferência, a histerese, os registros e o estado da sessão permanecem montados. A rota aceita as mesmas variações de maiúsculas e barra final reconhecidas pelo roteador. O início continua explícito; navegar após encerrar não reativa a captura. A instância é recriada ao trocar de usuário e desmontada ao sair da conta, encerrando os recursos da conta anterior.
+
+A calibragem conserva seu ciclo anterior de pausa/retomada. Navegar com ela aberta fecha o modal e retoma o estado anterior do monitoramento; voltar à rota não reabre o modal. Isso também evita manter um portal de calibragem sobre outra página.
+
+Os três indicadores usam linhas compactas no canto superior esquerdo, com rótulo e valor lado a lado. Os avisos ficam abaixo deles, sem disputar a mesma posição. O feed da calibragem recebe `showMetricBadges={false}`: câmera, esqueleto, orientações e coleta do baseline continuam disponíveis.
+
+Validação desta alteração:
+
+- **657 testes Vitest em 30 arquivos passaram**, incluindo navegação real pelo roteador sob StrictMode, continuidade de um snapshot de 60 segundos entre páginas, início pendente durante navegação, encerramento explícito, troca de conta, logout e fechamento da calibragem ao navegar.
+- O teste da câmera confirma novas classificações com prévia de tamanho zero, sem parar o stream nem solicitar outra câmera, e a recuperação do desenho ao voltar. O teste da calibragem verifica ausência dos indicadores antes, durante e depois da coleta, mantendo o salvamento do baseline.
+- **`npm run build` passou**, incluindo TypeScript. Permanece o aviso anterior de bundle acima de 500 kB.
+- Em Chrome automatizado com o detector MediaPipe real em CPU e stream sintético de uma imagem pública de teste, houve **56 inferências em cinco segundos com a página oculta**, um único track ativo e o mesmo elemento de vídeo ao retornar. O grupo de indicadores ficou a 12 px do canto superior esquerdo da prévia, com aproximadamente 183 × 79 px. A câmera da calibragem estava ativa e sem os indicadores. Não foi usada a webcam física nem o banco do usuário nessa prévia.
+- O teste com hardware no aplicativo Tauri permanece manual: iniciar, navegar por outras páginas por pelo menos um minuto, voltar e encerrar; conferir o resumo salvo. Abrir a calibragem, conferir ausência dos indicadores e coletar/salvar a referência. Sair da conta deve liberar a câmera.
+
+Não houve mudança no backend, no banco, nas dependências nem nos critérios científicos de classificação e calibragem. Os commits desta alteração permanecem locais até autorização para push.
