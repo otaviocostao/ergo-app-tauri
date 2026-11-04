@@ -12,7 +12,7 @@ export default function MainLayout() {
       <Sidebar />
       <div className="flex min-w-0 flex-col flex-1 h-screen overflow-hidden bg-slate-50 dark:bg-slate-950">
         <Topbar />
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex-1 overflow-y-auto p-6" style={{ scrollbarGutter: "stable" }}>
           <ThemeFeedback />
           <MonitoringWorkspace key={session.kind === "authenticated" ? session.user.id : session.kind} />
           <Outlet />
