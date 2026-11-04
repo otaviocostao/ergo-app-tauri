@@ -58,9 +58,9 @@ describe("monitoring across authenticated routes", () => {
   const authenticate = (id: number) => {
     view.session = { kind: "authenticated", user: { id } } as Session;
   };
-  async function render() {
+  async function render(initialEntry = "/") {
     await act(async () => root.render(
-      <StrictMode><MemoryRouter>
+      <StrictMode><MemoryRouter initialEntries={[initialEntry]}>
         <nav><Link to="/">Início</Link><Link to="/monitoring">Monitorar</Link><Link to="/settings">Configurações</Link></nav>
         <AppRoutes />
       </MemoryRouter></StrictMode>,
@@ -138,6 +138,16 @@ describe("monitoring across authenticated routes", () => {
     expect(view.feed!.recordingStatus).toBe("idle");
     expect(calls("start_monitoring_session")).toHaveLength(1);
     expect(calls("end_monitoring_session")).toHaveLength(1);
+  });
+
+  it.each(["/MONITORING", "/monitoring/"])("recognizes the monitoring route at %s", async path => {
+    await render(path);
+    expect(camera()).not.toBeNull();
+    expect(camera()!.closest("[hidden]")).toBeNull();
+    await toggle(); await navigate("Configurações"); await navigate("Monitorar");
+    expect(view.feed!.isMonitoring).toBe(true);
+    expect(calls("start_monitoring_session")).toHaveLength(1);
+    expect(calls("end_monitoring_session")).toHaveLength(0);
   });
 
   it("closes calibration when leaving monitoring and returns to the monitoring view", async () => {
