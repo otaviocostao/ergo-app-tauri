@@ -884,37 +884,41 @@ export default function WebcamFeed({
             }`}
         />
 
-        {isMonitoring && !isHardwareBusy && !isCameraMuted && hasCameraPermission && (
-          <>
-            <div aria-label="Métricas ao vivo" className="absolute bottom-20 left-3 right-3 z-20 flex flex-wrap justify-center gap-2 pointer-events-none">
-              {([['neck', 'Inclinação cervical', '°'], ['shoulders', 'Desvio dos ombros', '°'], ['distance', 'Distância', 'cm']] as const).map(([key, label, unit]) => {
-                const metric = feedback?.metrics[key];
-                return <div key={key} className="rounded-lg border bg-slate-950/90 px-3 py-2 text-xs text-white" style={{ borderColor: metricColor(metric?.status) }}>
-                  <span className="block text-slate-300">{label}</span>
-                  <strong style={{ color: metricColor(metric?.status) }}>{metric?.value == null ? 'Indisponível' : `${metric.value.toFixed(1)} ${unit}`}</strong>
-                </div>;
-              })}
-            </div>
-            <div className="absolute top-14 left-3 right-3 z-20 flex flex-col items-center gap-2 pointer-events-none" aria-live="polite">
-              {lowLight && <p className="rounded-lg border border-amber-500/40 bg-slate-950/95 px-3 py-2 text-xs text-amber-200">Iluminação insuficiente. Melhore a luz sobre o rosto e os ombros.</p>}
-              {feedback?.metrics.distance.value != null && feedback.metrics.distance.status !== PostureStatus.GOOD && <p className="rounded-lg border border-amber-500/40 bg-slate-950/95 px-3 py-2 text-xs text-amber-200">{feedback.metrics.distance.value < classificationConfig.distance.goodMinCm ? 'Afaste-se da tela para ajustar o enquadramento.' : 'Aproxime-se da tela para ajustar o enquadramento.'}</p>}
-            </div>
-          </>
-        )}
+        {isMonitoring && !isHardwareBusy && hasCameraPermission && (
+          <div className="absolute top-3 left-3 right-3 z-20 flex flex-col items-start gap-2 pointer-events-none">
+            {!isCameraMuted && (
+              <>
+                <div aria-label="Métricas ao vivo" className="flex max-w-full flex-col items-start gap-1">
+                  {([['neck', 'Inclinação cervical', '°'], ['shoulders', 'Desvio dos ombros', '°'], ['distance', 'Distância', 'cm']] as const).map(([key, label, unit]) => {
+                    const metric = feedback?.metrics[key];
+                    return <div key={key} className="flex max-w-full items-center gap-2 rounded-md border bg-slate-950/85 px-2 py-1 text-[11px] leading-tight text-white" style={{ borderColor: metricColor(metric?.status) }}>
+                      <span className="truncate text-slate-300">{label}</span>
+                      <strong className="shrink-0 tabular-nums" style={{ color: metricColor(metric?.status) }}>{metric?.value == null ? 'Indisponível' : `${metric.value.toFixed(1)} ${unit}`}</strong>
+                    </div>;
+                  })}
+                </div>
+                <div className="flex flex-col items-start gap-2" aria-live="polite">
+                  {lowLight && <p className="rounded-lg border border-amber-500/40 bg-slate-950/95 px-3 py-2 text-xs text-amber-200">Iluminação insuficiente. Melhore a luz sobre o rosto e os ombros.</p>}
+                  {feedback?.metrics.distance.value != null && feedback.metrics.distance.status !== PostureStatus.GOOD && <p className="rounded-lg border border-amber-500/40 bg-slate-950/95 px-3 py-2 text-xs text-amber-200">{feedback.metrics.distance.value < classificationConfig.distance.goodMinCm ? 'Afaste-se da tela para ajustar o enquadramento.' : 'Aproxime-se da tela para ajustar o enquadramento.'}</p>}
+                </div>
+              </>
+            )}
 
-        {isMonitoring && !isHardwareBusy && hasCameraPermission && presenceState === "ABSENT" && (
-          <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/90 border border-slate-700 text-slate-300 text-xs shadow-lg backdrop-blur-md animate-fadeIn">
-            <UserX size={15} className="text-amber-400 animate-pulse" />
-            <span>Nenhum usuário detectado há mais de 5s — métricas pausadas</span>
-          </div>
-        )}
+            {presenceState === "ABSENT" && (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-700 text-slate-300 text-xs shadow-lg backdrop-blur-md animate-fadeIn">
+                <UserX size={15} className="text-amber-400 animate-pulse" />
+                <span>Nenhum usuário detectado há mais de 5s — métricas pausadas</span>
+              </div>
+            )}
 
-        {isMonitoring && !isHardwareBusy && hasCameraPermission && presenceState !== "ABSENT" && (presenceState === "PARTIALLY_OCCLUDED" || framingIssue) && (
-          <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs shadow-lg backdrop-blur-md animate-fadeIn">
-            <AlertTriangle size={15} />
-            <span>{isCameraMuted
-              ? "Câmera temporariamente indisponível. A análise será retomada automaticamente."
-              : "Posicione cabeça e ombros dentro da área pontilhada"}</span>
+            {presenceState !== "ABSENT" && (presenceState === "PARTIALLY_OCCLUDED" || framingIssue) && (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs shadow-lg backdrop-blur-md animate-fadeIn">
+                <AlertTriangle size={15} />
+                <span>{isCameraMuted
+                  ? "Câmera temporariamente indisponível. A análise será retomada automaticamente."
+                  : "Posicione cabeça e ombros dentro da área pontilhada"}</span>
+              </div>
+            )}
           </div>
         )}
 
