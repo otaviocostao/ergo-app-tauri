@@ -6,13 +6,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AppRoutes from "./AppRoutes";
 import type { Session } from "../auth/authService";
 import type { WebcamFeedProps } from "../components/monitoring/WebcamFeed";
+import type { WorkspaceCalibrationModalProps } from "../components/monitoring/WorkspaceCalibrationModal";
 import { postureService } from "../services/postureService";
 import { classifyPosture } from "../services/vision/postureClassifier";
 import { waitForRecordingWrites } from "../hooks/useMetricRecording";
 import type { PostureCalibrationDTO } from "../types/postureCalibration";
 
 const ipc = vi.hoisted(() => ({ invoke: vi.fn() }));
-const view = vi.hoisted(() => ({ feed: null as WebcamFeedProps | null, session: { kind: "anonymous" } as Session }));
+const view = vi.hoisted(() => ({
+  feed: null as WebcamFeedProps | null,
+  modal: null as WorkspaceCalibrationModalProps | null,
+  session: { kind: "anonymous" } as Session,
+}));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: ipc.invoke, isTauri: () => true }));
 vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({ session: view.session, loading: false }),
@@ -33,7 +38,10 @@ vi.mock("../components/monitoring/WebcamFeed", () => ({ default: (props: WebcamF
   view.feed = props;
   return <video data-testid="monitoring-camera" />;
 } }));
-vi.mock("../components/monitoring/WorkspaceCalibrationModal", () => ({ default: () => null }));
+vi.mock("../components/monitoring/WorkspaceCalibrationModal", () => ({ default: (props: WorkspaceCalibrationModalProps) => {
+  view.modal = props;
+  return null;
+} }));
 vi.mock("../components/monitoring/KeyboardMonitorCard", () => ({ default: () => null }));
 
 const baseline: PostureCalibrationDTO = {
@@ -130,6 +138,19 @@ describe("monitoring across authenticated routes", () => {
     expect(view.feed!.recordingStatus).toBe("idle");
     expect(calls("start_monitoring_session")).toHaveLength(1);
     expect(calls("end_monitoring_session")).toHaveLength(1);
+  });
+
+  it("closes calibration when leaving monitoring and returns to the monitoring view", async () => {
+    await render(); await navigate("Monitorar"); await toggle();
+    await act(async () => view.feed!.onCalibrate!());
+    expect(view.modal!.isOpen).toBe(true);
+    expect(view.feed!.isMonitoring).toBe(false);
+    await navigate("Configurações");
+    expect(view.modal!.isOpen).toBe(false);
+    expect(view.feed!.isMonitoring).toBe(true);
+    await navigate("Monitorar");
+    expect(view.modal!.isOpen).toBe(false);
+    expect(view.feed!.isMonitoring).toBe(true);
   });
 
   it("does not cancel a pending session start when changing routes", async () => {

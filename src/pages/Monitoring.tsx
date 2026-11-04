@@ -64,11 +64,14 @@ function getShoulderCardValue(
   return "Aguardando leitura";
 }
 
-export default function Monitoring() {
+export default function Monitoring({ isVisible = true }: { isVisible?: boolean }) {
   const auth = useOptionalAuth();
   const userId = auth?.session.kind === "authenticated" ? auth.session.user.id : null;
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
+  useEffect(() => {
+    if (!isVisible) setIsCalibrationOpen(false);
+  }, [isVisible]);
   const monitoringContextRef = useRef({ enabled: false, userId });
   const uiPublishedAtRef = useRef(-Infinity);
   const ocularPublishedAtRef = useRef(-Infinity);
@@ -515,7 +518,7 @@ export default function Monitoring() {
       </div>
 
       <WorkspaceCalibrationModal
-        isOpen={isCalibrationOpen}
+        isOpen={isCalibrationOpen && isVisible}
         onClose={() => setIsCalibrationOpen(false)}
         onCalibrateSubmit={handleCalibrateSubmit}
         activeStream={cameraStream}

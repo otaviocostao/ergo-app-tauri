@@ -412,6 +412,23 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     expect(container.querySelector('[aria-label="Métricas ao vivo"]')).toBeNull();
   });
 
+  it("continues classifying video when the retained page has no visible preview size", async () => {
+    await render(); await advance(400);
+    const stream = streams.find(item => item.track.stop.mock.calls.length === 0)!;
+    const cameraRequests = getUserMedia.mock.calls.length;
+    const previousTimestamp = classificationUpdate.mock.lastCall![0]!.timestampMs;
+    previewWidth = previewHeight = 0;
+    await advance(1200);
+    expect(classificationUpdate.mock.lastCall![0]!.timestampMs).toBeGreaterThan(previousTimestamp);
+    expect(classificationUpdate.mock.lastCall![0]!.metrics.neck.value).toBe(0);
+    expect(presence.mock.lastCall).toEqual(["ACTIVE"]);
+    expect(stream.track.stop).not.toHaveBeenCalled();
+    previewWidth = 800; previewHeight = 450;
+    await advance(200);
+    expect(pointPositions[pointPositions.length - 1]?.[0].x).toBeCloseTo(400);
+    expect(getUserMedia).toHaveBeenCalledTimes(cameraRequests);
+  });
+
   it("warns when confident shoulders leave the frame and clears the warning when they return", async () => {
     landmarks![INDEX.LEFT_SHOULDER].x = -0.1;
     await render(); await advance(400);

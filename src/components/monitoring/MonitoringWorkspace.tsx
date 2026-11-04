@@ -16,7 +16,7 @@ export default function MonitoringWorkspace() {
 
   return (
     <div hidden={!isVisible}>
-      <Monitoring />
+      <Monitoring isVisible={isVisible} />
     </div>
   );
 }
