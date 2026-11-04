@@ -21,6 +21,8 @@ A etapa de altura usa o dispositivo escolhido no formulário para apresentar som
 
 As duas animações têm resolução de 960 × 420 e ciclos de oito segundos. O título, a descrição e o texto alternativo acompanham a escolha. A opção `prefers-reduced-motion` utiliza o PNG da mesma variante. O gerador `scripts/generate_calibration_monitor.py` produz os dois pares, preservando a paleta e o desenho existentes; execute `python -B scripts/generate_calibration_monitor.py` com Pillow instalado para regenerá-los.
 
+O assistente também considera webcam frontal, teclado e mouse externos e regulagem de mesa e cadeira. Quando o monitor ou suporte não possui regulagem, a etapa de altura usa a variante com uma base fixa. O [guia do formulário](formulario-calibragem.md) descreve a correlação completa das respostas com as 17 demonstrações e seus PNGs.
+
 ## Critérios de qualidade
 
 `src/services/vision/postureCalibration.ts` centraliza a avaliação pura e `POSTURE_CALIBRATION_LIMITS`:
