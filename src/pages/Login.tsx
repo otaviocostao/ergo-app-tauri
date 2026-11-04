@@ -1,12 +1,12 @@
 import { useState, type FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowRight, Building2, UserPlus, UserRound } from "lucide-react";
+import { ArrowRight, UserPlus } from "lucide-react";
 import Button from "../components/Button";
 import Input from "../components/Input";
 import AuthDialog from "../components/auth/AuthDialog";
 import AuthCard from "../components/auth/AuthCard";
 import VerifiedAnimation from "../components/auth/VerifiedAnimation";
-import { authSecondaryActionClass, authFieldStyles, authPrimaryButtonClass, authSecondaryButtonClass } from "../components/auth/authStyles";
+import { authFieldStyles, authPrimaryButtonClass, authSecondaryButtonClass } from "../components/auth/authStyles";
 import { useAuth } from "../auth/AuthContext";
 import { authErrorMessage } from "../auth/authService";
 
@@ -21,7 +21,6 @@ export default function Login() {
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   const [feedback, setFeedback] = useState("");
   const [pending, setPending] = useState(false);
-  const [registrationDialog, setRegistrationDialog] = useState<"options" | "online" | null>(null);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -72,61 +71,10 @@ export default function Login() {
         <span className="shrink-0">Ainda não tem uma conta?</span>
         <span aria-hidden="true" className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
       </div>
-      <Button variant="secondary" size="lg" className={`h-12 ${authSecondaryButtonClass}`} disabled={pending} onClick={() => setRegistrationDialog("options")}>
+      <Button variant="secondary" size="lg" className={`h-12 ${authSecondaryButtonClass}`} disabled={pending} onClick={() => navigate("/cadastro", { viewTransition: true })}>
         <UserPlus size={18} aria-hidden="true" /> Cadastre-se
       </Button>
       </AuthCard>
-      <AuthDialog
-        open={registrationDialog === "options"}
-        showCloseButton={false}
-        onClose={() => setRegistrationDialog(null)}
-        title="Como deseja se cadastrar?"
-        actions={
-          <Button variant="secondary" size="lg" className={authSecondaryActionClass} onClick={() => setRegistrationDialog(null)}>
-            Voltar
-          </Button>
-        }
-      >
-        <div className="mt-5 flex flex-col gap-4">
-          <section className="flex flex-col gap-4 rounded-xl border border-primary-100 bg-primary-50/60 p-5 dark:border-primary-800/70 dark:bg-primary-950/40">
-            <div className="flex items-start gap-3">
-              <Building2 size={20} className="mt-0.5 shrink-0 text-primary-700 dark:text-primary-400" aria-hidden="true" />
-              <div><h3 className="font-semibold text-slate-800 dark:text-slate-100">Para empresas</h3><p className="mt-1 text-sm leading-5 text-slate-600 dark:text-slate-400">Conheça a opção de cadastro pela plataforma on-line.</p></div>
-            </div>
-            <Button size="lg" className={`h-11 ${authPrimaryButtonClass}`} onClick={() => setRegistrationDialog("online")}>
-              Cadastrar online
-            </Button>
-          </section>
-          <section className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-950/50">
-            <div className="flex items-start gap-3">
-              <UserRound size={20} className="mt-0.5 shrink-0 text-primary-700 dark:text-primary-400" aria-hidden="true" />
-              <div><h3 className="font-semibold text-slate-800 dark:text-slate-100">Para você</h3><p className="mt-1 text-sm leading-5 text-slate-600 dark:text-slate-400">Crie sua conta local e comece a usar o Ergo neste dispositivo.</p></div>
-            </div>
-            <Button variant="secondary" size="lg" className={authSecondaryActionClass} onClick={() => { setRegistrationDialog(null); navigate("/cadastro", { viewTransition: true }); }}>
-              Cadastrar offline
-            </Button>
-          </section>
-        </div>
-      </AuthDialog>
-      <AuthDialog
-        open={registrationDialog === "online"}
-        showCloseButton={false}
-        onClose={() => setRegistrationDialog(null)}
-        title="Cadastro on-line"
-        actions={
-          <Button variant="secondary" size="lg" className={authSecondaryActionClass} onClick={() => setRegistrationDialog("options")}>
-            Voltar
-          </Button>
-        }
-      >
-        <p>Cadastrando-se pela plataforma on-line você terá acesso a:</p>
-        <ul className="list-disc pl-6">
-          <li>Backup de todas as informações coletadas pelo app.</li>
-          <li>Dashboard interativo com insights detalhados.</li>
-          <li>Permissão para o time de RH acompanhar os resultados da sua saúde no ambiente de trabalho.</li>
-        </ul>
-        <p className="mt-4 text-slate-600 dark:text-slate-400">A plataforma on-line ainda não está disponível. Por enquanto, o cadastro será realizado no próprio app, sem envio de dados.</p>
-      </AuthDialog>
       <AuthDialog
         open={registrationComplete}
         showCloseButton={false}
