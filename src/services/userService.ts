@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { LocalUser } from "../auth/authService";
+import type { User } from "../auth/authService";
 
 export interface UpdateUserPayload {
   id: number;
@@ -12,11 +12,11 @@ export interface UpdateUserPayload {
 }
 
 export const userService = {
-  isLocalUser: async (id: number): Promise<boolean> => {
+  canEditProfile: async (id: number): Promise<boolean> => {
     return await invoke<boolean>("is_local_user", { id });
   },
 
-  updateUser: async (payload: UpdateUserPayload): Promise<LocalUser> => {
-    return await invoke<LocalUser>("update_user", { payload });
+  updateUser: async (payload: UpdateUserPayload): Promise<User> => {
+    return await invoke<User>("update_user", { payload });
   },
 };
