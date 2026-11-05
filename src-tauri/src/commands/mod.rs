@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod dashboard;
+pub mod session_history;
 pub mod company;
 pub mod reminder;
 pub mod settings;
