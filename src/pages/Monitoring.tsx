@@ -103,7 +103,7 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
 
   // Session logs list
   const [logs, setLogs] = useState<LogEvent[]>([]);
-  const lastPresenceRef = useRef<UserPresenceState | null>(null);
+  const lastAnnouncedPresenceRef = useRef<"ACTIVE" | "ABSENT" | null>(null);
   const hardwareBusyRef = useRef(false);
   // Blink events since the last classification; both callbacks come from the same inference.
   const pendingBlinksRef = useRef(0);
@@ -125,6 +125,7 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
     transitionRequestedRef.current = true;
     if (recording.status === "error") { recording.retry(); return; }
     if (!isMonitoring) {
+      lastAnnouncedPresenceRef.current = null;
       setSessionBlinkCount(0);
       pendingBlinksRef.current = 0;
       alertState.hysteresis.resetContinuity();
@@ -202,10 +203,14 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
   }, [captureEnabled, userId]);
 
   const handlePresenceChange = (presence: UserPresenceState) => {
+    const context = monitoringContextRef.current;
+    if (context.userId !== userId) return;
     setUserPresence(presence);
     if (presence !== "ACTIVE") recording.pause();
-    if (lastPresenceRef.current === presence) return;
-    lastPresenceRef.current = presence;
+    // Brief occlusions do not rearm the announcement; only the detector's 5s absence does.
+    // Calibration and inactive capture must not add presence events to the monitoring history.
+    if (!context.enabled || presence === "PARTIALLY_OCCLUDED" || lastAnnouncedPresenceRef.current === presence) return;
+    lastAnnouncedPresenceRef.current = presence;
 
     if (presence === "ABSENT") {
       const newLog: LogEvent = {
@@ -252,7 +257,7 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
     setCalibration(null);
     setClassification(null);
     setLogs([]);
-    lastPresenceRef.current = null;
+    lastAnnouncedPresenceRef.current = null;
     hardwareBusyRef.current = false;
     alertState.hysteresis.resetContinuity();
     alertState.cooldown.reset();
@@ -272,6 +277,7 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
   }, [userId]);
 
   const handleCalibrateSubmit = (savedCalibration?: PostureCalibrationDTO | null) => {
+    if (monitoringContextRef.current.userId !== userId) return;
     if (savedCalibration) {
       setCalibration(savedCalibration);
     } else {
@@ -289,6 +295,8 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
       occurredAt: new Date().toISOString(),
       timestamp: new Date().toLocaleTimeString("pt-BR"),
       type: "success",
+      scope: "account",
+      userId,
       message: "Ambiente de trabalho salvo com sucesso",
       detail: `Configuração atualizada. Calibração neutra aplicada.`,
     };
