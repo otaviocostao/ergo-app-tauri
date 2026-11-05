@@ -36,6 +36,28 @@ pub fn validate_snapshot_payload(
         return Err("Samples count cannot be negative".to_string());
     }
 
+    if matches!(
+        payload.dominant_status,
+        crate::models::posture_metric_snapshot::PostureStatus::Absent
+            | crate::models::posture_metric_snapshot::PostureStatus::Unavailable
+    ) && (payload.samples_count != 0
+        || payload.blink_count != 0
+        || payload.score != 0.0
+        || [
+            payload.avg_neck_angle,
+            payload.max_neck_angle,
+            payload.avg_shoulder_balance,
+            payload.min_shoulder_balance,
+            payload.avg_distance_cm,
+        ]
+        .iter()
+        .any(Option::is_some))
+    {
+        return Err(
+            "Absent and unavailable summaries cannot contain posture measurements".to_string(),
+        );
+    }
+
     // None means the metric was unavailable for the whole window.
     if [
         payload.avg_neck_angle,
@@ -149,6 +171,45 @@ mod tests {
     use crate::models::monitoring_session::MonitoringSession;
     use crate::models::posture_metric_snapshot::PostureStatus;
 
+    #[test]
+    fn persists_absent_and_unavailable_minutes_without_fabricated_measurements() {
+        let conn = setup_test_db();
+        for status in [PostureStatus::Absent, PostureStatus::Unavailable] {
+            let payload = CreateSnapshotPayload {
+                session_id: "test-session-1".into(),
+                timestamp: Some("2026-11-05T18:26:00Z".into()),
+                avg_neck_angle: None,
+                max_neck_angle: None,
+                avg_shoulder_balance: None,
+                min_shoulder_balance: None,
+                avg_distance_cm: None,
+                blink_count: 0,
+                dominant_status: status,
+                score: 0.0,
+                samples_count: 0,
+            };
+            let saved = record_metric_snapshot(&conn, payload.clone()).unwrap();
+            assert_eq!(saved.dominant_status, status);
+            let mut invalid = payload.clone();
+            invalid.samples_count = 1;
+            assert!(record_metric_snapshot(&conn, invalid).is_err());
+            let mut invalid = payload;
+            invalid.avg_neck_angle = Some(10.0);
+            assert!(record_metric_snapshot(&conn, invalid).is_err());
+        }
+        let stored = get_snapshots_by_session(&conn, "test-session-1").unwrap();
+        assert_eq!(stored.len(), 2);
+        assert!(stored
+            .iter()
+            .all(|item| item.samples_count == 0 && item.avg_neck_angle.is_none()));
+        let states = stored
+            .iter()
+            .map(|item| serde_json::to_value(item).unwrap()["dominantStatus"].clone())
+            .collect::<Vec<_>>();
+        assert!(states.contains(&serde_json::json!("absent")));
+        assert!(states.contains(&serde_json::json!("unavailable")));
+    }
+
     fn setup_test_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(include_str!("../../migrations/0001_initial_migration.sql"))
@@ -198,7 +259,10 @@ mod tests {
         assert_eq!(fetched.avg_shoulder_balance, None);
         assert_eq!(fetched.avg_distance_cm, None);
 
-        let invalid = CreateSnapshotPayload { avg_distance_cm: Some(f64::NAN), ..payload };
+        let invalid = CreateSnapshotPayload {
+            avg_distance_cm: Some(f64::NAN),
+            ..payload
+        };
         assert!(record_metric_snapshot(&conn, invalid).is_err());
     }
 

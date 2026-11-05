@@ -4,7 +4,7 @@ use rusqlite::Connection;
 use super::auth_service::AuthState;
 use crate::models::{
     posture_metric_snapshot::PostureStatus,
-    session_history::{HistoryMinute, SessionHistory},
+    session_history::{HistoryMinute, HistoryMinuteState, SessionHistory},
 };
 use crate::repositories::session_history_repository;
 
@@ -56,7 +56,18 @@ fn read_at(
             .transpose()?
             .unwrap_or(now)
             .min(now);
-        let start = end - Duration::minutes(15);
+        let session_start = session
+            .as_ref()
+            .map(|item| parse_time(&item.started_at))
+            .transpose()?
+            .unwrap_or(end);
+        let completed = end
+            .signed_duration_since(session_start)
+            .num_milliseconds()
+            .max(0)
+            / 60_000;
+        let first_cycle = (completed - 15).max(0);
+        let start = session_start + Duration::minutes(first_cycle);
         let mut history = SessionHistory {
             session,
             window_start: iso(start),
@@ -68,6 +79,11 @@ fn read_at(
                     status: None,
                     samples_count: 0,
                     summaries_count: 0,
+                    state: if start + Duration::minutes(index + 1) <= end {
+                        HistoryMinuteState::Unavailable
+                    } else {
+                        HistoryMinuteState::Pending
+                    },
                 })
                 .collect(),
             adequate_summary_percentage: None,
@@ -82,17 +98,21 @@ fn read_at(
             )
             .map_err(|error| error.to_string())?;
             let mut counts = [[0_i64; 3]; 15];
-            let mut good = 0;
-            let mut total = 0;
-            let session_start = parse_time(&session.started_at)?;
+            let mut absences = [false; 15];
+            let mut unavailable = [false; 15];
             for snapshot in snapshots {
                 let timestamp = parse_time(&snapshot.timestamp)?;
                 if timestamp < session_start {
                     continue;
                 }
-                // Snapshot timestamps mark completed windows; the right boundary belongs to that minute.
-                let index =
-                    (timestamp.signed_duration_since(start).num_milliseconds() - 1) / 60_000;
+                // The timestamp closes a session-aligned minute. Historical delayed writes
+                // still belong to the most recently completed cycle, not to a shifting window.
+                let index = timestamp
+                    .signed_duration_since(session_start)
+                    .num_milliseconds()
+                    / 60_000
+                    - 1
+                    - first_cycle;
                 if !(0..15).contains(&index) {
                     continue;
                 }
@@ -101,17 +121,31 @@ fn read_at(
                     PostureStatus::Good => 0,
                     PostureStatus::Warning => 1,
                     PostureStatus::Danger => 2,
+                    PostureStatus::Absent => {
+                        absences[index] = true;
+                        history.timeline[index].summaries_count += 1;
+                        continue;
+                    }
+                    PostureStatus::Unavailable => {
+                        unavailable[index] = true;
+                        history.timeline[index].summaries_count += 1;
+                        continue;
+                    }
                 };
+                if snapshot.samples_count <= 0 {
+                    continue;
+                }
                 counts[index][status_index] += snapshot.samples_count;
                 history.timeline[index].samples_count += snapshot.samples_count;
                 history.timeline[index].summaries_count += 1;
-                total += 1;
-                if snapshot.dominant_status == PostureStatus::Good {
-                    good += 1;
-                }
             }
-            for (minute, statuses) in history.timeline.iter_mut().zip(counts) {
+            let mut good = 0;
+            let mut total = 0;
+            for (index, (minute, statuses)) in history.timeline.iter_mut().zip(counts).enumerate() {
                 if minute.samples_count == 0 {
+                    if absences[index] && !unavailable[index] {
+                        minute.state = HistoryMinuteState::Absent;
+                    }
                     continue;
                 }
                 // Prefer the more severe status on ties; missing minutes remain unavailable.
@@ -125,6 +159,11 @@ fn read_at(
                         PostureStatus::Danger,
                     ][index],
                 );
+                minute.state = HistoryMinuteState::Recorded;
+                total += 1;
+                if minute.status == Some(PostureStatus::Good) {
+                    good += 1;
+                }
             }
             if total > 0 {
                 history.adequate_summary_percentage = Some(good as f64 * 100.0 / total as f64);
@@ -299,9 +338,9 @@ mod tests {
         );
         let data = history(&conn, &auth);
         assert_eq!(data.timeline[14].status, Some(PostureStatus::Warning));
-        assert_eq!(data.timeline[5].status, Some(PostureStatus::Danger));
-        assert_eq!(data.timeline[5].samples_count, 1200);
-        assert_eq!(data.timeline[5].summaries_count, 2);
+        assert_eq!(data.timeline[4].status, Some(PostureStatus::Danger));
+        assert_eq!(data.timeline[4].samples_count, 1200);
+        assert_eq!(data.timeline[4].summaries_count, 2);
         assert!(data.timeline[0].status.is_none());
         assert_eq!(
             data.timeline
@@ -378,5 +417,124 @@ mod tests {
             data.alerts[0].resolved_at.as_deref(),
             Some("2026-11-05T12:06:00.000Z")
         );
+    }
+
+    #[test]
+    fn fills_the_first_minute_exactly_at_its_session_deadline_without_drifting_on_refresh() {
+        let (conn, auth) = database();
+        conn.execute("UPDATE monitoring_sessions SET started_at = '2026-11-05T18:25:00Z' WHERE id = 'current'", []).unwrap();
+        snapshot(
+            &conn,
+            "first",
+            "current",
+            "2026-11-05T18:26:00Z",
+            "good",
+            540,
+        );
+        let before = read_at(
+            &conn,
+            &auth,
+            parse_time("2026-11-05T18:25:59.999Z").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(before.timeline[0].state, HistoryMinuteState::Pending);
+        assert!(before.timeline[0].status.is_none());
+        for time in ["2026-11-05T18:26:00Z", "2026-11-05T18:26:30Z"] {
+            let data = read_at(&conn, &auth, parse_time(time).unwrap()).unwrap();
+            assert_eq!(data.timeline[0].started_at, "2026-11-05T18:25:00.000Z");
+            assert_eq!(data.timeline[0].ended_at, "2026-11-05T18:26:00.000Z");
+            assert_eq!(data.timeline[0].state, HistoryMinuteState::Recorded);
+            assert_eq!(data.timeline[0].samples_count, 540);
+            assert_eq!(data.timeline[1].state, HistoryMinuteState::Pending);
+        }
+    }
+
+    #[test]
+    fn distinguishes_full_absence_from_missing_readings_and_counts_partial_valid_minutes() {
+        let (conn, auth) = database();
+        snapshot(
+            &conn,
+            "absent",
+            "current",
+            "2026-11-05T12:01:00Z",
+            "absent",
+            0,
+        );
+        snapshot(
+            &conn,
+            "unavailable",
+            "current",
+            "2026-11-05T12:02:00Z",
+            "unavailable",
+            0,
+        );
+        snapshot(
+            &conn,
+            "partial-valid",
+            "current",
+            "2026-11-05T12:03:00Z",
+            "good",
+            42,
+        );
+        let data = read_at(&conn, &auth, parse_time("2026-11-05T12:04:00Z").unwrap()).unwrap();
+        assert_eq!(data.timeline[0].state, HistoryMinuteState::Absent);
+        assert_eq!(data.timeline[1].state, HistoryMinuteState::Unavailable);
+        assert_eq!(data.timeline[2].state, HistoryMinuteState::Recorded);
+        assert_eq!(data.timeline[2].samples_count, 42);
+        assert_eq!(data.timeline[3].state, HistoryMinuteState::Unavailable);
+        assert_eq!(data.timeline[4].state, HistoryMinuteState::Pending);
+        assert_eq!(data.adequate_summary_percentage, Some(100.0));
+    }
+
+    #[test]
+    fn retains_fifteen_completed_session_cycles_and_only_shifts_when_another_minute_finishes() {
+        let (conn, auth) = database();
+        let started = parse_time("2026-11-05T12:00:00Z").unwrap();
+        for minute in 1..=20 {
+            snapshot(
+                &conn,
+                &format!("minute-{minute}"),
+                "current",
+                &iso(started + Duration::minutes(minute)),
+                "good",
+                600,
+            );
+        }
+        for time in ["2026-11-05T12:20:00Z", "2026-11-05T12:20:59.999Z"] {
+            let data = read_at(&conn, &auth, parse_time(time).unwrap()).unwrap();
+            assert_eq!(data.timeline[0].started_at, "2026-11-05T12:05:00.000Z");
+            assert_eq!(data.timeline[14].ended_at, "2026-11-05T12:20:00.000Z");
+            assert!(data
+                .timeline
+                .iter()
+                .all(|minute| minute.state == HistoryMinuteState::Recorded));
+        }
+        let next = read_at(&conn, &auth, parse_time("2026-11-05T12:21:00Z").unwrap()).unwrap();
+        assert_eq!(next.timeline[0].started_at, "2026-11-05T12:06:00.000Z");
+        assert_eq!(next.timeline[14].state, HistoryMinuteState::Unavailable);
+    }
+
+    #[test]
+    fn valid_readings_take_precedence_over_an_absence_marker_in_the_same_cycle() {
+        let (conn, auth) = database();
+        snapshot(
+            &conn,
+            "absence",
+            "current",
+            "2026-11-05T12:01:00Z",
+            "absent",
+            0,
+        );
+        snapshot(
+            &conn,
+            "reading",
+            "current",
+            "2026-11-05T12:01:00Z",
+            "warning",
+            100,
+        );
+        let data = history(&conn, &auth);
+        assert_eq!(data.timeline[0].state, HistoryMinuteState::Recorded);
+        assert_eq!(data.timeline[0].status, Some(PostureStatus::Warning));
     }
 }

@@ -31,7 +31,7 @@ pub fn find_window_snapshots(
     let sql = format!(
         "SELECT {} FROM posture_metrics_snapshots WHERE session_id = ?1
         AND julianday(timestamp) > julianday(?2) AND julianday(timestamp) <= julianday(?3)
-        AND samples_count > 0 ORDER BY julianday(timestamp), rowid",
+        ORDER BY julianday(timestamp), rowid",
         snapshots::SELECT_POSTURE_METRIC_SNAPSHOT_FIELDS
     );
     let mut statement = conn.prepare(&sql)?;

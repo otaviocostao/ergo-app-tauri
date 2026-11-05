@@ -13,6 +13,16 @@ pub struct HistoryMinute {
     pub status: Option<PostureStatus>,
     pub samples_count: i64,
     pub summaries_count: i64,
+    pub state: HistoryMinuteState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HistoryMinuteState {
+    Pending,
+    Recorded,
+    Absent,
+    Unavailable,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,7 +32,7 @@ pub struct SessionHistory {
     pub window_start: String,
     pub window_end: String,
     pub timeline: Vec<HistoryMinute>,
-    /// Percentage of saved minute summaries whose dominant status is good.
+    /// Percentage of evaluated, completed session minutes whose dominant status is good.
     pub adequate_summary_percentage: Option<f64>,
     pub alerts: Vec<PostureAlert>,
 }
