@@ -5,6 +5,7 @@ import { postureAlertService } from "../services/postureAlertService";
 import { MetricAggregation, frameFromClassification } from "../services/monitoring/metricAggregation";
 import { PostureAlertEpisodes, type AlertResolution } from "../services/monitoring/postureAlertEpisodes";
 import type { PostureAlertCondition, PostureClassification, PostureMetric } from "../types/postureClassification";
+import { notifySessionHistoryUpdated } from "../services/monitoring/sessionHistoryEvents";
 
 export interface RecordingEvent {
   type: "error";
@@ -78,7 +79,9 @@ export function useMetricRecording(
       if (mountedRef.current && ownerRef.current === userId && generationRef.current === generation) onEventRef.current({ type: "error", message });
     };
     const enqueue = (write: () => Promise<unknown>, errorMessage: string) => {
-      writes = writes.then(write).then(() => undefined).catch(error => reportError(errorMessage, error));
+      writes = writes.then(write).then(() => {
+        if (sessionId) notifySessionHistoryUpdated({ userId, sessionId });
+      }).catch(error => reportError(errorMessage, error));
     };
 
     publish("starting");
@@ -97,6 +100,7 @@ export function useMetricRecording(
       if (cancelled) return;
       const session = await monitoringSessionService.startSession({ userId });
       sessionId = session?.id ?? null;
+      if (sessionId && session) notifySessionHistoryUpdated({ userId, sessionId, session });
       // Services return null in browser previews; no fabricated session IDs.
       if (cancelled) return;
       if (!sessionId) { publish("active"); return; }
@@ -158,7 +162,8 @@ export function useMetricRecording(
             durationSeconds: 0, averageScore: 0, goodPosturePercentage: 0,
             warningPosturePercentage: 0, dangerPosturePercentage: 0,
           };
-          await monitoringSessionService.endSession({ id: sessionId, endedAt, ...summary });
+          const session = await monitoringSessionService.endSession({ id: sessionId, endedAt, ...summary });
+          notifySessionHistoryUpdated({ userId, sessionId, session: session ?? undefined });
         }
         closed = true;
         if (unfinishedClose === close) unfinishedClose = null;

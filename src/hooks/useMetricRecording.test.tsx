@@ -6,6 +6,7 @@ import { useMetricRecording } from "./useMetricRecording";
 import { classifyPosture } from "../services/vision/postureClassifier";
 import { PostureHysteresis } from "../services/vision/postureHysteresis";
 import type { PostureCalibrationDTO } from "../types/postureCalibration";
+import { SESSION_HISTORY_UPDATED_EVENT, type SessionHistoryUpdatedDetail } from "../services/monitoring/sessionHistoryEvents";
 
 const ipc = vi.hoisted(() => ({ invoke: vi.fn(), desktop: true }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: ipc.invoke, isTauri: () => ipc.desktop }));
@@ -23,6 +24,7 @@ describe("useMetricRecording IPC lifecycle", () => {
   let recorder: ReturnType<typeof useMetricRecording>;
   let frameTimer: ReturnType<typeof setInterval> | undefined;
   const onEvent = vi.fn();
+  const onHistoryUpdated = vi.fn<(event: Event) => void>();
   let sessionNumber: number;
 
   function Harness({ enabled, userId }: { enabled: boolean; userId: number | null }) {
@@ -66,6 +68,8 @@ describe("useMetricRecording IPC lifecycle", () => {
     ipc.desktop = true;
     ipc.invoke.mockReset();
     onEvent.mockReset();
+    onHistoryUpdated.mockReset();
+    window.addEventListener(SESSION_HISTORY_UPDATED_EVENT, onHistoryUpdated);
     ipc.invoke.mockImplementation(async (command: string, args?: { payload?: unknown }) => {
       if (command === "start_monitoring_session") return { id: `session-${++sessionNumber}` };
       if (command === "record_posture_alert") return { ...(args?.payload as object), id: "alert-1" };
@@ -79,6 +83,7 @@ describe("useMetricRecording IPC lifecycle", () => {
     clearInterval(frameTimer);
     frameTimer = undefined;
     await act(async () => root.unmount());
+    window.removeEventListener(SESSION_HISTORY_UPDATED_EVENT, onHistoryUpdated);
     container.remove();
     vi.restoreAllMocks();
     vi.useRealTimers();
@@ -303,5 +308,40 @@ describe("useMetricRecording IPC lifecycle", () => {
     await act(async () => recorder.retry());
     expect(recorder.status).toBe("active");
     expect(sessionNumber).toBe(2);
+  });
+
+  it("notifies history readers after saving each alert, snapshot, resolution and session boundary", async () => {
+    await render(); expect(onHistoryUpdated).toHaveBeenCalledTimes(1);
+    feed("danger"); await advance(60_000);
+    expect(onHistoryUpdated).toHaveBeenCalledTimes(3);
+    clearInterval(frameTimer); await act(async () => recorder.pause());
+    expect(onHistoryUpdated).toHaveBeenCalledTimes(4);
+    await render(false); expect(onHistoryUpdated).toHaveBeenCalledTimes(5);
+    const notifications = onHistoryUpdated.mock.calls.map(([event]) => (event as CustomEvent<SessionHistoryUpdatedDetail>).detail);
+    expect(notifications.every(item => item.userId === 7 && item.sessionId === "session-1")).toBe(true);
+    expect(notifications[0].session?.id).toBe("session-1");
+    expect(notifications[notifications.length - 1].session?.endedAt).toBeDefined();
+  });
+
+  it("does not announce an alert write before its IPC completes", async () => {
+    let finish!: (value: unknown) => void;
+    const implementation = ipc.invoke.getMockImplementation()!;
+    ipc.invoke.mockImplementation((command: string, args?: { payload?: unknown }) => command === "record_posture_alert"
+      ? new Promise(resolve => { finish = resolve; }) : implementation(command, args));
+    await render(); feed("danger"); await advance(21_000);
+    expect(onHistoryUpdated).toHaveBeenCalledTimes(1);
+    const payload = ipc.invoke.mock.calls.find(([command]) => command === "record_posture_alert")![1].payload;
+    await act(async () => finish({ ...payload, id: "saved-alert" }));
+    expect(onHistoryUpdated).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports a failed alert write without notifying readers that it was saved", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const implementation = ipc.invoke.getMockImplementation()!;
+    ipc.invoke.mockImplementation((command: string, args?: { payload?: unknown }) => command === "record_posture_alert"
+      ? Promise.reject(new Error("database busy")) : implementation(command, args));
+    await render(); feed("danger"); await advance(21_000);
+    expect(onHistoryUpdated).toHaveBeenCalledTimes(1);
+    expect(onEvent).toHaveBeenCalledWith({ type: "error", message: "Não foi possível salvar o alerta de postura." });
   });
 });
