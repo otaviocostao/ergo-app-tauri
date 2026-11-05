@@ -8,7 +8,7 @@ import { poseDetector, POSE_LANDMARK_INDEX as INDEX, type LandmarkPoint } from "
 import type { WorkspaceCalibrationModalProps } from "../components/monitoring/WorkspaceCalibrationModal";
 import type { MonitoringSessionItem, EndSessionPayload } from "../types/monitoringSession";
 import type { PostureAlert, CreateAlertPayload, ResolveAlertPayload } from "../types/postureAlert";
-import type { CreateSnapshotPayload, PostureMetricSnapshot } from "../types/postureMetricSnapshot";
+import type { CreateSnapshotPayload, PostureMetricSnapshot, PostureDominantStatus } from "../types/postureMetricSnapshot";
 import type { PostureCalibrationDTO } from "../types/postureCalibration";
 import type { SessionHistory } from "../types/sessionHistory";
 import type { KeyboardMonitorCardProps } from "../components/monitoring/KeyboardMonitorCard";
@@ -45,6 +45,7 @@ describe("monitoring messages from real detection callbacks through recording an
   let mediaDelay: number;
   let failNextCommand: string | null;
   let posturalEnabled: boolean;
+  let activeCalibration: PostureCalibrationDTO | null;
   let tracks: { stop: ReturnType<typeof vi.fn>; onended: ((event: Event) => void) | null; onmute: unknown; onunmute: unknown }[];
 
   const count = (message: string) => [...container.querySelectorAll("span")].filter(item => item.textContent === message).length;
@@ -61,8 +62,24 @@ describe("monitoring messages from real detection callbacks through recording an
   function storedHistory(): SessionHistory {
     const session = sessions[sessions.length - 1] ?? null;
     const end = session?.endedAt ?? new Date().toISOString();
-    return { session, windowStart: new Date(Date.parse(end) - 900_000).toISOString(), windowEnd: end,
-      timeline: [], adequateSummaryPercentage: null,
+    const startedAt = Date.parse(session?.startedAt ?? end);
+    const completed = Math.floor(Math.max(0, Date.parse(end) - startedAt) / 60_000);
+    const first = Math.max(0, completed - 15);
+    const timeline: SessionHistory["timeline"] = Array.from({ length: 15 }, (_, index) => {
+      const minuteEnd = startedAt + (first + index + 1) * 60_000;
+      const saved = snapshots.find(item => item.sessionId === session?.id && Date.parse(item.timestamp) === minuteEnd);
+      let state: SessionHistory["timeline"][number]["state"] = minuteEnd > Date.parse(end) ? "pending" : "unavailable";
+      let status: PostureStatus | null = null;
+      if (saved?.dominantStatus === "absent") state = "absent";
+      else if (saved && saved.dominantStatus !== "unavailable" && saved.samplesCount > 0) {
+        state = "recorded"; status = saved.dominantStatus;
+      }
+      return { startedAt: new Date(minuteEnd - 60_000).toISOString(), endedAt: new Date(minuteEnd).toISOString(),
+        status, state, samplesCount: saved?.samplesCount ?? 0, summariesCount: saved ? 1 : 0 };
+    });
+    const evaluated = timeline.filter(item => item.state === "recorded");
+    return { session, windowStart: new Date(startedAt + first * 60_000).toISOString(), windowEnd: end,
+      timeline, adequateSummaryPercentage: evaluated.length ? evaluated.filter(item => item.status === PostureStatus.GOOD).length * 100 / evaluated.length : null,
       alerts: alerts.filter(alert => alert.sessionId === session?.id) };
   }
 
@@ -72,13 +89,14 @@ describe("monitoring messages from real detection callbacks through recording an
     sessions = []; alerts = []; snapshots = []; tracks = [];
     posePresent = false; facePresent = true; pitch = 0; mediaDelay = 0; failNextCommand = null; posturalEnabled = true;
     view.keyboard = null;
+    activeCalibration = baseline;
     ipc.invoke.mockReset();
     ipc.invoke.mockImplementation(async (command: string, args?: { payload?: unknown }) => {
       if (command === failNextCommand) { failNextCommand = null; throw new Error("Test write failure"); }
       const now = new Date().toISOString();
       if (command === "get_settings" || command === "update_settings") return { id: "settings", userId: 1, posturalAnalysis: posturalEnabled,
         ocularAnalysis: true, typingAnalysis: true, webCam: "camera-1", ...(command === "update_settings" ? args?.payload as object : {}) };
-      if (command === "get_active_calibration") return baseline;
+      if (command === "get_active_calibration") return activeCalibration;
       if (command === "start_monitoring_session") {
         const session: MonitoringSessionItem = { id: `session-${sessions.length + 1}`, userId: 1,
           startedAt: now, endedAt: null, durationSeconds: 0, averageScore: 100,
@@ -107,7 +125,7 @@ describe("monitoring messages from real detection callbacks through recording an
       if (command === "record_metric_snapshot") {
         const payload = args!.payload as CreateSnapshotPayload;
         const snapshot: PostureMetricSnapshot = { ...payload, id: `snapshot-${snapshots.length + 1}`,
-          timestamp: payload.timestamp ?? now, dominantStatus: payload.dominantStatus as PostureStatus };
+          timestamp: payload.timestamp ?? now, dominantStatus: payload.dominantStatus as PostureDominantStatus };
         snapshots.push(snapshot); return structuredClone(snapshot);
       }
       if (command === "get_session_history") return structuredClone(storedHistory());
@@ -241,5 +259,64 @@ describe("monitoring messages from real detection callbacks through recording an
     expect(count("Usuário presente")).toBe(1);
     posePresent = false; await advance(5200); expect(count(ABSENCE)).toBe(1);
     expect(ipc.invoke.mock.calls.filter(([command]) => command === "start_monitoring_session")).toHaveLength(0);
+  });
+
+  it("paints the first square at 18:26:00 for a session started at 18:25:00", async () => {
+    vi.setSystemTime(new Date("2026-11-05T18:25:00Z"));
+    posePresent = true; await mountAndStart(); await advance(59_999);
+    const blocks = () => container.querySelector('[aria-label="Qualidade postural por minuto"]')!.children;
+    expect(snapshots).toHaveLength(0);
+    expect(blocks()[0].className).toContain("border-dashed");
+    await advance(1);
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0].timestamp).toBe("2026-11-05T18:26:00.000Z");
+    expect(blocks()[0].className).toContain("bg-emerald-500");
+    expect(blocks()[1].className).toContain("border-dashed");
+  });
+
+  it("colors partial-presence minutes from their valid readings and paints gray only for a fully absent minute", async () => {
+    posePresent = true; await mountAndStart(); await advance(60_000);
+    await advance(20_000); posePresent = false; await advance(20_000);
+    posePresent = true; await advance(19_999); posePresent = false; await advance(1);
+    expect(snapshots).toHaveLength(2);
+    expect(snapshots[1].dominantStatus).toBe(PostureStatus.GOOD);
+    expect(snapshots[1].samplesCount).toBeGreaterThan(0);
+    await advance(60_000);
+    expect(snapshots).toHaveLength(3);
+    expect(snapshots[2]).toMatchObject({ dominantStatus: "absent", samplesCount: 0, score: 0 });
+    const blocks = container.querySelector('[aria-label="Qualidade postural por minuto"]')!.children;
+    expect(blocks[0].className).toContain("bg-emerald-500");
+    expect(blocks[1].className).toContain("bg-emerald-500");
+    expect(blocks[2].className).toContain("bg-slate-400");
+    expect(blocks[3].className).toContain("border-dashed");
+  });
+
+  it("does not paint gray when the person is present but no calibration provides valid posture measurements", async () => {
+    activeCalibration = null; posePresent = true; await mountAndStart(); await advance(60_000);
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]).toMatchObject({ dominantStatus: "unavailable", samplesCount: 0 });
+    const first = container.querySelector('[aria-label="Qualidade postural por minuto"]')!.children[0];
+    expect(first.className).toContain("bg-transparent");
+    expect(first.className).not.toContain("bg-slate-400");
+    expect(first.getAttribute("title")).toContain("Sem leituras válidas");
+  });
+
+  it("does not invent a full-minute absence when camera permission is denied", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
+    await mountAndStart(); await advance(60_000);
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0].dominantStatus).toBe("unavailable");
+    expect(container.querySelector('[aria-label="Qualidade postural por minuto"]')!.children[0].className).toContain("bg-transparent");
+    expect(count(ABSENCE)).toBe(0);
+  });
+
+  it("keeps processing failures distinct from a full-minute absence", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(poseDetector.detectFrame).mockImplementation(() => { throw new Error("Test detector failure"); });
+    await mountAndStart(); await advance(60_000);
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0].dominantStatus).toBe("unavailable");
+    expect(container.querySelector('[aria-label="Qualidade postural por minuto"]')!.children[0].className).toContain("bg-transparent");
   });
 });
