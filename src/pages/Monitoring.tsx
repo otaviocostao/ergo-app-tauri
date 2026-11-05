@@ -40,8 +40,6 @@ const ALERT_MESSAGES: Record<PostureMetric, string> = {
   "blink-rate": "Frequência de piscadas reduzida",
 };
 
-const STARTUP_ABSENCE_GRACE_MS = 15_000;
-
 function getShoulderBalance(deviation: number | null): number | null {
   if (deviation === null) {
     return null
@@ -106,8 +104,6 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
   // Session logs list
   const [logs, setLogs] = useState<LogEvent[]>([]);
   const lastAnnouncedPresenceRef = useRef<"ACTIVE" | "ABSENT" | null>(null);
-  const startupAbsenceGraceUntilRef = useRef<number | null>(null);
-  const pendingAbsenceTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const hardwareBusyRef = useRef(false);
   // Blink events since the last classification; both callbacks come from the same inference.
   const pendingBlinksRef = useRef(0);
@@ -115,6 +111,8 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
   const recording = useMetricRecording(isMonitoring && !isCalibrationOpen && !modulesLoading && posturalEnabled, userId, event => {
     setLogs(previous => [{
       ...event,
+      scope: "account" as const,
+      userId,
       id: crypto.randomUUID(),
       occurredAt: new Date().toISOString(),
       timestamp: new Date().toLocaleTimeString("pt-BR"),
@@ -130,7 +128,6 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
     if (recording.status === "error") { recording.retry(); return; }
     if (!isMonitoring) {
       lastAnnouncedPresenceRef.current = null;
-      startupAbsenceGraceUntilRef.current = null;
       setSessionBlinkCount(0);
       pendingBlinksRef.current = 0;
       alertState.hysteresis.resetContinuity();
@@ -210,28 +207,11 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
   const handlePresenceChange = (presence: UserPresenceState) => {
     const context = monitoringContextRef.current;
     if (context.userId !== userId) return;
-    if (presence !== "ABSENT") {
-      clearTimeout(pendingAbsenceTimerRef.current);
-      pendingAbsenceTimerRef.current = undefined;
-    }
     setUserPresence(presence);
     if (presence !== "ACTIVE") recording.pause();
     // Brief occlusions do not rearm the announcement; only the detector's 5s absence does.
     // Calibration and inactive capture must not add presence events to the monitoring history.
     if (!context.enabled || presence === "PARTIALLY_OCCLUDED" || lastAnnouncedPresenceRef.current === presence) return;
-    if (presence === "ABSENT") {
-      const remaining = (startupAbsenceGraceUntilRef.current ?? 0) - performance.now();
-      if (remaining > 0) {
-        // The detector emits only on transitions, so retry the notice at the startup deadline.
-        if (pendingAbsenceTimerRef.current === undefined) {
-          pendingAbsenceTimerRef.current = setTimeout(() => {
-            pendingAbsenceTimerRef.current = undefined;
-            handlePresenceChange("ABSENT");
-          }, remaining);
-        }
-        return;
-      }
-    }
     lastAnnouncedPresenceRef.current = presence;
 
     if (presence === "ABSENT") {
@@ -240,8 +220,10 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
         occurredAt: new Date().toISOString(),
         timestamp: new Date().toLocaleTimeString("pt-BR"),
         type: "warning",
+        scope: isModuleEnabled(context.modules, Module.POSTURAL_ANALYSIS) ? "session" : "account",
+        userId,
         message: "Usuário ausente do posto de trabalho",
-        detail: "Nenhuma landmark corporal detectada há mais de 5s. Métricas pausadas.",
+        detail: "Nenhum ponto corporal detectado por pelo menos 5 segundos. Métricas pausadas.",
       };
       setLogs((prev) => [newLog, ...prev]);
     } else if (presence === "ACTIVE") {
@@ -250,6 +232,8 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
         occurredAt: new Date().toISOString(),
         timestamp: new Date().toLocaleTimeString("pt-BR"),
         type: "info",
+        scope: isModuleEnabled(context.modules, Module.POSTURAL_ANALYSIS) ? "session" : "account",
+        userId,
         message: "Usuário presente",
         detail: "Rastreamento corporal e análise postural ativos.",
       };
@@ -267,6 +251,8 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
         occurredAt: new Date().toISOString(),
         timestamp: new Date().toLocaleTimeString("pt-BR"),
         type: "warning",
+        scope: "account",
+        userId,
         message: "Câmera solicitada por outro aplicativo",
         detail: "Concorrência de hardware detectada (Meet, Teams, Zoom). Captura pausada.",
       };
@@ -280,7 +266,6 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
     setClassification(null);
     setLogs([]);
     lastAnnouncedPresenceRef.current = null;
-    startupAbsenceGraceUntilRef.current = null;
     hardwareBusyRef.current = false;
     alertState.hysteresis.resetContinuity();
     alertState.cooldown.reset();
@@ -298,15 +283,6 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
       isMounted = false;
     };
   }, [userId]);
-
-  useEffect(() => {
-    // Begin once capture actually starts; calibration resumes keep the original deadline.
-    if (captureEnabled) startupAbsenceGraceUntilRef.current ??= performance.now() + STARTUP_ABSENCE_GRACE_MS;
-    return () => {
-      clearTimeout(pendingAbsenceTimerRef.current);
-      pendingAbsenceTimerRef.current = undefined;
-    };
-  }, [captureEnabled, userId]);
 
   const handleCalibrateSubmit = (savedCalibration?: PostureCalibrationDTO | null) => {
     if (monitoringContextRef.current.userId !== userId) return;
@@ -347,6 +323,8 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
         occurredAt: new Date().toISOString(),
         timestamp: new Date().toLocaleTimeString("pt-BR"),
         type: "error",
+        scope: "account" as const,
+        userId: owner,
         message: "Não foi possível salvar a câmera padrão.",
         detail: "A câmera escolhida continua em uso nesta sessão.",
       }, ...previous]);
@@ -435,6 +413,8 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
                 occurredAt: new Date().toISOString(),
                 timestamp: new Date().toLocaleTimeString("pt-BR"),
                 type: "info",
+                scope: "account",
+                userId,
                 message: "Pausa de digitação registrada",
                 detail: "Contador de uso contínuo do teclado foi reiniciado.",
               };
