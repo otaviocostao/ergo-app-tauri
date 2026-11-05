@@ -7,7 +7,9 @@ O card **Histórico da Sessão** consulta `monitoring_sessions`, `posture_metric
 - `get_session_history` obtém o usuário da autenticação no Rust, sem aceitar um identificador de usuário enviado pela interface.
 - O repositório seleciona a sessão mais recente dessa conta. Não há fallback para sessões sem proprietário ou de outras contas.
 - Durante a sessão aberta, o intervalo acompanha os últimos 15 minutos. Para uma sessão encerrada, termina no horário de encerramento, permitindo rever seus últimos registros ao reabrir o app.
-- A interface consulta após as transições de gravação e a cada cinco segundos enquanto a gravação está em andamento. Aguarda a criação/finalização da sessão antes de ler. Leituras não se sobrepõem; respostas antigas são descartadas após ocultar a página, trocar de conta ou desmontar o componente.
+- A interface consulta imediatamente após salvar um alerta, sua resolução, um resumo ou uma transição de sessão. O evento interno `ergo:session-history-updated` é emitido somente depois do sucesso da gravação e identifica sua conta. A consulta periódica de cinco segundos permanece como recuperação.
+- O início e o encerramento aparecem com os metadados retornados pela própria gravação, sem esperar outra consulta. Ao iniciar uma sessão nova, os dados em cache da anterior não escondem seus eventos nem preenchem sua barra.
+- A consulta aguarda a criação/finalização da sessão antes de ler. Leituras não se sobrepõem; gravações ocorridas durante uma consulta invalidam sua resposta antiga e solicitam uma nova leitura. Respostas antigas também são descartadas após ocultar a página, trocar de conta ou desmontar o componente.
 - A consulta periódica é suspensa quando a página fica oculta. Isso não interrompe o monitoramento nem a gravação.
 - Falhas de leitura exibem uma mensagem e permitem tentar novamente. Dados anteriores, quando disponíveis, permanecem visíveis com indicação de que não foram atualizados.
 
@@ -32,10 +34,13 @@ A gravação existente produz um resumo após um minuto completo de leituras vá
 - Os últimos 100 alertas da sessão vêm do banco, com mensagem, gravidade, duração registrada e resolução. Notificações repetidas do cooldown não criam cópias do mesmo episódio nessa lista.
 - Presença, concorrência de câmera e ações da interface continuam sendo eventos reais desta execução. Esses avisos temporários não são persistidos nas tabelas de alertas e não reaparecem ao reiniciar o app.
 - “Usuário presente” aparece na primeira detecção válida após um início explícito do monitoramento. Depois disso, só aparece novamente ao retornar de uma ausência confirmada de pelo menos cinco segundos, com uma única mensagem por retorno. Oscilações de enquadramento parcial não reiniciam esse aviso.
-- Ao iniciar efetivamente o monitoramento, o aviso de ausência aguarda o prazo inicial de 15 segundos. Se o detector confirmar ausência antes disso, o aviso fica pendente até esse prazo e só aparece uma vez, caso a ausência continue. Nova detecção cancela o aviso pendente. Depois dessa janela, vale a regra normal de cinco segundos de ausência. Encerrar, trocar de conta, desmontar a tela ou abrir a calibragem cancela o aviso pendente; retomar após calibrar não cria outra janela de 15 segundos.
+- A ausência usa a mesma regra de cinco segundos no início e nos episódios posteriores, sem a tolerância adicional de 15 segundos. O relógio começa ao iniciar a captura, e não quando a promessa de abertura/reprodução do vídeo termina. Uma solicitação de troca/reabertura de câmera inicia um novo período de detecção.
+- A duração usa `performance.now()`, evitando interferência de ajustes no relógio do sistema. Um verificador de 100 ms mantém o aviso independente do desenho dos quadros, emite apenas nas transições e é cancelado ao parar/desmontar. Sem câmera disponível, durante bloqueio ou mute, não há novo aviso de ausência; recuperar uma captura pendente não adiciona outra espera arbitrária de cinco segundos.
+- Reiniciar enquanto o usuário ainda está ausente redefine o estado de detecção e permite um novo aviso após cinco segundos, sem exigir que ele retorne antes.
 - A calibragem e a captura desligada não geram avisos de presença/ausência. Retomar o monitoramento após calibrar preserva o último estado anunciado; encerrar e iniciar explicitamente permite uma nova mensagem inicial.
 - Concorrência de câmera é registrada na lista somente quando seu estado muda.
 - Eventos temporários possuem horário completo e identificador único; são filtrados pelos limites da sessão e ordenados junto aos eventos salvos. A confirmação **Ambiente de trabalho salvo com sucesso** pertence à conta autenticada e permanece visível entre a sessão encerrada para calibrar e a nova sessão de monitoramento. Ela só é gerada após salvar, e pode ser removida pelo botão de limpar a lista.
+- Falhas de gravação, preferências da câmera, concorrência de hardware e pausas de digitação pertencem à conta e não são descartadas por ocorrerem fora da sessão postural. Quando apenas a análise ocular está habilitada, presença/ausência também pertencem à conta: a inexistência de uma nova sessão postural não deve esconder esses avisos.
 - **Limpar lista de eventos** oculta os itens dessa tela e preserva o banco e a barra. Alertas novos continuam aparecendo; reabrir a tela pode recuperar os eventos salvos.
 - Horários RFC 3339 com fuso e datas antigas do SQLite em UTC são normalizados no backend. A tela os apresenta no horário local em formato `pt-BR`.
 
@@ -44,14 +49,15 @@ A gravação existente produz um resumo após um minuto completo de leituras vá
 - Backend: `models/session_history.rs`, `repositories/session_history_repository.rs`, `services/session_history_service.rs` e `commands/session_history.rs`, dentro de `src-tauri/src`.
 - Contrato e IPC: `src/types/sessionHistory.ts` e `src/services/sessionHistoryService.ts`.
 - Atualização: `src/hooks/useSessionHistory.ts`.
+- Notificação após gravação: `src/services/monitoring/sessionHistoryEvents.ts` e `src/hooks/useMetricRecording.ts`.
 - Apresentação: `src/components/monitoring/PostureHistoryLog.tsx`.
 - Origem dos eventos temporários: `src/pages/Monitoring.tsx`.
 
 ## Validação
 
-- Suíte completa: 704 testes Vitest e 109 testes Rust aprovados, além do build TypeScript/Vite. O aviso já existente de bundle acima de 500 kB permanece.
-- Após os ajustes de presença e confirmação de calibragem: 66 testes relacionados de monitoramento, histórico, modal e navegação passaram, além do build TypeScript/Vite.
-- Prazo inicial de ausência: testes com relógio controlado conferem o limite exato de 15 segundos, recuperação antes do prazo, aviso único sem novo callback do detector, cancelamento ao encerrar/calibrar e o prazo normal nas ausências posteriores.
+- A matriz e os resultados da validação de mensagens estão em [testes-mensagens-monitoramento.md](testes-mensagens-monitoramento.md).
+- O build TypeScript/Vite passou, mantendo o aviso anterior de bundle acima de 500 kB.
+- Ausência: testes com relógio controlado conferem os limites de 4.999 e 5.000 ms, abertura lenta, reinício sem retorno do usuário, suspensão de quadros, ajustes do relógio do sistema e mute/permissão negada.
 - Testes SQLite em memória com a migration real: autenticação, isolamento entre usuários e sessões, cores, percentual, lacunas, limites da janela, fusos, horários antigos e os últimos 100 alertas com duração/resolução.
 - Testes React: dados carregados, banco vazio, reabertura, polling sem sobreposição, limpeza visual, alertas novos, resposta atrasada de outra conta, falha de leitura, retry e página oculta.
 - Regressões de presença: enquadramentos parciais repetidos, ausência confirmada com retorno, callbacks antes de iniciar/depois de encerrar, reinício explícito e passagem pela calibragem.
