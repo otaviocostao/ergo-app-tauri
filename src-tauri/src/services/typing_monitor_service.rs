@@ -6,7 +6,7 @@ use std::time::Duration as StdDuration;
 
 use chrono::{DateTime, Utc};
 use rusqlite::Connection;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::db::AppState;
 use crate::models::auth::Session;
@@ -273,6 +273,8 @@ impl TypingMonitorSessionState {
     }
 }
 
+type MetricsEmitter = Arc<dyn Fn(&LiveTypingMetrics) + Send + Sync>;
+
 struct TypingMonitorShared {
     capture_enabled: Arc<AtomicBool>,
     pending_keystrokes: Arc<AtomicU32>,
@@ -280,7 +282,7 @@ struct TypingMonitorShared {
     #[cfg(target_os = "windows")]
     listener_thread_id: Arc<AtomicU32>,
     session_state: Mutex<TypingMonitorSessionState>,
-    app: Option<AppHandle>,
+    emitter: Option<MetricsEmitter>,
 }
 
 #[derive(Clone)]
@@ -308,7 +310,7 @@ pub fn resolve_typing_access(
 }
 
 impl TypingMonitorControl {
-    fn new(app: Option<AppHandle>) -> Self {
+    fn with_emitter(emitter: Option<MetricsEmitter>) -> Self {
         Self {
             inner: Arc::new(TypingMonitorShared {
                 capture_enabled: Arc::new(AtomicBool::new(false)),
@@ -320,20 +322,20 @@ impl TypingMonitorControl {
                     module_enabled: true,
                     ..TypingMonitorSessionState::default()
                 }),
-                app,
+                emitter,
             }),
         }
     }
 
     #[cfg(test)]
     pub(crate) fn new_for_tests() -> Self {
-        Self::new(None)
+        Self::with_emitter(None)
     }
 
     fn emit_if_changed(&self, live: &LiveTypingMetrics, changed: bool) {
         if changed {
-            if let Some(app) = &self.inner.app {
-                let _ = app.emit(TYPING_METRICS_UPDATED_EVENT, live);
+            if let Some(emitter) = &self.inner.emitter {
+                emitter(live);
             }
         }
     }
@@ -626,8 +628,12 @@ impl TypingMonitorControl {
     }
 }
 
-pub fn start(app: AppHandle) -> std::io::Result<TypingMonitorControl> {
-    let control = TypingMonitorControl::new(Some(app.clone()));
+pub fn start<R: Runtime>(app: AppHandle<R>) -> std::io::Result<TypingMonitorControl> {
+    let emit_app = app.clone();
+    let emitter: MetricsEmitter = Arc::new(move |live: &LiveTypingMetrics| {
+        let _ = emit_app.emit(TYPING_METRICS_UPDATED_EVENT, live);
+    });
+    let control = TypingMonitorControl::with_emitter(Some(emitter));
 
     let listener_capture = control.inner.capture_enabled.clone();
     let listener_pending = control.inner.pending_keystrokes.clone();
@@ -666,7 +672,7 @@ pub fn start(app: AppHandle) -> std::io::Result<TypingMonitorControl> {
     Ok(control)
 }
 
-fn poll_app(app: &AppHandle, control: &TypingMonitorControl) -> Result<(), String> {
+fn poll_app<R: Runtime>(app: &AppHandle<R>, control: &TypingMonitorControl) -> Result<(), String> {
     let state = app.state::<AppState>();
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let auth_state = app.state::<AuthState>();
