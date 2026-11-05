@@ -1,8 +1,8 @@
 import { PostureStatus } from "../enums/postureStatus";
 
 export { PostureStatus };
-export type PostureDominantStatus = PostureStatus;
-export const PostureDominantStatus = PostureStatus;
+export type PostureDominantStatus = PostureStatus | "absent" | "unavailable";
+export const PostureDominantStatus = { ...PostureStatus, ABSENT: "absent", UNAVAILABLE: "unavailable" } as const;
 
 export interface PostureMetricSnapshot {
   id: string;
@@ -14,7 +14,7 @@ export interface PostureMetricSnapshot {
   minShoulderBalance: number | null;
   avgDistanceCm: number | null;
   blinkCount: number;
-  dominantStatus: PostureStatus;
+  dominantStatus: PostureDominantStatus;
   score: number;
   samplesCount: number;
   createdAt?: string | null;
@@ -31,7 +31,7 @@ export interface CreateSnapshotPayload {
   minShoulderBalance: number | null;
   avgDistanceCm: number | null;
   blinkCount: number;
-  dominantStatus: PostureStatus | "good" | "warning" | "danger";
+  dominantStatus: PostureDominantStatus | "good" | "warning" | "danger";
   score: number;
   samplesCount: number;
 }

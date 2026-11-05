@@ -61,7 +61,14 @@ export function frameFromClassification(
 interface AggregationOptions {
   sessionId: string;
   onSnapshot: (payload: CreateSnapshotPayload) => void;
+  startedAtMs?: number;
+  startedAtEpochMs?: number;
   config?: PostureClassificationConfig;
+}
+
+export interface PresenceObservation {
+  timestampMs: number;
+  hasBody: boolean;
 }
 
 function mean(values: number[]): number | null {
@@ -71,8 +78,15 @@ function mean(values: number[]): number | null {
 export class MetricAggregation {
   private readonly buffer = new RingBuffer<ProcessedPostureFrame>(METRIC_BUFFER_CAPACITY);
   private readonly config: PostureClassificationConfig;
-  private windowStartedAt: number | null = null;
+  private windowStartedAt: number;
+  private readonly startedAtMs: number;
+  private readonly startedAtEpochMs: number;
   private lastFrameAt: number | null = null;
+  private lastAcceptedFrameAt: number | null = null;
+  private firstPresenceAt: number | null = null;
+  private lastPresenceAt: number | null = null;
+  private hadBody = false;
+  private presenceGap = false;
   // Session totals retain only aggregate scalars, including across buffer rotations.
   private totalSamples = 0;
   private totalScore = 0;
@@ -81,6 +95,9 @@ export class MetricAggregation {
 
   constructor(private readonly options: AggregationOptions) {
     this.config = options.config ?? DEFAULT_POSTURE_CLASSIFICATION_CONFIG;
+    this.startedAtMs = options.startedAtMs ?? 0;
+    this.startedAtEpochMs = options.startedAtEpochMs ?? Date.now();
+    this.windowStartedAt = this.startedAtMs;
   }
 
   get samplesCount(): number {
@@ -90,12 +107,13 @@ export class MetricAggregation {
   /** Invalid frames are skipped; a lasting interruption is detected by the frame gap. */
   recordFrame(frame: ProcessedPostureFrame): void {
     if (!this.isValidFrame(frame)) return;
-    if (this.lastFrameAt !== null && frame.timestampMs <= this.lastFrameAt) return;
+    if (frame.timestampMs < this.windowStartedAt ||
+      (this.lastAcceptedFrameAt !== null && frame.timestampMs <= this.lastAcceptedFrameAt)) return;
 
     this.tick(frame.timestampMs);
     if (this.lastFrameAt !== null) this.activeMs += frame.timestampMs - this.lastFrameAt;
     this.lastFrameAt = frame.timestampMs;
-    this.windowStartedAt ??= frame.timestampMs;
+    this.lastAcceptedFrameAt = frame.timestampMs;
     // Copy only scalar fields; callers cannot mutate retained measurements or attach raw data.
     this.buffer.push({
       timestampMs: frame.timestampMs,
@@ -110,26 +128,40 @@ export class MetricAggregation {
     this.statusCounts[frame.status]++;
   }
 
-  /** Called by a timer as well as inference, so a minute closes even between frames. */
+  /** Fixed session minutes close even with interrupted or unavailable measurements. */
   tick(now: number): void {
-    if (this.lastFrameAt === null || now < this.lastFrameAt) return;
-    if (now - this.lastFrameAt > MAX_FRAME_GAP_MS) {
-      this.pause();
-      return;
-    }
-    if (this.windowStartedAt !== null && now - this.windowStartedAt >= METRIC_WINDOW_MS) {
-      const payload = this.aggregate();
+    if (!Number.isFinite(now) || now < this.windowStartedAt) return;
+    if (this.lastFrameAt !== null && now - this.lastFrameAt > MAX_FRAME_GAP_MS) this.lastFrameAt = null;
+    while (now - this.windowStartedAt >= METRIC_WINDOW_MS) {
+      const end = this.windowStartedAt + METRIC_WINDOW_MS;
+      const payload = this.aggregate(end);
       this.buffer.clear();
-      this.windowStartedAt += METRIC_WINDOW_MS;
+      this.windowStartedAt = end;
+      this.firstPresenceAt = this.lastPresenceAt = null;
+      this.hadBody = this.presenceGap = false;
       // Raw measurements are released before any asynchronous IPC begins.
-      if (payload) this.options.onSnapshot(payload);
+      this.options.onSnapshot(payload);
     }
   }
 
-  /** Incomplete windows are discarded on absence, occlusion, calibration or pause. */
+  /** Presence evidence is independent of calibration and posture measurement availability. */
+  observePresence(observation: PresenceObservation): void {
+    const { timestampMs, hasBody } = observation;
+    if (!Number.isFinite(timestampMs) || timestampMs < this.windowStartedAt ||
+      (this.lastPresenceAt !== null && timestampMs <= this.lastPresenceAt)) return;
+    this.tick(timestampMs);
+    if (this.lastPresenceAt !== null && timestampMs - this.lastPresenceAt > MAX_FRAME_GAP_MS) this.presenceGap = true;
+    this.firstPresenceAt ??= timestampMs;
+    this.lastPresenceAt = timestampMs;
+    this.hadBody ||= hasBody;
+  }
+
+  millisecondsUntilNextWindow(now: number): number {
+    return Math.max(0, this.windowStartedAt + METRIC_WINDOW_MS - now);
+  }
+
+  /** Interrupt active-time continuity while preserving this minute's valid measurements. */
   pause(): void {
-    this.buffer.clear();
-    this.windowStartedAt = null;
     this.lastFrameAt = null;
   }
 
@@ -156,9 +188,11 @@ export class MetricAggregation {
       && (frame.blinkCount === undefined || (Number.isInteger(frame.blinkCount) && frame.blinkCount >= 0));
   }
 
-  private aggregate(): CreateSnapshotPayload | null {
+  private aggregate(endedAtMs: number): CreateSnapshotPayload {
     const frames = this.buffer.values();
-    if (!frames.length) return null;
+    const fullyObservedAbsence = !this.hadBody && !this.presenceGap &&
+      this.firstPresenceAt !== null && this.firstPresenceAt - this.windowStartedAt <= MAX_FRAME_GAP_MS &&
+      this.lastPresenceAt !== null && endedAtMs - this.lastPresenceAt <= MAX_FRAME_GAP_MS;
     const present = (pick: (frame: ProcessedPostureFrame) => number | null) =>
       frames.map(pick).filter((value): value is number => value !== null);
     const neck = present(frame => frame.neckAngle);
@@ -177,15 +211,15 @@ export class MetricAggregation {
     );
     return {
       sessionId: this.options.sessionId,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(this.startedAtEpochMs + Math.round(endedAtMs - this.startedAtMs)).toISOString(),
       avgNeckAngle: mean(neck),
       maxNeckAngle: neck.length ? Math.max(...neck) : null,
       avgShoulderBalance: mean(shoulders),
       minShoulderBalance: shoulders.length ? Math.min(...shoulders) : null,
       avgDistanceCm: mean(distance),
       blinkCount: blinks,
-      dominantStatus,
-      score: score / frames.length,
+      dominantStatus: frames.length ? dominantStatus : fullyObservedAbsence ? "absent" : "unavailable",
+      score: frames.length ? score / frames.length : 0,
       samplesCount: frames.length,
     };
   }
