@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import PostureHistoryLog, { type PostureHistoryLogProps } from "./PostureHistoryLog";
+import PostureHistoryLog, { type LogEvent, type PostureHistoryLogProps } from "./PostureHistoryLog";
 import { sessionHistoryService } from "../../services/sessionHistoryService";
 import { PostureStatus } from "../../enums/postureStatus";
 import type { SessionHistory } from "../../types/sessionHistory";
@@ -141,5 +141,31 @@ describe("database-backed session history", () => {
     await render({ isVisible: false }); const calls = read.mock.calls.length; await tick(20_000);
     expect(read).toHaveBeenCalledTimes(calls);
     await render(); expect(read).toHaveBeenCalledTimes(calls + 1);
+  });
+
+  it("keeps the calibration success visible between the closed session and the resumed session", async () => {
+    const previous = history(); previous.session!.endedAt = "2026-11-05T12:15:00Z";
+    read.mockResolvedValue(previous);
+    const notice: LogEvent = {
+      id: "calibration-saved", occurredAt: "2026-11-05T12:15:01Z", timestamp: "12:15:01",
+      message: "Ambiente de trabalho salvo com sucesso", type: "success", scope: "account", userId: 1,
+    };
+    const presence: LogEvent = { id: "old-presence", occurredAt: "2026-11-05T12:15:01Z",
+      timestamp: "12:15:01", message: "Presence outside this session", type: "info" };
+    await render({ logs: [notice, presence] });
+    expect(container.textContent).toContain(notice.message);
+    expect(container.textContent).not.toContain(presence.message);
+    const resumed = history(); resumed.session!.id = "resumed"; resumed.session!.startedAt = "2026-11-05T12:15:02Z";
+    read.mockResolvedValue(resumed); await tick();
+    expect(container.textContent).toContain(notice.message);
+    expect(container.textContent).not.toContain(presence.message);
+    await act(async () => (container.querySelector('[aria-label="Limpar lista de eventos"]') as HTMLButtonElement).click());
+    expect(container.textContent).not.toContain(notice.message);
+  });
+
+  it("does not display another account's calibration notice", async () => {
+    await render({ logs: [{ id: "other-calibration", occurredAt: "2026-11-05T12:10:00Z", timestamp: "12:10:00",
+      message: "Another account saved its calibration", type: "success", scope: "account", userId: 2 }] });
+    expect(container.textContent).not.toContain("Another account saved its calibration");
   });
 });

@@ -8,6 +8,8 @@ export interface LogEvent {
   id: string;
   timestamp: string;
   occurredAt?: string;
+  scope?: "session" | "account";
+  userId?: number | null;
   type: "success" | "warning" | "error" | "info";
   message: string;
   detail?: string;
@@ -50,9 +52,11 @@ export default function PostureHistoryLog({
   }
   // Stored episodes replace repeated cooldown notifications of the same posture condition.
   // Presence, hardware and interface notices remain actual events from this execution.
+  // Saving calibration happens between recording sessions and belongs to its account.
   const runtimeLogs = logs.filter(log => userId !== null && !log.id.startsWith("posture:") &&
-    (!session || (log.occurredAt && Date.parse(log.occurredAt) >= Date.parse(session.startedAt) &&
-      (!session.endedAt || Date.parse(log.occurredAt) <= Date.parse(session.endedAt)))));
+    (log.scope === "account" ? log.userId === userId
+      : !session || (log.occurredAt && Date.parse(log.occurredAt) >= Date.parse(session.startedAt) &&
+        (!session.endedAt || Date.parse(log.occurredAt) <= Date.parse(session.endedAt)))));
   const displayLogs = [...savedLogs, ...runtimeLogs]
     .filter(log => hidden.key !== historyKey || !hidden.ids.has(log.id))
     .sort((left, right) => Date.parse(right.occurredAt ?? "1970-01-01") - Date.parse(left.occurredAt ?? "1970-01-01"))
