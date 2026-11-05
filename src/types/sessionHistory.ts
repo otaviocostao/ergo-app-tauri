@@ -8,6 +8,7 @@ export interface HistoryMinute {
   status: PostureStatus | null;
   samplesCount: number;
   summariesCount: number;
+  state: "pending" | "recorded" | "absent" | "unavailable";
 }
 
 export interface SessionHistory {

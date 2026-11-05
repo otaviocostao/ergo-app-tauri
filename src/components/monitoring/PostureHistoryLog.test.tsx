@@ -24,6 +24,7 @@ function history(): SessionHistory {
       endedAt: new Date(end - (14 - index) * 60_000).toISOString(),
       status: [PostureStatus.GOOD, PostureStatus.WARNING, PostureStatus.DANGER][index] ?? null,
       samplesCount: index < 3 ? 600 : 0, summariesCount: index < 3 ? 1 : 0,
+      state: index < 3 ? "recorded" : "pending",
     })),
     adequateSummaryPercentage: 100 / 3,
     alerts: [{ id: "alert-1", sessionId: "session-1", timestamp: "2026-11-05T12:10:00Z",
@@ -52,7 +53,7 @@ describe("database-backed session history", () => {
 
   it("renders stored statuses, actual times, percentage and resolved alert duration after loading", async () => {
     await render({ logs: [{ id: "posture:cooldown", timestamp: "12:10", message: "Duplicate live notice", type: "error" }] });
-    expect(container.textContent).toContain("33% dos resumos adequados");
+    expect(container.textContent).toContain("33% dos minutos adequados");
     expect(container.textContent).not.toContain("87%");
     expect(container.textContent).toContain("Desvio do pescoço salvo no banco");
     expect(container.textContent).toContain("Encerrado · Duração registrada: 42 s.");
@@ -62,19 +63,19 @@ describe("database-backed session history", () => {
     expect(blocks[0].className).toContain("bg-emerald-500");
     expect(blocks[1].className).toContain("bg-amber-500");
     expect(blocks[2].className).toContain("bg-rose-500");
-    expect(blocks[3].className).toContain("bg-slate-200");
+    expect(blocks[3].className).toContain("border-dashed");
     expect(blocks[0].getAttribute("title")).toContain("600 amostras");
-    expect(blocks[3].getAttribute("title")).toContain("Sem dados");
+    expect(blocks[3].getAttribute("title")).toContain("Aguardando conclusão");
     expect(container.textContent).toContain("Monitoramento iniciado");
   });
 
   it("shows an empty database without inventing good measurements", async () => {
     const empty = history(); empty.session = null; empty.alerts = []; empty.adequateSummaryPercentage = null;
-    empty.timeline = empty.timeline.map(item => ({ ...item, status: null, samplesCount: 0, summariesCount: 0 }));
+    empty.timeline = empty.timeline.map(item => ({ ...item, status: null, samplesCount: 0, summariesCount: 0, state: "pending" }));
     read.mockResolvedValue(empty);
     await render({ recordingStatus: "idle" });
     expect(container.textContent).toContain("Nenhuma sessão de monitoramento registrada");
-    expect(container.textContent).toContain("Sem resumos registrados");
+    expect(container.textContent).toContain("Nenhum minuto registrado");
     expect(container.querySelectorAll(".bg-emerald-500")).toHaveLength(0);
     await tick(20_000);
     expect(read).toHaveBeenCalledTimes(1);
@@ -100,7 +101,7 @@ describe("database-backed session history", () => {
     const refreshed = history(); refreshed.adequateSummaryPercentage = 75;
     read.mockResolvedValue(refreshed);
     await tick();
-    expect(container.textContent).toContain("75% dos resumos adequados");
+    expect(container.textContent).toContain("75% dos minutos adequados");
     expect(read).toHaveBeenCalledTimes(2);
   });
 
@@ -114,7 +115,7 @@ describe("database-backed session history", () => {
     const updated = history(); updated.alerts.push({ ...updated.alerts[0], id: "alert-2", message: "Novo alerta salvo" });
     read.mockResolvedValue(updated); await tick();
     expect(container.textContent).toContain("Novo alerta salvo");
-    expect(container.textContent).toContain("33% dos resumos adequados");
+    expect(container.textContent).toContain("33% dos minutos adequados");
   });
 
   it("hides the previous account immediately and discards its late response", async () => {
@@ -129,7 +130,7 @@ describe("database-backed session history", () => {
     expect(container.textContent).not.toContain("Desvio do pescoço salvo no banco");
     await act(async () => finishOld(history()));
     expect(container.textContent).not.toContain("Desvio do pescoço salvo no banco");
-    expect(container.textContent).toContain("0% dos resumos adequados");
+    expect(container.textContent).toContain("0% dos minutos adequados");
   });
 
   it("keeps loaded data on read failures, supports retry and suspends reads while hidden", async () => {
@@ -222,5 +223,20 @@ describe("database-backed session history", () => {
     await act(async () => notifySessionHistoryUpdated({ userId: 1, sessionId: "session-1" }));
     expect(read).toHaveBeenCalledTimes(calls);
     await render(); expect(read).toHaveBeenCalledTimes(calls + 1);
+  });
+
+  it("fills gray only for full-minute absence while pending and unavailable cycles remain outlined", async () => {
+    const data = history();
+    data.timeline[0] = { ...data.timeline[0], state: "absent", status: null, samplesCount: 0 };
+    data.timeline[1] = { ...data.timeline[1], state: "unavailable", status: null, samplesCount: 0 };
+    data.timeline[2] = { ...data.timeline[2], state: "pending", status: null, samplesCount: 0 };
+    read.mockResolvedValue(data); await render();
+    const blocks = container.querySelector('[aria-label="Qualidade postural por minuto"]')!.children;
+    expect(blocks[0].className).toContain("bg-slate-400");
+    expect(blocks[0].getAttribute("title")).toContain("ausente durante todo o minuto");
+    expect(blocks[1].className).toContain("bg-transparent");
+    expect(blocks[1].getAttribute("title")).toContain("Sem leituras válidas");
+    expect(blocks[2].className).toContain("border-dashed");
+    expect(container.querySelectorAll(".bg-slate-400")).toHaveLength(1);
   });
 });
