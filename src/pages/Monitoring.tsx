@@ -9,6 +9,7 @@ import { postureService } from "../services/postureService";
 import { useOptionalAuth } from "../auth/AuthContext";
 import { useMetricRecording } from "../hooks/useMetricRecording";
 import { useModuleSettings } from "../hooks/useModuleSettings";
+import { useTypingMetrics } from "../hooks/useTypingMetrics";
 import { isModuleEnabled, settingsService } from "../services/settingsService";
 import { getInactiveModule, restrictClassificationToModules } from "../services/monitoring/moduleClassification";
 import type { PostureCalibrationDTO } from "../types/postureCalibration";
@@ -76,8 +77,10 @@ export default function Monitoring() {
   const { settings: moduleSettings, setSettings: setModuleSettings, isLoading: modulesLoading } = useModuleSettings();
   const posturalEnabled = isModuleEnabled(moduleSettings, Module.POSTURAL_ANALYSIS);
   const ocularEnabled = isModuleEnabled(moduleSettings, Module.OCULAR_ANALYSIS);
+  const typingEnabled = isModuleEnabled(moduleSettings, Module.TYPING_ANALYSIS);
   // Waiting for the settings avoids switching the camera on, or opening a session, only to stop it.
   const cameraModulesEnabled = !modulesLoading && (posturalEnabled || ocularEnabled);
+  const typingPaused = !isMonitoring || isCalibrationOpen;
   const monitoringContextRef = useRef({ enabled: true, userId, modules: moduleSettings });
   const [calibration, setCalibration] = useState<PostureCalibrationDTO | null>(null);
   const [sessionBlinkCount, setSessionBlinkCount] = useState(0);
@@ -99,449 +102,463 @@ export default function Monitoring() {
   const [logs, setLogs] = useState<LogEvent[]>([]);
   // Blink events since the last classification; both callbacks come from the same inference.
   const pendingBlinksRef = useRef(0);
-  // Sessions and snapshots summarize posture, so nothing is recorded without the postural module.
-  const recording = useMetricRecording(isMonitoring && !isCalibrationOpen && !modulesLoading && posturalEnabled, userId, event => {
-    setLogs(previous => [{
-      ...event,
-      id: crypto.randomUUID(),
-      timestamp: new Date().toLocaleTimeString(),
-    }, ...previous].slice(0, 100));
-  });
+    // Posture and typing share the same MonitoringSession whenever at least one of them is active.
+    const recording = useMetricRecording(
+      !modulesLoading && isMonitoring && !isCalibrationOpen && (posturalEnabled || typingEnabled),
+      userId,
+      event => {
+        setLogs(previous => [{
+          ...event,
+          id: crypto.randomUUID(),
+          timestamp: new Date().toLocaleTimeString(),
+        }, ...previous].slice(0, 100));
+      },
+      posturalEnabled,
+    );
+    const { metrics: typingMetrics, resetMetrics: resetTypingMetrics } = useTypingMetrics({
+      enabled: !modulesLoading && typingEnabled,
+      isPaused: typingPaused,
+    });
 
-  const handlePostureUpdate = (metrics: {
-    neckAngle: number;
-    shoulderBalance: number;
-    distanceCm: number | null;
-    status: PostureStatus | null;
-    statusLabel: string;
-    presence?: UserPresenceState;
-  }) => {
-    if (metrics.presence) {
-      setUserPresence(metrics.presence);
-    }
-  };
-
-  const handleClassificationUpdate = (measured: PostureClassification | null) => {
-    const context = monitoringContextRef.current;
-    if (context.userId !== userId) {
-      return;
-    }
-
-    // Disabled modules produce no card value, alert or stored measurement.
-    const current = measured && restrictClassificationToModules(measured, context.modules);
-    setClassification(context.enabled ? current : null);
-
-    if (!current || !context.enabled) {
-      alertState.hysteresis.resetContinuity();
-      recording.pause();
-      pendingBlinksRef.current = 0;
-      return;
-    }
-
-    const temporal = alertState.hysteresis.update(current);
-    recording.recordClassification(current, temporal.alerts, pendingBlinksRef.current);
-    pendingBlinksRef.current = 0;
-    const alerts = alertState.cooldown.ready(temporal.sustained, current.timestampMs);
-
-    if (alerts.length === 0) {
-      return;
-    }
-
-    const events: LogEvent[] = alerts.map(alert => ({
-      id: `posture:${current.timestampMs}:${alert.metric}:${alert.level}`,
-      timestamp: new Date().toLocaleTimeString(),
-      type: alert.level === PostureStatus.DANGER ? "error" : "warning",
-      message: ALERT_MESSAGES[alert.metric],
-      detail: `${POSTURE_STATUS_LABELS[alert.level]}. Condição mantida por ${Math.floor(alert.durationMs / 1000)} s.`,
-    }));
-
-    setLogs(previous => [...events, ...previous]);
-    alertState.cooldown.markNotified(alerts, current.timestampMs);
-  };
-
-  useEffect(() => {
-    const enabled = isMonitoring && !isCalibrationOpen;
-    monitoringContextRef.current = { enabled, userId, modules: moduleSettings };
-
-    if (!enabled) {
-      alertState.hysteresis.resetContinuity();
-    }
-
-  }, [isMonitoring, isCalibrationOpen, userId, moduleSettings]);
-
-  const handlePresenceChange = (presence: UserPresenceState) => {
-    setUserPresence(presence);
-    if (presence !== "ACTIVE") recording.pause();
-
-    if (presence === "ABSENT") {
-      const newLog: LogEvent = {
-        id: Date.now().toString(),
-        timestamp: new Date().toLocaleTimeString(),
-        type: "warning",
-        message: "Usuário ausente do posto de trabalho",
-        detail: "Nenhuma landmark corporal detectada há mais de 5s. Métricas pausadas.",
-      };
-      setLogs((prev) => [newLog, ...prev]);
-    } else if (presence === "ACTIVE") {
-      const newLog: LogEvent = {
-        id: Date.now().toString(),
-        timestamp: new Date().toLocaleTimeString(),
-        type: "info",
-        message: "Usuário presente",
-        detail: "Rastreamento corporal e análise postural ativos.",
-      };
-      setLogs((prev) => [newLog, ...prev]);
-    }
-  };
-
-  const handleHardwareBusyChange = (isBusy: boolean) => {
-    if (isBusy) {
-      recording.pause();
-      const newLog: LogEvent = {
-        id: Date.now().toString(),
-        timestamp: new Date().toLocaleTimeString(),
-        type: "warning",
-        message: "Câmera solicitada por outro aplicativo",
-        detail: "Concorrência de hardware detectada (Meet, Teams, Zoom). Captura pausada.",
-      };
-      setLogs((prev) => [newLog, ...prev]);
-    }
-  };
-
-  useEffect(() => {
-    let isMounted = true;
-    setCalibration(null);
-    setClassification(null);
-    alertState.hysteresis.resetContinuity();
-    alertState.cooldown.reset();
-    postureService
-      .getActiveCalibration(userId)
-      .then((activeCal) => {
-        if (isMounted && activeCal) {
-          setCalibration(activeCal);
-        }
-      })
-      .catch((err) => {
-        console.error("Erro ao carregar calibração ativa:", err);
-      });
-    return () => {
-      isMounted = false;
+    const handlePostureUpdate = (metrics: {
+      neckAngle: number;
+      shoulderBalance: number;
+      distanceCm: number | null;
+      status: PostureStatus | null;
+      statusLabel: string;
+      presence?: UserPresenceState;
+    }) => {
+      if (metrics.presence) {
+        setUserPresence(metrics.presence);
+      }
     };
-  }, [userId]);
 
-  const handleCalibrateSubmit = (savedCalibration?: PostureCalibrationDTO | null) => {
-    if (savedCalibration) {
-      setCalibration(savedCalibration);
-    } else {
+    const handleClassificationUpdate = (measured: PostureClassification | null) => {
+      const context = monitoringContextRef.current;
+      if (context.userId !== userId) {
+        return;
+      }
+
+      // Disabled modules produce no card value, alert or stored measurement.
+      const current = measured && restrictClassificationToModules(measured, context.modules);
+      setClassification(context.enabled ? current : null);
+
+      if (!current || !context.enabled) {
+        alertState.hysteresis.resetContinuity();
+        recording.pause();
+        pendingBlinksRef.current = 0;
+        return;
+      }
+
+      const temporal = alertState.hysteresis.update(current);
+      recording.recordClassification(current, temporal.alerts, pendingBlinksRef.current);
+      pendingBlinksRef.current = 0;
+      const alerts = alertState.cooldown.ready(temporal.sustained, current.timestampMs);
+
+      if (alerts.length === 0) {
+        return;
+      }
+
+      const events: LogEvent[] = alerts.map(alert => ({
+        id: `posture:${current.timestampMs}:${alert.metric}:${alert.level}`,
+        timestamp: new Date().toLocaleTimeString(),
+        type: alert.level === PostureStatus.DANGER ? "error" : "warning",
+        message: ALERT_MESSAGES[alert.metric],
+        detail: `${POSTURE_STATUS_LABELS[alert.level]}. Condição mantida por ${Math.floor(alert.durationMs / 1000)} s.`,
+      }));
+
+      setLogs(previous => [...events, ...previous]);
+      alertState.cooldown.markNotified(alerts, current.timestampMs);
+    };
+
+    useEffect(() => {
+      const enabled = isMonitoring && !isCalibrationOpen;
+      monitoringContextRef.current = { enabled, userId, modules: moduleSettings };
+
+      if (!enabled) {
+        alertState.hysteresis.resetContinuity();
+      }
+
+    }, [isMonitoring, isCalibrationOpen, userId, moduleSettings]);
+
+    const handlePresenceChange = (presence: UserPresenceState) => {
+      setUserPresence(presence);
+      if (presence !== "ACTIVE") recording.pause();
+
+      if (presence === "ABSENT") {
+        const newLog: LogEvent = {
+          id: Date.now().toString(),
+          timestamp: new Date().toLocaleTimeString(),
+          type: "warning",
+          message: "Usuário ausente do posto de trabalho",
+          detail: "Nenhuma landmark corporal detectada há mais de 5s. Métricas pausadas.",
+        };
+        setLogs((prev) => [newLog, ...prev]);
+      } else if (presence === "ACTIVE") {
+        const newLog: LogEvent = {
+          id: Date.now().toString(),
+          timestamp: new Date().toLocaleTimeString(),
+          type: "info",
+          message: "Usuário presente",
+          detail: "Rastreamento corporal e análise postural ativos.",
+        };
+        setLogs((prev) => [newLog, ...prev]);
+      }
+    };
+
+    const handleHardwareBusyChange = (isBusy: boolean) => {
+      if (isBusy) {
+        recording.pause();
+        const newLog: LogEvent = {
+          id: Date.now().toString(),
+          timestamp: new Date().toLocaleTimeString(),
+          type: "warning",
+          message: "Câmera solicitada por outro aplicativo",
+          detail: "Concorrência de hardware detectada (Meet, Teams, Zoom). Captura pausada.",
+        };
+        setLogs((prev) => [newLog, ...prev]);
+      }
+    };
+
+    useEffect(() => {
+      let isMounted = true;
+      setCalibration(null);
+      setClassification(null);
+      alertState.hysteresis.resetContinuity();
+      alertState.cooldown.reset();
       postureService
         .getActiveCalibration(userId)
-        .then((cal) => {
-          if (cal) {
-            setCalibration(cal);
+        .then((activeCal) => {
+          if (isMounted && activeCal) {
+            setCalibration(activeCal);
           }
         })
-        .catch(console.error);
-    }
-    const newLog: LogEvent = {
-      id: Date.now().toString(),
-      timestamp: new Date().toLocaleTimeString(),
-      type: "success",
-      message: "Ambiente de trabalho salvo com sucesso",
-      detail: `Configuração atualizada. Calibração neutra aplicada.`,
-    };
-    setLogs((prev) => [newLog, ...prev]);
-  };
+        .catch((err) => {
+          console.error("Erro ao carregar calibração ativa:", err);
+        });
+      return () => {
+        isMounted = false;
+      };
+    }, [userId]);
 
-  // The chosen camera becomes the account's default for every visual analysis.
-  const handleWebCamSelect = (deviceId: string) => {
-    if (!moduleSettings) return;
-    const owner = moduleSettings.userId;
-    setModuleSettings(current => current?.userId === owner ? { ...current, webCam: deviceId } : current);
-    settingsService.setWebCam(deviceId).catch(error => {
-      console.error("Failed to save the default webcam:", error);
-      setLogs(previous => [{
-        id: crypto.randomUUID(),
+    const handleCalibrateSubmit = (savedCalibration?: PostureCalibrationDTO | null) => {
+      if (savedCalibration) {
+        setCalibration(savedCalibration);
+      } else {
+        postureService
+          .getActiveCalibration(userId)
+          .then((cal) => {
+            if (cal) {
+              setCalibration(cal);
+            }
+          })
+          .catch(console.error);
+      }
+      const newLog: LogEvent = {
+        id: Date.now().toString(),
         timestamp: new Date().toLocaleTimeString(),
-        type: "error",
-        message: "Não foi possível salvar a câmera padrão.",
-        detail: "A câmera escolhida continua em uso nesta sessão.",
-      }, ...previous]);
-    });
-  };
+        type: "success",
+        message: "Ambiente de trabalho salvo com sucesso",
+        detail: `Configuração atualizada. Calibração neutra aplicada.`,
+      };
+      setLogs((prev) => [newLog, ...prev]);
+    };
 
-  const handleOcularUpdate = (metrics: OcularMetrics | null) => {
-    setOcularMetrics(metrics);
+    // The chosen camera becomes the account's default for every visual analysis.
+    const handleWebCamSelect = (deviceId: string) => {
+      if (!moduleSettings) return;
+      const owner = moduleSettings.userId;
+      setModuleSettings(current => current?.userId === owner ? { ...current, webCam: deviceId } : current);
+      settingsService.setWebCam(deviceId).catch(error => {
+        console.error("Failed to save the default webcam:", error);
+        setLogs(previous => [{
+          id: crypto.randomUUID(),
+          timestamp: new Date().toLocaleTimeString(),
+          type: "error",
+          message: "Não foi possível salvar a câmera padrão.",
+          detail: "A câmera escolhida continua em uso nesta sessão.",
+        }, ...previous]);
+      });
+    };
 
-    if (metrics?.blinkEvent === "blink" && isModuleEnabled(monitoringContextRef.current.modules, Module.OCULAR_ANALYSIS)) {
-      setSessionBlinkCount((prev) => prev + 1);
-      pendingBlinksRef.current++;
-    }
-  };
+    const handleOcularUpdate = (metrics: OcularMetrics | null) => {
+      setOcularMetrics(metrics);
 
-  const inactiveModuleLabel = (metric: PostureMetric) => {
-    const module = getInactiveModule(metric, moduleSettings);
-    return module && MODULE_LABELS[module];
-  };
-  const isPaused = !isMonitoring || isCalibrationOpen || userPresence !== "ACTIVE";
-  const blinkRate = ocularMetrics?.blinkRate.blinksPerMinute ?? null;
-  const neck = classification?.metrics.neck;
-  const shoulders = classification?.metrics.shoulders;
-  const distance = classification?.metrics.distance;
-  const blink = classification?.metrics["blink-rate"];
-  const neckDeviation = neck?.value ?? null;
-  const shoulderDeviation = shoulders?.value ?? null;
-  const calibratedShoulderBalance = getShoulderBalance(shoulderDeviation);
+      if (metrics?.blinkEvent === "blink" && isModuleEnabled(monitoringContextRef.current.modules, Module.OCULAR_ANALYSIS)) {
+        setSessionBlinkCount((prev) => prev + 1);
+        pendingBlinksRef.current++;
+      }
+    };
 
-  return (
-    <div className="w-full h-full flex flex-col gap-6 pb-8">
-      <Header
-        title="Monitoramento Em Tempo Real"
-        subtitle="Supervisão contínua em tempo real da sua postura corporal e atividade no computador"
-        action={
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setSoundAlerts(!soundAlerts)}
-              className={`p-2 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors ${soundAlerts
-                ? "bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200"
-                : "bg-slate-100/50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-400"
-                }`}
-              title={soundAlerts ? "Desativar alertas sonoros" : "Ativar alertas sonoros"}
-            >
-              {soundAlerts ? <Volume2 size={16} className="text-primary-500" /> : <VolumeX size={16} />}
-              <span className="hidden md:inline">{soundAlerts ? "Som Ativo" : "Som Mudo"}</span>
-            </button>
-          </div>
-        }
-      />
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        <div className="lg:col-span-7 flex flex-col gap-6">
-          <WebcamFeed
-            isMonitoring={isMonitoring && !isCalibrationOpen && cameraModulesEnabled}
-            disabledMessage={modulesLoading || posturalEnabled || ocularEnabled ? null
-              : "As análises postural e ocular estão desativadas em Configurações → Módulos. A câmera fica desligada até que uma delas seja ativada."}
-            preferredDeviceId={moduleSettings?.webCam ?? null}
-            onDeviceSelect={handleWebCamSelect}
-            calibration={calibration}
-            classificationConfig={classificationConfig}
-            onClassificationUpdate={handleClassificationUpdate}
-            onToggleMonitoring={() => setIsMonitoring(!isMonitoring)}
-            onCalibrate={() => setIsCalibrationOpen(true)}
-            onPostureUpdate={handlePostureUpdate}
-            onPresenceChange={handlePresenceChange}
-            onHardwareBusyChange={handleHardwareBusyChange}
-            onStreamChange={setCameraStream}
-            onOcularUpdate={handleOcularUpdate}
-          />
+    const inactiveModuleLabel = (metric: PostureMetric) => {
+      const module = getInactiveModule(metric, moduleSettings);
+      return module && MODULE_LABELS[module];
+    };
+    const isPaused = !isMonitoring || isCalibrationOpen || userPresence !== "ACTIVE";
+    const blinkRate = ocularMetrics?.blinkRate.blinksPerMinute ?? null;
+    const neck = classification?.metrics.neck;
+    const shoulders = classification?.metrics.shoulders;
+    const distance = classification?.metrics.distance;
+    const blink = classification?.metrics["blink-rate"];
+    const neckDeviation = neck?.value ?? null;
+    const shoulderDeviation = shoulders?.value ?? null;
+    const calibratedShoulderBalance = getShoulderBalance(shoulderDeviation);
 
-          <KeyboardMonitorCard
-            enabled={isModuleEnabled(moduleSettings, Module.TYPING_ANALYSIS)}
-            onPauseRequested={() => {
-              const newLog: LogEvent = {
-                id: Date.now().toString(),
-                timestamp: new Date().toLocaleTimeString(),
-                type: "info",
-                message: "Pausa de digitação registrada",
-                detail: "Contador de uso contínuo do teclado foi reiniciado.",
-              };
-              setLogs((prev) => [newLog, ...prev]);
+    return (
+      <div className="w-full h-full flex flex-col gap-6 pb-8">
+        <Header
+          title="Monitoramento Em Tempo Real"
+          subtitle="Supervisão contínua em tempo real da sua postura corporal e atividade no computador"
+          action={
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setSoundAlerts(!soundAlerts)}
+                className={`p-2 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors ${soundAlerts
+                  ? "bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200"
+                  : "bg-slate-100/50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-400"
+                  }`}
+                title={soundAlerts ? "Desativar alertas sonoros" : "Ativar alertas sonoros"}
+              >
+                {soundAlerts ? <Volume2 size={16} className="text-primary-500" /> : <VolumeX size={16} />}
+                <span className="hidden md:inline">{soundAlerts ? "Som Ativo" : "Som Mudo"}</span>
+              </button>
+            </div>
+          }
+        />
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <div className="lg:col-span-7 flex flex-col gap-6">
+            <WebcamFeed
+              isMonitoring={isMonitoring && !isCalibrationOpen && cameraModulesEnabled}
+              disabledMessage={modulesLoading || posturalEnabled || ocularEnabled ? null
+                : "As análises postural e ocular estão desativadas em Configurações → Módulos. A câmera fica desligada até que uma delas seja ativada."}
+              preferredDeviceId={moduleSettings?.webCam ?? null}
+              onDeviceSelect={handleWebCamSelect}
+              calibration={calibration}
+              classificationConfig={classificationConfig}
+              onClassificationUpdate={handleClassificationUpdate}
+              onToggleMonitoring={() => setIsMonitoring(!isMonitoring)}
+              onCalibrate={() => setIsCalibrationOpen(true)}
+              onPostureUpdate={handlePostureUpdate}
+              onPresenceChange={handlePresenceChange}
+              onHardwareBusyChange={handleHardwareBusyChange}
+              onStreamChange={setCameraStream}
+              onOcularUpdate={handleOcularUpdate}
+            />
+
+            <KeyboardMonitorCard
+                enabled = { typingEnabled }
+                isPaused = { typingPaused }
+                metrics = { typingMetrics }
+                onPauseRequested = { async() => {
+              await resetTypingMetrics();
+              setLogs((prev) => [
+            {
+              id: crypto.randomUUID(),
+            timestamp: new Date().toLocaleTimeString(),
+            type: "info" as const,
+            message: "Pausa de digitação registrada",
+            detail: "Contador de uso contínuo do teclado foi reiniciado.",
+                },
+            ...prev,
+            ].slice(0, 100));
             }}
           />
-        </div>
+          </div>
 
-        <div className="lg:col-span-5 flex flex-col gap-3">
-          <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-2xl p-5 text-white border border-slate-800 shadow-md flex flex-col justify-between gap-4">
-            <div className="flex gap-4">
-              <div className="flex gap-2">
-                <h2 className="text-base font-bold text-white">Resumo da sua ergonomia</h2>
-                <span
-                  className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${!posturalEnabled || isPaused || postureStatus === null
-                    ? "bg-slate-800 text-slate-400 border border-slate-700"
-                    : postureStatus === PostureStatus.GOOD
-                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                      : postureStatus === PostureStatus.WARNING
-                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                        : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
-                    }`}
-                >
-                  {!posturalEnabled
-                    ? "Módulo inativo"
-                    : !isMonitoring
-                    ? "Pausado"
-                    : userPresence === "ABSENT"
-                      ? "Ausente (Pausado)"
-                      : userPresence === "PARTIALLY_OCCLUDED"
-                        ? "Ajuste o enquadramento"
-                        : postureStatus === null
-                          ? "Aguardando dados"
-                          : postureStatus === PostureStatus.GOOD
-                            ? "Excelente"
-                            : postureStatus === PostureStatus.WARNING
-                              ? "Atenção"
-                              : "Crítico"}
-                </span>
-              </div>
-            </div>
-            <div className="flex">
-              <p className="text-xs text-slate-300 mt-1 sm:pr-6">
-                {!posturalEnabled
-                  ? "A análise postural está desativada em Configurações → Módulos. Ative-a para acompanhar pescoço, ombros, coluna e distância da tela."
-                  : !isMonitoring
-                  ? "O monitoramento está pausado. Inicie o monitoramento para visualizar a análise postural e métricas em tempo real."
-                  : userPresence === "ABSENT"
-                    ? "Nenhum usuário detectado há mais de 5 segundos. O cálculo de métricas e gráficos está pausado até o seu retorno."
-                    : userPresence === "PARTIALLY_OCCLUDED"
-                      ? "Aguardando pontos confiáveis da cabeça e dos ombros. Ajuste o enquadramento para retomar as métricas."
-                      : postureStatus === null
-                        ? "Calibre a postura base e aguarde leituras válidas para classificar sua postura."
-                        : postureStatus === PostureStatus.GOOD
-                          ? "Sua coluna e pescoço estão alinhados dentro das diretrizes ideais."
-                          : "Ajuste sua inclinação do pescoço ou altura da tela para melhorar sua postura."}
-              </p>
-
-              <div className="flex items-center gap-6 text-xs text-slate-300 shrink-0 border-t sm:border-t-0 sm:border-l border-slate-700/60 pt-3 sm:pt-0 sm:pl-6 w-full sm:w-auto justify-between sm:justify-start">
-                <div className="flex flex-col">
-                  <span className="text-slate-400">Status Geral:</span>
+          <div className="lg:col-span-5 flex flex-col gap-3">
+            <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-2xl p-5 text-white border border-slate-800 shadow-md flex flex-col justify-between gap-4">
+              <div className="flex gap-4">
+                <div className="flex gap-2">
+                  <h2 className="text-base font-bold text-white">Resumo da sua ergonomia</h2>
                   <span
-                    className={`font-semibold ${!posturalEnabled || isPaused || postureStatus === null
-                      ? "text-slate-400"
-                      : postureStatus === "good"
-                        ? "text-emerald-400"
-                        : postureStatus === "warning"
-                          ? "text-amber-400"
-                          : "text-rose-400"
+                    className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${!posturalEnabled || isPaused || postureStatus === null
+                      ? "bg-slate-800 text-slate-400 border border-slate-700"
+                      : postureStatus === PostureStatus.GOOD
+                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                        : postureStatus === PostureStatus.WARNING
+                          ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                          : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
                       }`}
                   >
                     {!posturalEnabled
-                      ? "Análise postural inativa"
+                      ? "Módulo inativo"
                       : !isMonitoring
-                      ? "Pausado"
-                      : userPresence === "ABSENT"
-                        ? "Usuário Ausente"
-                        : userPresence === "PARTIALLY_OCCLUDED"
-                          ? "Detecção parcial"
-                          : statusText}
-                  </span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-slate-400">Sessão:</span>
-                  <span className="font-semibold text-white">
-                    {isPaused ? "Em pausa" : "42 min monitorados"}
+                        ? "Pausado"
+                        : userPresence === "ABSENT"
+                          ? "Ausente (Pausado)"
+                          : userPresence === "PARTIALLY_OCCLUDED"
+                            ? "Ajuste o enquadramento"
+                            : postureStatus === null
+                              ? "Aguardando dados"
+                              : postureStatus === PostureStatus.GOOD
+                                ? "Excelente"
+                                : postureStatus === PostureStatus.WARNING
+                                  ? "Atenção"
+                                  : "Crítico"}
                   </span>
                 </div>
               </div>
+              <div className="flex">
+                <p className="text-xs text-slate-300 mt-1 sm:pr-6">
+                  {!posturalEnabled
+                    ? "A análise postural está desativada em Configurações → Módulos. Ative-a para acompanhar pescoço, ombros, coluna e distância da tela."
+                    : !isMonitoring
+                      ? "O monitoramento está pausado. Inicie o monitoramento para visualizar a análise postural e métricas em tempo real."
+                      : userPresence === "ABSENT"
+                        ? "Nenhum usuário detectado há mais de 5 segundos. O cálculo de métricas e gráficos está pausado até o seu retorno."
+                        : userPresence === "PARTIALLY_OCCLUDED"
+                          ? "Aguardando pontos confiáveis da cabeça e dos ombros. Ajuste o enquadramento para retomar as métricas."
+                          : postureStatus === null
+                            ? "Calibre a postura base e aguarde leituras válidas para classificar sua postura."
+                            : postureStatus === PostureStatus.GOOD
+                              ? "Sua coluna e pescoço estão alinhados dentro das diretrizes ideais."
+                              : "Ajuste sua inclinação do pescoço ou altura da tela para melhorar sua postura."}
+                </p>
+
+                <div className="flex items-center gap-6 text-xs text-slate-300 shrink-0 border-t sm:border-t-0 sm:border-l border-slate-700/60 pt-3 sm:pt-0 sm:pl-6 w-full sm:w-auto justify-between sm:justify-start">
+                  <div className="flex flex-col">
+                    <span className="text-slate-400">Status Geral:</span>
+                    <span
+                      className={`font-semibold ${!posturalEnabled || isPaused || postureStatus === null
+                        ? "text-slate-400"
+                        : postureStatus === "good"
+                          ? "text-emerald-400"
+                          : postureStatus === "warning"
+                            ? "text-amber-400"
+                            : "text-rose-400"
+                        }`}
+                    >
+                      {!posturalEnabled
+                        ? "Análise postural inativa"
+                        : !isMonitoring
+                          ? "Pausado"
+                          : userPresence === "ABSENT"
+                            ? "Usuário Ausente"
+                            : userPresence === "PARTIALLY_OCCLUDED"
+                              ? "Detecção parcial"
+                              : statusText}
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-slate-400">Sessão:</span>
+                    <span className="font-semibold text-white">
+                      {isPaused ? "Em pausa" : "42 min monitorados"}
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <ErgoMetricsCard
+                title="Inclinação do Pescoço"
+                value={neckDeviation === null ? (calibration ? "Aguardando leitura" : "Aguardando calibração") : Number(neckDeviation.toFixed(1))}
+                unit={neckDeviation === null ? undefined : "°"}
+                status={neck?.status ?? "info"}
+                icon={Compass}
+                progress={neckDeviation === null ? undefined : Math.min(100, (neckDeviation / classificationConfig.neck.warningMaxDegrees) * 100)}
+                idealRange={`Desvio ≤ ${classificationConfig.neck.goodMaxDegrees}°`}
+                trend={neck?.status === PostureStatus.GOOD ? "improving" : "stable"}
+                description="Variação do ângulo do pescoço em relação à sua postura neutra calibrada."
+                details={[
+                  { label: "Orientação:", value: neck?.status == null ? "Indisponível" : neck.status === PostureStatus.GOOD ? "Neutra" : "Inclinada" },
+                  { label: "Limite Alerta:", value: `${classificationConfig.neck.warningMaxDegrees}°` },
+                ]}
+                isPaused={isPaused}
+                inactiveModule={inactiveModuleLabel("neck")}
+              />
+
+              <ErgoMetricsCard
+                title="Alinhamento Ombros"
+                value={getShoulderCardValue(calibratedShoulderBalance, calibration)}
+                unit={calibratedShoulderBalance === null ? undefined : "%"}
+                status={shoulders?.status ?? "info"}
+                icon={Sliders}
+                progress={calibratedShoulderBalance ?? undefined}
+                idealRange={`Desvio ≤ ${classificationConfig.shoulders.goodMaxDegrees}°`}
+                trend={shoulders?.status === PostureStatus.GOOD ? "stable" : "worsening"}
+                description="Alinhamento dos ombros em relação à sua postura neutra calibrada."
+                details={[
+                  { label: "Desvio da referência:", value: shoulderDeviation === null ? "Indisponível" : `${shoulderDeviation.toFixed(1)}°` },
+                  {
+                    label: "Balanço:", value: shoulders?.status == null
+                      ? calibration?.baselineShoulderBalance === 0 ? "Recalibre a postura base" : "Indisponível"
+                      : shoulders.status === PostureStatus.GOOD ? "Simétrico" : "Inclinado"
+                  },
+                ]}
+                isPaused={isPaused}
+                inactiveModule={inactiveModuleLabel("shoulders")}
+              />
+
+              <ErgoMetricsCard
+                title="Distância da Tela"
+                value={distanceCm === null ? (calibration ? "Aguardando detecção facial" : "Aguardando calibração") : Math.round(distanceCm)}
+                unit={distanceCm === null ? undefined : "cm"}
+                status={distance?.status ?? "info"}
+                icon={Eye}
+                progress={distanceCm === null ? undefined : Math.min(100, Math.max(0, (distanceCm / 80) * 100))}
+                idealRange={`${classificationConfig.distance.goodMinCm} - ${classificationConfig.distance.goodMaxCm} cm`}
+                trend="stable"
+                description="Estimativa pela distância entre os olhos, dependente de calibração e rosto frontal."
+                details={[
+                  { label: "Recomendado:", value: `${classificationConfig.distance.goodMinCm}-${classificationConfig.distance.goodMaxCm} cm` },
+                  { label: "Medição:", value: distanceCm === null ? (calibration ? "Aguardando detecção facial" : "Não calibrada") : "Calibrada" },
+                  ...(calibration ? [{ label: "Ref. Base:", value: `${Math.round(calibration.baselineDistanceCm)} cm` }] : []),
+                ]}
+                isPaused={isPaused}
+                inactiveModule={inactiveModuleLabel("distance")}
+              />
+
+              <ErgoMetricsCard
+                title="Taxa de Piscadas"
+                value={blinkRate === null ? "Aguardando dados" : blinkRate.toFixed(1)}
+                unit={blinkRate === null ? undefined : "piscadas/min"}
+                status={blink?.status ?? "info"}
+                icon={Eye}
+                description="Indicador experimental de frequência de piscadas. Não constitui diagnóstico de fadiga ou olho seco."
+                details={[
+                  { label: "Piscadas na janela:", value: `${ocularMetrics?.blinkRate.blinkCount ?? 0}` },
+                  { label: "Total da sessão:", value: `${sessionBlinkCount}` },
+                  { label: "Observação:", value: `${Math.floor((ocularMetrics?.blinkRate.observedMs ?? 0) / 1000)} s válidos` },
+                  { label: "Frequência:", value: blink?.status == null ? "Coletando dados" : blink.status === PostureStatus.GOOD ? "Faixa de referência" : "Reduzida" },
+                ]}
+                isPaused={isPaused}
+                inactiveModule={inactiveModuleLabel("blink-rate")}
+              />
+
+              <ErgoMetricsCard
+                title="Postura da Coluna"
+                value={postureStatus === null ? "Aguardando dados" : postureStatus === "good" ? "Ereta" : "Curvada"}
+                status={postureStatus ?? "info"}
+                icon={UserCheck}
+                progress={postureStatus === "good" ? 92 : 60}
+                idealRange="Neutra"
+                trend={postureStatus === "good" ? "improving" : "worsening"}
+                description="Alinhamento vertical do tronco e postura espinhal."
+                details={[
+                  { label: "Curvatura:", value: postureStatus === "good" ? "Normal" : "Acentuada" },
+                  { label: "Suporte:", value: "Cadeira Reclinada" },
+                ]}
+                isPaused={isPaused}
+                inactiveModule={posturalEnabled ? null : MODULE_LABELS[Module.POSTURAL_ANALYSIS]}
+              />
+            </div>
+
+            <PostureHistoryLog logs={logs} onClearLogs={() => setLogs([])} />
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <ErgoMetricsCard
-              title="Inclinação do Pescoço"
-              value={neckDeviation === null ? (calibration ? "Aguardando leitura" : "Aguardando calibração") : Number(neckDeviation.toFixed(1))}
-              unit={neckDeviation === null ? undefined : "°"}
-              status={neck?.status ?? "info"}
-              icon={Compass}
-              progress={neckDeviation === null ? undefined : Math.min(100, (neckDeviation / classificationConfig.neck.warningMaxDegrees) * 100)}
-              idealRange={`Desvio ≤ ${classificationConfig.neck.goodMaxDegrees}°`}
-              trend={neck?.status === PostureStatus.GOOD ? "improving" : "stable"}
-              description="Variação do ângulo do pescoço em relação à sua postura neutra calibrada."
-              details={[
-                { label: "Orientação:", value: neck?.status == null ? "Indisponível" : neck.status === PostureStatus.GOOD ? "Neutra" : "Inclinada" },
-                { label: "Limite Alerta:", value: `${classificationConfig.neck.warningMaxDegrees}°` },
-              ]}
-              isPaused={isPaused}
-              inactiveModule={inactiveModuleLabel("neck")}
-            />
-
-            <ErgoMetricsCard
-              title="Alinhamento Ombros"
-              value={getShoulderCardValue(calibratedShoulderBalance, calibration)}
-              unit={calibratedShoulderBalance === null ? undefined : "%"}
-              status={shoulders?.status ?? "info"}
-              icon={Sliders}
-              progress={calibratedShoulderBalance ?? undefined}
-              idealRange={`Desvio ≤ ${classificationConfig.shoulders.goodMaxDegrees}°`}
-              trend={shoulders?.status === PostureStatus.GOOD ? "stable" : "worsening"}
-              description="Alinhamento dos ombros em relação à sua postura neutra calibrada."
-              details={[
-                { label: "Desvio da referência:", value: shoulderDeviation === null ? "Indisponível" : `${shoulderDeviation.toFixed(1)}°` },
-                {
-                  label: "Balanço:", value: shoulders?.status == null
-                    ? calibration?.baselineShoulderBalance === 0 ? "Recalibre a postura base" : "Indisponível"
-                    : shoulders.status === PostureStatus.GOOD ? "Simétrico" : "Inclinado"
-                },
-              ]}
-              isPaused={isPaused}
-              inactiveModule={inactiveModuleLabel("shoulders")}
-            />
-
-            <ErgoMetricsCard
-              title="Distância da Tela"
-              value={distanceCm === null ? (calibration ? "Aguardando detecção facial" : "Aguardando calibração") : Math.round(distanceCm)}
-              unit={distanceCm === null ? undefined : "cm"}
-              status={distance?.status ?? "info"}
-              icon={Eye}
-              progress={distanceCm === null ? undefined : Math.min(100, Math.max(0, (distanceCm / 80) * 100))}
-              idealRange={`${classificationConfig.distance.goodMinCm} - ${classificationConfig.distance.goodMaxCm} cm`}
-              trend="stable"
-              description="Estimativa pela distância entre os olhos, dependente de calibração e rosto frontal."
-              details={[
-                { label: "Recomendado:", value: `${classificationConfig.distance.goodMinCm}-${classificationConfig.distance.goodMaxCm} cm` },
-                { label: "Medição:", value: distanceCm === null ? (calibration ? "Aguardando detecção facial" : "Não calibrada") : "Calibrada" },
-                ...(calibration ? [{ label: "Ref. Base:", value: `${Math.round(calibration.baselineDistanceCm)} cm` }] : []),
-              ]}
-              isPaused={isPaused}
-              inactiveModule={inactiveModuleLabel("distance")}
-            />
-
-            <ErgoMetricsCard
-              title="Taxa de Piscadas"
-              value={blinkRate === null ? "Aguardando dados" : blinkRate.toFixed(1)}
-              unit={blinkRate === null ? undefined : "piscadas/min"}
-              status={blink?.status ?? "info"}
-              icon={Eye}
-              description="Indicador experimental de frequência de piscadas. Não constitui diagnóstico de fadiga ou olho seco."
-              details={[
-                { label: "Piscadas na janela:", value: `${ocularMetrics?.blinkRate.blinkCount ?? 0}` },
-                { label: "Total da sessão:", value: `${sessionBlinkCount}` },
-                { label: "Observação:", value: `${Math.floor((ocularMetrics?.blinkRate.observedMs ?? 0) / 1000)} s válidos` },
-                { label: "Frequência:", value: blink?.status == null ? "Coletando dados" : blink.status === PostureStatus.GOOD ? "Faixa de referência" : "Reduzida" },
-              ]}
-              isPaused={isPaused}
-              inactiveModule={inactiveModuleLabel("blink-rate")}
-            />
-
-            <ErgoMetricsCard
-              title="Postura da Coluna"
-              value={postureStatus === null ? "Aguardando dados" : postureStatus === "good" ? "Ereta" : "Curvada"}
-              status={postureStatus ?? "info"}
-              icon={UserCheck}
-              progress={postureStatus === "good" ? 92 : 60}
-              idealRange="Neutra"
-              trend={postureStatus === "good" ? "improving" : "worsening"}
-              description="Alinhamento vertical do tronco e postura espinhal."
-              details={[
-                { label: "Curvatura:", value: postureStatus === "good" ? "Normal" : "Acentuada" },
-                { label: "Suporte:", value: "Cadeira Reclinada" },
-              ]}
-              isPaused={isPaused}
-              inactiveModule={posturalEnabled ? null : MODULE_LABELS[Module.POSTURAL_ANALYSIS]}
-            />
-          </div>
-
-          <PostureHistoryLog logs={logs} onClearLogs={() => setLogs([])} />
         </div>
-      </div>
 
-      <WorkspaceCalibrationModal
-        isOpen={isCalibrationOpen}
-        onClose={() => setIsCalibrationOpen(false)}
-        onCalibrateSubmit={handleCalibrateSubmit}
-        activeStream={cameraStream}
-        preferredDeviceId={moduleSettings?.webCam ?? null}
-        onDeviceSelect={handleWebCamSelect}
-        onPostureUpdate={handlePostureUpdate}
-        onPresenceChange={handlePresenceChange}
-        userId={userId}
-      />
-    </div>
-  );
-}
+        <WorkspaceCalibrationModal
+          isOpen={isCalibrationOpen}
+          onClose={() => setIsCalibrationOpen(false)}
+          onCalibrateSubmit={handleCalibrateSubmit}
+          activeStream={cameraStream}
+          preferredDeviceId={moduleSettings?.webCam ?? null}
+          onDeviceSelect={handleWebCamSelect}
+          onPostureUpdate={handlePostureUpdate}
+          onPresenceChange={handlePresenceChange}
+          userId={userId}
+        />
+      </div>
+    );
+  }

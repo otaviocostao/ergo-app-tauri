@@ -21,13 +21,15 @@ interface Recorder {
 let sessionLifecycle: Promise<void> = Promise.resolve();
 
 /**
- * Persists a monitoring session: 60s aggregate snapshots and one alert per confirmed
- * deviation episode. User-facing alert notifications remain with the page's cooldown.
+ * Persists a monitoring session shared by active analysis modules (posture + typing),
+ * recording 60s posture aggregate snapshots and confirmed posture alert episodes when
+ * `recordPosture` is enabled.
  */
 export function useMetricRecording(
   enabled: boolean,
   userId: number | null,
   onEvent: (event: RecordingEvent) => void,
+  recordPosture = true,
 ) {
   const recorderRef = useRef<Recorder | null>(null);
   const onEventRef = useRef(onEvent);
@@ -56,6 +58,7 @@ export function useMetricRecording(
       sessionId = session?.id ?? null;
       // Services return null in browser previews; no fabricated session IDs.
       if (cancelled || !sessionId) return;
+      if (!recordPosture) return;
       recorder = {
         aggregation: new MetricAggregation({
           sessionId,
@@ -99,7 +102,7 @@ export function useMetricRecording(
         }
       }).catch(error => reportError("Não foi possível finalizar a sessão de monitoramento.", error));
     };
-  }, [enabled, userId]);
+  }, [enabled, userId, recordPosture]);
 
   /** Call per classification with the hysteresis alerts and blinks since the previous call. */
   const recordClassification = useCallback((
