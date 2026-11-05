@@ -67,6 +67,7 @@ describe("Monitoring classification and temporal alerts", () => {
   });
   afterEach(async () => {
     await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks();
+    vi.useRealTimers();
     ipc.desktop = false; ipc.invoke.mockReset();
   });
 
@@ -143,6 +144,7 @@ describe("Monitoring classification and temporal alerts", () => {
   });
 
   it("announces the initial presence once and ignores brief occlusions until a confirmed absence", async () => {
+    vi.useFakeTimers();
     await render();
     await act(async () => {
       for (let index = 0; index < 10; index++) {
@@ -151,6 +153,7 @@ describe("Monitoring classification and temporal alerts", () => {
       }
     });
     expect(view.logs.filter(log => log.message === "Usuário presente")).toHaveLength(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
     await act(async () => {
       view.feed!.onPresenceChange!("ABSENT"); view.feed!.onPresenceChange!("ABSENT");
       view.feed!.onPresenceChange!("PARTIALLY_OCCLUDED");
@@ -161,6 +164,60 @@ describe("Monitoring classification and temporal alerts", () => {
     expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(1);
     expect(view.logs.filter(log => log.message === "Usuário presente")).toHaveLength(2);
     expect(view.logs.every(log => log.occurredAt && Number.isFinite(Date.parse(log.occurredAt)))).toBe(true);
+  });
+
+  it("defers the initial absence until fifteen seconds after starting, even without another detector callback", async () => {
+    vi.useFakeTimers();
+    await act(async () => root.render(<Monitoring />));
+    await act(async () => view.feed!.onToggleMonitoring!());
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); view.feed!.onPresenceChange!("ABSENT"); });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(0);
+    await act(async () => { await vi.advanceTimersByTimeAsync(9_999); });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(0);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(1);
+    await act(async () => {
+      view.feed!.onPresenceChange!("ABSENT"); view.feed!.onPresenceChange!("ACTIVE");
+      await vi.advanceTimersByTimeAsync(5_000); view.feed!.onPresenceChange!("ABSENT");
+    });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(2);
+    expect(view.logs.filter(log => log.message === "Usuário presente")).toHaveLength(1);
+  });
+
+  it("cancels an initial absence notice on recovery and preserves the usual later absence rule", async () => {
+    vi.useFakeTimers(); await render();
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); view.feed!.onPresenceChange!("ABSENT"); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); view.feed!.onPresenceChange!("ACTIVE"); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(0);
+    expect(view.logs.filter(log => log.message === "Usuário presente")).toHaveLength(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); view.feed!.onPresenceChange!("ABSENT"); });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(1);
+  });
+
+  it("cancels the pending startup notice on stop and grants a fresh window only on explicit restart", async () => {
+    vi.useFakeTimers(); await render();
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); view.feed!.onPresenceChange!("ABSENT"); });
+    await act(async () => view.feed!.onToggleMonitoring!());
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(0);
+    await act(async () => view.feed!.onToggleMonitoring!());
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); view.feed!.onPresenceChange!("ABSENT"); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(9_999); });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(0);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(1);
+  });
+
+  it("cancels startup notices during calibration without adding another grace period on resume", async () => {
+    vi.useFakeTimers(); await render();
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); view.feed!.onPresenceChange!("ABSENT"); });
+    await act(async () => view.feed!.onCalibrate!());
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(0);
+    await act(async () => view.modal!.onClose());
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); view.feed!.onPresenceChange!("ABSENT"); });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(1);
   });
 
   it("does not announce presence before starting or after stopping and announces it on the next explicit start", async () => {
