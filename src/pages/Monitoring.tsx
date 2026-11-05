@@ -103,6 +103,8 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
 
   // Session logs list
   const [logs, setLogs] = useState<LogEvent[]>([]);
+  const lastPresenceRef = useRef<UserPresenceState | null>(null);
+  const hardwareBusyRef = useRef(false);
   // Blink events since the last classification; both callbacks come from the same inference.
   const pendingBlinksRef = useRef(0);
   // Sessions and snapshots summarize posture, so nothing is recorded without the postural module.
@@ -110,7 +112,8 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
     setLogs(previous => [{
       ...event,
       id: crypto.randomUUID(),
-      timestamp: new Date().toLocaleTimeString(),
+      occurredAt: new Date().toISOString(),
+      timestamp: new Date().toLocaleTimeString("pt-BR"),
     }, ...previous].slice(0, 100));
   });
   const captureEnabled = isMonitoring && !isCalibrationOpen && cameraModulesEnabled &&
@@ -180,7 +183,8 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
 
     const events: LogEvent[] = alerts.map(alert => ({
       id: `posture:${current.timestampMs}:${alert.metric}:${alert.level}`,
-      timestamp: new Date().toLocaleTimeString(),
+      occurredAt: new Date().toISOString(),
+      timestamp: new Date().toLocaleTimeString("pt-BR"),
       type: alert.level === PostureStatus.DANGER ? "error" : "warning",
       message: ALERT_MESSAGES[alert.metric],
       detail: `${POSTURE_STATUS_LABELS[alert.level]}. Condição mantida por ${Math.floor(alert.durationMs / 1000)} s.`,
@@ -200,11 +204,14 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
   const handlePresenceChange = (presence: UserPresenceState) => {
     setUserPresence(presence);
     if (presence !== "ACTIVE") recording.pause();
+    if (lastPresenceRef.current === presence) return;
+    lastPresenceRef.current = presence;
 
     if (presence === "ABSENT") {
       const newLog: LogEvent = {
-        id: Date.now().toString(),
-        timestamp: new Date().toLocaleTimeString(),
+        id: crypto.randomUUID(),
+        occurredAt: new Date().toISOString(),
+        timestamp: new Date().toLocaleTimeString("pt-BR"),
         type: "warning",
         message: "Usuário ausente do posto de trabalho",
         detail: "Nenhuma landmark corporal detectada há mais de 5s. Métricas pausadas.",
@@ -212,8 +219,9 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
       setLogs((prev) => [newLog, ...prev]);
     } else if (presence === "ACTIVE") {
       const newLog: LogEvent = {
-        id: Date.now().toString(),
-        timestamp: new Date().toLocaleTimeString(),
+        id: crypto.randomUUID(),
+        occurredAt: new Date().toISOString(),
+        timestamp: new Date().toLocaleTimeString("pt-BR"),
         type: "info",
         message: "Usuário presente",
         detail: "Rastreamento corporal e análise postural ativos.",
@@ -223,11 +231,14 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
   };
 
   const handleHardwareBusyChange = (isBusy: boolean) => {
+    if (hardwareBusyRef.current === isBusy) return;
+    hardwareBusyRef.current = isBusy;
     if (isBusy) {
       recording.pause();
       const newLog: LogEvent = {
-        id: Date.now().toString(),
-        timestamp: new Date().toLocaleTimeString(),
+        id: crypto.randomUUID(),
+        occurredAt: new Date().toISOString(),
+        timestamp: new Date().toLocaleTimeString("pt-BR"),
         type: "warning",
         message: "Câmera solicitada por outro aplicativo",
         detail: "Concorrência de hardware detectada (Meet, Teams, Zoom). Captura pausada.",
@@ -240,6 +251,9 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
     let isMounted = true;
     setCalibration(null);
     setClassification(null);
+    setLogs([]);
+    lastPresenceRef.current = null;
+    hardwareBusyRef.current = false;
     alertState.hysteresis.resetContinuity();
     alertState.cooldown.reset();
     postureService
@@ -271,8 +285,9 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
         .catch(console.error);
     }
     const newLog: LogEvent = {
-      id: Date.now().toString(),
-      timestamp: new Date().toLocaleTimeString(),
+      id: crypto.randomUUID(),
+      occurredAt: new Date().toISOString(),
+      timestamp: new Date().toLocaleTimeString("pt-BR"),
       type: "success",
       message: "Ambiente de trabalho salvo com sucesso",
       detail: `Configuração atualizada. Calibração neutra aplicada.`,
@@ -289,7 +304,8 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
       console.error("Failed to save the default webcam:", error);
       setLogs(previous => [{
         id: crypto.randomUUID(),
-        timestamp: new Date().toLocaleTimeString(),
+        occurredAt: new Date().toISOString(),
+        timestamp: new Date().toLocaleTimeString("pt-BR"),
         type: "error",
         message: "Não foi possível salvar a câmera padrão.",
         detail: "A câmera escolhida continua em uso nesta sessão.",
@@ -375,8 +391,9 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
             enabled={isModuleEnabled(moduleSettings, Module.TYPING_ANALYSIS)}
             onPauseRequested={() => {
               const newLog: LogEvent = {
-                id: Date.now().toString(),
-                timestamp: new Date().toLocaleTimeString(),
+                id: crypto.randomUUID(),
+                occurredAt: new Date().toISOString(),
+                timestamp: new Date().toLocaleTimeString("pt-BR"),
                 type: "info",
                 message: "Pausa de digitação registrada",
                 detail: "Contador de uso contínuo do teclado foi reiniciado.",
@@ -565,7 +582,8 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
             />
           </div>
 
-          <PostureHistoryLog logs={logs} onClearLogs={() => setLogs([])} />
+          <PostureHistoryLog logs={logs} onClearLogs={() => setLogs([])} userId={userId}
+            recordingStatus={recording.status} isVisible={isVisible} />
         </div>
       </div>
 

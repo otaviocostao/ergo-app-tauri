@@ -142,6 +142,21 @@ describe("Monitoring classification and temporal alerts", () => {
     expect(alerts()).toHaveLength(2);
   });
 
+  it("logs presence transitions once instead of repeating the same event for every frame", async () => {
+    await render();
+    await act(async () => {
+      for (let index = 0; index < 10; index++) view.feed!.onPresenceChange!("ACTIVE");
+    });
+    expect(view.logs.filter(log => log.message === "Usuário presente")).toHaveLength(1);
+    await act(async () => {
+      view.feed!.onPresenceChange!("ABSENT"); view.feed!.onPresenceChange!("ABSENT");
+      view.feed!.onPresenceChange!("ACTIVE");
+    });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(1);
+    expect(view.logs.filter(log => log.message === "Usuário presente")).toHaveLength(2);
+    expect(view.logs.every(log => log.occurredAt && Number.isFinite(Date.parse(log.occurredAt)))).toBe(true);
+  });
+
   it("resets invalid or recovered channels without delaying independent metrics", async () => {
     await render(); await publish(0, 10_000, { neckAngle: 35, shoulderAngle: 10 });
     await publish(10_100, 10_100, { neckAngle: null, shoulderAngle: 10 });
@@ -202,9 +217,9 @@ describe("Monitoring classification and temporal alerts", () => {
     view.userId = 2;
     vi.mocked(postureService.getActiveCalibration).mockResolvedValue({ ...baseline, id: "user-2", userId: 2 });
     await render(); await publish(20_200, 40_200, { neckAngle: 35 });
-    expect(alerts()).toHaveLength(1);
+    expect(alerts()).toHaveLength(0);
     await publish(40_300, 40_300, { neckAngle: 35 });
-    expect(alerts()).toHaveLength(2);
+    expect(alerts()).toHaveLength(1);
     expect(postureService.getActiveCalibration).toHaveBeenLastCalledWith(2);
   });
 
