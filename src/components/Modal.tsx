@@ -76,7 +76,7 @@ export default function Modal({
           </button>
         </div>
 
-        <div className="px-6 py-3 overflow-y-auto max-h-[80vh]">{children}</div>
+        <div className="px-6 py-3 overflow-y-auto max-h-[80vh]" style={{ scrollbarGutter: "stable" }}>{children}</div>
 
         {footer && (
           <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100 dark:border-slate-800">

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useOptionalAuth } from "../auth/AuthContext";
-import { settingsService, type ModuleSettings } from "../services/settingsService";
+import { settingsService, SETTINGS_UPDATED_EVENT, type ModuleSettings, type SettingsUpdatedDetail } from "../services/settingsService";
 
 /** Module settings of the signed-in account; guests and previews keep every module enabled. */
 export function useModuleSettings() {
@@ -35,6 +35,20 @@ export function useModuleSettings() {
     // A late response must not reach the next account.
     return () => { requestRef.current++; };
   }, [reload]);
+
+  useEffect(() => {
+    const handleSettingsUpdated = (event: Event) => {
+      const { settings: updated, fields } = (event as CustomEvent<SettingsUpdatedDetail>).detail;
+      if (updated.userId !== userId) return;
+      requestRef.current++;
+      const patch = Object.fromEntries(fields.map(field => [field, updated[field]]));
+      setSettings(current => current ? { ...current, ...patch } : updated);
+      setError(null);
+      setIsLoading(false);
+    };
+    window.addEventListener(SETTINGS_UPDATED_EVENT, handleSettingsUpdated);
+    return () => window.removeEventListener(SETTINGS_UPDATED_EVENT, handleSettingsUpdated);
+  }, [userId]);
 
   return { settings, setSettings, isLoading, error, reload, userId };
 }

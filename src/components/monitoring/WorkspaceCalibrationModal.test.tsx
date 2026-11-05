@@ -142,6 +142,9 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => new DOMRect(0, 0, 800, 450));
 
     const dummyContext = {
+      setTransform: vi.fn(),
+      drawImage: vi.fn(),
+      getImageData: vi.fn(() => ({ data: new Uint8ClampedArray([128, 128, 128, 255]) })),
       clearRect: vi.fn(),
       beginPath: vi.fn(),
       moveTo: vi.fn(),
@@ -212,11 +215,14 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     const dialog = document.querySelector('[role="dialog"]');
     expect(dialog?.textContent).toContain("Calibração da Postura");
     expect(dialog?.textContent).toContain("Iniciar Calibração (5s)");
+    expect(dialog?.querySelector("video")?.srcObject).toBeTruthy();
+    expect(dialog?.querySelector('[aria-label="Métricas ao vivo"]')).toBeNull();
 
     // Start 5-second calibration
     await clickButton("Iniciar Calibração (5s)");
     expect(dialog?.textContent).toContain("Gravando postura de referência");
     expect(dialog?.textContent).toContain("5");
+    expect(dialog?.querySelector('[aria-label="Métricas ao vivo"]')).toBeNull();
 
     // Advance 5 seconds (1000ms each)
     await advance(1000);
@@ -237,6 +243,7 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     expect(dialog?.textContent).toContain("Distância de Olhos");
     expect(dialog?.textContent).toContain("60 cm");
     expect(dialog?.textContent).toContain("200 px");
+    expect(dialog?.querySelector('[aria-label="Métricas ao vivo"]')).toBeNull();
 
     // Click "Salvar"
     await clickButton("Salvar");

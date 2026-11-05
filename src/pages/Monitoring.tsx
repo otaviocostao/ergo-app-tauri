@@ -68,17 +68,23 @@ function getShoulderCardValue(
   return "Aguardando leitura";
 }
 
-export default function Monitoring() {
+export default function Monitoring({ isVisible = true }: { isVisible?: boolean }) {
   const auth = useOptionalAuth();
   const userId = auth?.session.kind === "authenticated" ? auth.session.user.id : null;
-  const [isMonitoring, setIsMonitoring] = useState(true);
+  const [isMonitoring, setIsMonitoring] = useState(false);
   const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
+  useEffect(() => {
+    if (!isVisible) setIsCalibrationOpen(false);
+  }, [isVisible]);
+  const uiPublishedAtRef = useRef(-Infinity);
+  const ocularPublishedAtRef = useRef(-Infinity);
+  const transitionRequestedRef = useRef(false);
   const { settings: moduleSettings, setSettings: setModuleSettings, isLoading: modulesLoading } = useModuleSettings();
   const posturalEnabled = isModuleEnabled(moduleSettings, Module.POSTURAL_ANALYSIS);
   const ocularEnabled = isModuleEnabled(moduleSettings, Module.OCULAR_ANALYSIS);
   // Waiting for the settings avoids switching the camera on, or opening a session, only to stop it.
   const cameraModulesEnabled = !modulesLoading && (posturalEnabled || ocularEnabled);
-  const monitoringContextRef = useRef({ enabled: true, userId, modules: moduleSettings });
+  const monitoringContextRef = useRef({ enabled: false, userId, modules: moduleSettings });
   const [calibration, setCalibration] = useState<PostureCalibrationDTO | null>(null);
   const [sessionBlinkCount, setSessionBlinkCount] = useState(0);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
@@ -97,16 +103,42 @@ export default function Monitoring() {
 
   // Session logs list
   const [logs, setLogs] = useState<LogEvent[]>([]);
+  const lastAnnouncedPresenceRef = useRef<"ACTIVE" | "ABSENT" | null>(null);
+  const hardwareBusyRef = useRef(false);
   // Blink events since the last classification; both callbacks come from the same inference.
   const pendingBlinksRef = useRef(0);
   // Sessions and snapshots summarize posture, so nothing is recorded without the postural module.
   const recording = useMetricRecording(isMonitoring && !isCalibrationOpen && !modulesLoading && posturalEnabled, userId, event => {
     setLogs(previous => [{
       ...event,
+      scope: "account" as const,
+      userId,
       id: crypto.randomUUID(),
-      timestamp: new Date().toLocaleTimeString(),
+      occurredAt: new Date().toISOString(),
+      timestamp: new Date().toLocaleTimeString("pt-BR"),
     }, ...previous].slice(0, 100));
   });
+  const captureEnabled = isMonitoring && !isCalibrationOpen && cameraModulesEnabled &&
+    (!posturalEnabled || recording.status === "active");
+  monitoringContextRef.current = { enabled: captureEnabled, userId, modules: moduleSettings };
+
+  const toggleMonitoring = () => {
+    if (transitionRequestedRef.current || recording.status === "starting" || recording.status === "ending") return;
+    transitionRequestedRef.current = true;
+    if (recording.status === "error") { recording.retry(); return; }
+    if (!isMonitoring) {
+      lastAnnouncedPresenceRef.current = null;
+      setSessionBlinkCount(0);
+      pendingBlinksRef.current = 0;
+      alertState.hysteresis.resetContinuity();
+      uiPublishedAtRef.current = ocularPublishedAtRef.current = -Infinity;
+    }
+    setIsMonitoring(previous => !previous);
+  };
+
+  useEffect(() => {
+    if (recording.status !== "starting" && recording.status !== "ending") transitionRequestedRef.current = false;
+  }, [recording.status, isMonitoring]);
 
   const handlePostureUpdate = (metrics: {
     neckAngle: number;
@@ -129,13 +161,18 @@ export default function Monitoring() {
 
     // Disabled modules produce no card value, alert or stored measurement.
     const current = measured && restrictClassificationToModules(measured, context.modules);
-    setClassification(context.enabled ? current : null);
-
     if (!current || !context.enabled) {
+      setClassification(null);
+      uiPublishedAtRef.current = -Infinity;
       alertState.hysteresis.resetContinuity();
       recording.pause();
       pendingBlinksRef.current = 0;
       return;
+    }
+
+    if (current.timestampMs - uiPublishedAtRef.current >= 250) {
+      uiPublishedAtRef.current = current.timestampMs;
+      setClassification(current);
     }
 
     const temporal = alertState.hysteresis.update(current);
@@ -149,7 +186,8 @@ export default function Monitoring() {
 
     const events: LogEvent[] = alerts.map(alert => ({
       id: `posture:${current.timestampMs}:${alert.metric}:${alert.level}`,
-      timestamp: new Date().toLocaleTimeString(),
+      occurredAt: new Date().toISOString(),
+      timestamp: new Date().toLocaleTimeString("pt-BR"),
       type: alert.level === PostureStatus.DANGER ? "error" : "warning",
       message: ALERT_MESSAGES[alert.metric],
       detail: `${POSTURE_STATUS_LABELS[alert.level]}. Condição mantida por ${Math.floor(alert.durationMs / 1000)} s.`,
@@ -160,33 +198,42 @@ export default function Monitoring() {
   };
 
   useEffect(() => {
-    const enabled = isMonitoring && !isCalibrationOpen;
-    monitoringContextRef.current = { enabled, userId, modules: moduleSettings };
-
-    if (!enabled) {
+    if (!captureEnabled) {
       alertState.hysteresis.resetContinuity();
     }
 
-  }, [isMonitoring, isCalibrationOpen, userId, moduleSettings]);
+  }, [captureEnabled, userId]);
 
   const handlePresenceChange = (presence: UserPresenceState) => {
+    const context = monitoringContextRef.current;
+    if (context.userId !== userId) return;
     setUserPresence(presence);
     if (presence !== "ACTIVE") recording.pause();
+    // Brief occlusions do not rearm the announcement; only the detector's 5s absence does.
+    // Calibration and inactive capture must not add presence events to the monitoring history.
+    if (!context.enabled || presence === "PARTIALLY_OCCLUDED" || lastAnnouncedPresenceRef.current === presence) return;
+    lastAnnouncedPresenceRef.current = presence;
 
     if (presence === "ABSENT") {
       const newLog: LogEvent = {
-        id: Date.now().toString(),
-        timestamp: new Date().toLocaleTimeString(),
+        id: crypto.randomUUID(),
+        occurredAt: new Date().toISOString(),
+        timestamp: new Date().toLocaleTimeString("pt-BR"),
         type: "warning",
+        scope: isModuleEnabled(context.modules, Module.POSTURAL_ANALYSIS) ? "session" : "account",
+        userId,
         message: "Usuário ausente do posto de trabalho",
-        detail: "Nenhuma landmark corporal detectada há mais de 5s. Métricas pausadas.",
+        detail: "Nenhum ponto corporal detectado por pelo menos 5 segundos. Métricas pausadas.",
       };
       setLogs((prev) => [newLog, ...prev]);
     } else if (presence === "ACTIVE") {
       const newLog: LogEvent = {
-        id: Date.now().toString(),
-        timestamp: new Date().toLocaleTimeString(),
+        id: crypto.randomUUID(),
+        occurredAt: new Date().toISOString(),
+        timestamp: new Date().toLocaleTimeString("pt-BR"),
         type: "info",
+        scope: isModuleEnabled(context.modules, Module.POSTURAL_ANALYSIS) ? "session" : "account",
+        userId,
         message: "Usuário presente",
         detail: "Rastreamento corporal e análise postural ativos.",
       };
@@ -195,12 +242,17 @@ export default function Monitoring() {
   };
 
   const handleHardwareBusyChange = (isBusy: boolean) => {
+    if (hardwareBusyRef.current === isBusy) return;
+    hardwareBusyRef.current = isBusy;
     if (isBusy) {
       recording.pause();
       const newLog: LogEvent = {
-        id: Date.now().toString(),
-        timestamp: new Date().toLocaleTimeString(),
+        id: crypto.randomUUID(),
+        occurredAt: new Date().toISOString(),
+        timestamp: new Date().toLocaleTimeString("pt-BR"),
         type: "warning",
+        scope: "account",
+        userId,
         message: "Câmera solicitada por outro aplicativo",
         detail: "Concorrência de hardware detectada (Meet, Teams, Zoom). Captura pausada.",
       };
@@ -212,6 +264,9 @@ export default function Monitoring() {
     let isMounted = true;
     setCalibration(null);
     setClassification(null);
+    setLogs([]);
+    lastAnnouncedPresenceRef.current = null;
+    hardwareBusyRef.current = false;
     alertState.hysteresis.resetContinuity();
     alertState.cooldown.reset();
     postureService
@@ -230,6 +285,7 @@ export default function Monitoring() {
   }, [userId]);
 
   const handleCalibrateSubmit = (savedCalibration?: PostureCalibrationDTO | null) => {
+    if (monitoringContextRef.current.userId !== userId) return;
     if (savedCalibration) {
       setCalibration(savedCalibration);
     } else {
@@ -243,9 +299,12 @@ export default function Monitoring() {
         .catch(console.error);
     }
     const newLog: LogEvent = {
-      id: Date.now().toString(),
-      timestamp: new Date().toLocaleTimeString(),
+      id: crypto.randomUUID(),
+      occurredAt: new Date().toISOString(),
+      timestamp: new Date().toLocaleTimeString("pt-BR"),
       type: "success",
+      scope: "account",
+      userId,
       message: "Ambiente de trabalho salvo com sucesso",
       detail: `Configuração atualizada. Calibração neutra aplicada.`,
     };
@@ -261,8 +320,11 @@ export default function Monitoring() {
       console.error("Failed to save the default webcam:", error);
       setLogs(previous => [{
         id: crypto.randomUUID(),
-        timestamp: new Date().toLocaleTimeString(),
+        occurredAt: new Date().toISOString(),
+        timestamp: new Date().toLocaleTimeString("pt-BR"),
         type: "error",
+        scope: "account" as const,
+        userId: owner,
         message: "Não foi possível salvar a câmera padrão.",
         detail: "A câmera escolhida continua em uso nesta sessão.",
       }, ...previous]);
@@ -270,7 +332,11 @@ export default function Monitoring() {
   };
 
   const handleOcularUpdate = (metrics: OcularMetrics | null) => {
-    setOcularMetrics(metrics);
+    const now = performance.now();
+    if (!metrics || now - ocularPublishedAtRef.current >= 250) {
+      ocularPublishedAtRef.current = metrics ? now : -Infinity;
+      setOcularMetrics(metrics);
+    }
 
     if (metrics?.blinkEvent === "blink" && isModuleEnabled(monitoringContextRef.current.modules, Module.OCULAR_ANALYSIS)) {
       setSessionBlinkCount((prev) => prev + 1);
@@ -282,7 +348,7 @@ export default function Monitoring() {
     const module = getInactiveModule(metric, moduleSettings);
     return module && MODULE_LABELS[module];
   };
-  const isPaused = !isMonitoring || isCalibrationOpen || userPresence !== "ACTIVE";
+  const isPaused = !captureEnabled || userPresence !== "ACTIVE";
   const blinkRate = ocularMetrics?.blinkRate.blinksPerMinute ?? null;
   const neck = classification?.metrics.neck;
   const shoulders = classification?.metrics.shoulders;
@@ -313,21 +379,28 @@ export default function Monitoring() {
           </div>
         }
       />
+      {recording.error && <div role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-200">
+        {recording.error} <button className="ml-2 font-semibold underline" onClick={recording.retry}>Tentar novamente</button>
+      </div>}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <div className="lg:col-span-7 flex flex-col gap-6">
           <WebcamFeed
-            isMonitoring={isMonitoring && !isCalibrationOpen && cameraModulesEnabled}
+            isMonitoring={captureEnabled}
+            showMetricBadges={false}
+            recordingStatus={recording.status}
             disabledMessage={modulesLoading || posturalEnabled || ocularEnabled ? null
               : "As análises postural e ocular estão desativadas em Configurações → Módulos. A câmera fica desligada até que uma delas seja ativada."}
             preferredDeviceId={moduleSettings?.webCam ?? null}
             onDeviceSelect={handleWebCamSelect}
             calibration={calibration}
             classificationConfig={classificationConfig}
+            moduleSettings={moduleSettings}
             onClassificationUpdate={handleClassificationUpdate}
-            onToggleMonitoring={() => setIsMonitoring(!isMonitoring)}
+            onToggleMonitoring={toggleMonitoring}
             onCalibrate={() => setIsCalibrationOpen(true)}
             onPostureUpdate={handlePostureUpdate}
             onPresenceChange={handlePresenceChange}
+            onPresenceObservation={recording.observePresence}
             onHardwareBusyChange={handleHardwareBusyChange}
             onStreamChange={setCameraStream}
             onOcularUpdate={handleOcularUpdate}
@@ -337,9 +410,12 @@ export default function Monitoring() {
             enabled={isModuleEnabled(moduleSettings, Module.TYPING_ANALYSIS)}
             onPauseRequested={() => {
               const newLog: LogEvent = {
-                id: Date.now().toString(),
-                timestamp: new Date().toLocaleTimeString(),
+                id: crypto.randomUUID(),
+                occurredAt: new Date().toISOString(),
+                timestamp: new Date().toLocaleTimeString("pt-BR"),
                 type: "info",
+                scope: "account",
+                userId,
                 message: "Pausa de digitação registrada",
                 detail: "Contador de uso contínuo do teclado foi reiniciado.",
               };
@@ -425,7 +501,7 @@ export default function Monitoring() {
                 <div className="flex flex-col">
                   <span className="text-slate-400">Sessão:</span>
                   <span className="font-semibold text-white">
-                    {isPaused ? "Em pausa" : "42 min monitorados"}
+                    {recording.status === "starting" ? "Iniciando" : recording.status === "ending" ? "Encerrando" : `${Math.floor(recording.elapsedSeconds / 60)} min ${recording.elapsedSeconds % 60} s monitorados`}
                   </span>
                 </div>
               </div>
@@ -527,12 +603,13 @@ export default function Monitoring() {
             />
           </div>
 
-          <PostureHistoryLog logs={logs} onClearLogs={() => setLogs([])} />
+          <PostureHistoryLog logs={logs} onClearLogs={() => setLogs([])} userId={userId}
+            recordingStatus={recording.status} isVisible={isVisible} />
         </div>
       </div>
 
       <WorkspaceCalibrationModal
-        isOpen={isCalibrationOpen}
+        isOpen={isCalibrationOpen && isVisible}
         onClose={() => setIsCalibrationOpen(false)}
         onCalibrateSubmit={handleCalibrateSubmit}
         activeStream={cameraStream}
