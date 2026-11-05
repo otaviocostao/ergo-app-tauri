@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { monitoringSessionService } from "../services/monitoringSessionService";
 import { postureMetricSnapshotService } from "../services/postureMetricSnapshotService";
 import { postureAlertService } from "../services/postureAlertService";
-import { MetricAggregation, frameFromClassification } from "../services/monitoring/metricAggregation";
+import { MetricAggregation, frameFromClassification, type PresenceObservation } from "../services/monitoring/metricAggregation";
 import { PostureAlertEpisodes, type AlertResolution } from "../services/monitoring/postureAlertEpisodes";
 import type { PostureAlertCondition, PostureClassification, PostureMetric } from "../types/postureClassification";
 import { notifySessionHistoryUpdated } from "../services/monitoring/sessionHistoryEvents";
@@ -62,7 +62,7 @@ export function useMetricRecording(
     let closed = false;
     let sessionId: string | null = null;
     let recorder: Recorder | null = null;
-    let timer: ReturnType<typeof setInterval> | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     let writes = Promise.resolve();
     const openAlertIds = new Map<PostureMetric, string | null>();
     const resolutions = new Map<string, AlertResolution>();
@@ -104,9 +104,14 @@ export function useMetricRecording(
       // Services return null in browser previews; no fabricated session IDs.
       if (cancelled) return;
       if (!sessionId) { publish("active"); return; }
+      const storedStart = Date.parse(session?.startedAt ?? "");
+      const startedAtEpochMs = Number.isFinite(storedStart) ? storedStart : Date.now();
+      const startedAtMs = performance.now() - Math.max(0, Date.now() - startedAtEpochMs);
       recorder = {
         aggregation: new MetricAggregation({
           sessionId,
+          startedAtMs,
+          startedAtEpochMs,
           onSnapshot: payload => enqueue(
             () => postureMetricSnapshotService.recordSnapshot(payload),
             "Não foi possível salvar o resumo de métricas deste minuto.",
@@ -133,10 +138,13 @@ export function useMetricRecording(
       };
       recorderRef.current = recorder;
       publish("active");
-      timer = setInterval(() => {
+      const pulse = () => {
         recorder?.aggregation.tick(performance.now());
         if (!cancelled) setElapsedSeconds(recorder?.aggregation.sessionSummary().durationSeconds ?? 0);
-      }, 1000);
+        if (!cancelled && recorder) timer = setTimeout(pulse,
+          Math.min(1000, Math.max(1, recorder.aggregation.millisecondsUntilNextWindow(performance.now()))));
+      };
+      timer = setTimeout(pulse, Math.min(1000, Math.max(1, recorder.aggregation.millisecondsUntilNextWindow(performance.now()))));
     }).catch(error => {
       const message = unfinishedClose ? "Não foi possível finalizar a sessão anterior. Tente novamente." : "Não foi possível iniciar a sessão de monitoramento.";
       publish("error", message);
@@ -145,7 +153,7 @@ export function useMetricRecording(
 
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      clearTimeout(timer);
       if (recorderRef.current === recorder) recorderRef.current = null;
       recorder?.aggregation.pause();
       recorder?.episodes.pause();
@@ -212,5 +220,8 @@ export function useMetricRecording(
     recorderRef.current?.aggregation.pause();
     recorderRef.current?.episodes.pause();
   }, []);
-  return { recordClassification, pause, status, error, elapsedSeconds, retry };
+  const observePresence = useCallback((observation: PresenceObservation) => {
+    recorderRef.current?.aggregation.observePresence(observation);
+  }, []);
+  return { recordClassification, observePresence, pause, status, error, elapsedSeconds, retry };
 }

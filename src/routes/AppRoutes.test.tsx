@@ -87,6 +87,7 @@ describe("monitoring across authenticated routes", () => {
 
   beforeEach(() => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    vi.spyOn(performance, "now").mockReturnValue(0);
     authenticate(1);
     view.feed = null;
     ipc.invoke.mockImplementation(async (command: string, args?: { payload?: Record<string, unknown> }) => {
@@ -111,7 +112,7 @@ describe("monitoring across authenticated routes", () => {
     expect(calls("start_monitoring_session")).toHaveLength(0);
     await toggle();
     expect(view.feed!.isMonitoring).toBe(true);
-    const base = 1e9;
+    const base = 0;
     await publish(base, base + 30_000);
     await navigate("Configurações");
     expect(container.textContent).toContain("Configurações de teste");

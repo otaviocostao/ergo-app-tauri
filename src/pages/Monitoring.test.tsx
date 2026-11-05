@@ -61,6 +61,7 @@ describe("Monitoring classification and temporal alerts", () => {
 
   beforeEach(() => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    vi.spyOn(performance, "now").mockReturnValue(0);
     view.feed = null; view.modal = null; view.keyboard = null; view.logs = []; view.userId = 1;
     vi.spyOn(postureService, "getActiveCalibration").mockResolvedValue(baseline);
     container = document.createElement("div"); document.body.append(container); root = createRoot(container);
@@ -79,8 +80,7 @@ describe("Monitoring classification and temporal alerts", () => {
       return args?.payload;
     });
     const calls = (command: string) => ipc.invoke.mock.calls.filter(([name]) => name === command).map(([, args]) => args.payload);
-    // Far above performance.now(), so the page's 1s timer never mistakes the test clock for a gap.
-    const base = 1e9;
+    const base = 0;
     await render();
     expect(calls("start_monitoring_session")).toEqual([{ userId: 1 }]);
     const blink = { blinkEvent: "blink", distanceCm: 60, blinkRate: { blinkCount: 1, observedMs: 0, blinksPerMinute: null, isWarmingUp: true } };
@@ -458,7 +458,7 @@ describe("Monitoring classification and temporal alerts", () => {
       expect(container.textContent).toContain("Análise postural desativada em Configurações → Módulos.");
       expect(container.textContent).toContain("Análise postural inativa");
 
-      await publish(1e9, 1e9 + 61_000, { neckAngle: 35, shoulderAngle: 10, distanceCm: 30 });
+      await publish(0, 61_000, { neckAngle: 35, shoulderAngle: 10, distanceCm: 30 });
       expect(alerts()).toEqual([]);
       expect(persisted("record_posture_alert")).toEqual([]);
       expect(persisted("record_metric_snapshot")).toEqual([]);
@@ -523,14 +523,14 @@ describe("Monitoring classification and temporal alerts", () => {
       await act(async () => view.feed!.onOcularUpdate!({
         blinkEvent: "blink", distanceCm: 60, blinkRate: { blinkCount: 1, observedMs: 0, blinksPerMinute: null, isWarmingUp: true },
       } as unknown as OcularMetrics));
-      await publish(1e9, 1e9 + 61_000, { distanceCm: 30, blinkRate: lowBlinks });
+      await publish(0, 61_000, { distanceCm: 30, blinkRate: lowBlinks });
       expect(alerts()).toEqual([]);
       expect(persisted("record_metric_snapshot")).toEqual([[
         "record_metric_snapshot",
         { payload: expect.objectContaining({ blinkCount: 0, avgDistanceCm: null, dominantStatus: "good" }) },
       ]]);
 
-      await publish(1e9 + 61_100, 1e9 + 81_300, { neckAngle: 35 });
+      await publish(61_100, 81_300, { neckAngle: 35 });
       expect(alerts().map(alert => alert.message)).toEqual(["Ajuste a posição do pescoço"]);
     });
 

@@ -145,14 +145,17 @@ describe("useMetricRecording IPC lifecycle", () => {
     expect(snapshots[0][1].payload).toMatchObject({ sessionId: "session-2", samplesCount: 600 });
   });
 
-  it("restarts the full window after a presence pause without restarting the session", async () => {
+  it("keeps fixed minute boundaries and partial readings after a presence pause", async () => {
     await render(); feed("warning"); await advance(10_000);
     clearInterval(frameTimer);
     recorder.pause();
     await advance(50_000);
     feed(); await advance(60_000);
     expect(commands().filter(command => command === "start_monitoring_session")).toHaveLength(1);
-    expect(commands().filter(command => command === "record_metric_snapshot")).toHaveLength(1);
+    const snapshots = ipc.invoke.mock.calls.filter(([command]) => command === "record_metric_snapshot");
+    expect(snapshots).toHaveLength(2);
+    expect(snapshots[0][1].payload).toMatchObject({ samplesCount: 101, dominantStatus: "warning" });
+    expect(snapshots[1][1].payload).toMatchObject({ samplesCount: 600, dominantStatus: "good" });
     expect(commands()).not.toContain("record_posture_alert");
   });
 
@@ -343,5 +346,18 @@ describe("useMetricRecording IPC lifecycle", () => {
     await render(); feed("danger"); await advance(21_000);
     expect(onHistoryUpdated).toHaveBeenCalledTimes(1);
     expect(onEvent).toHaveBeenCalledWith({ type: "error", message: "Não foi possível salvar o alerta de postura." });
+  });
+
+  it("anchors the first deadline to the stored session time despite a delayed start response", async () => {
+    const serverStart = new Date().toISOString();
+    const implementation = ipc.invoke.getMockImplementation()!;
+    ipc.invoke.mockImplementation((command: string, args?: { payload?: unknown }) => command === "start_monitoring_session"
+      ? new Promise(resolve => setTimeout(() => resolve({ id: "delayed", startedAt: serverStart }), 250)) : implementation(command, args));
+    await render(); await advance(250); feed(); await advance(59_749);
+    expect(commands()).not.toContain("record_metric_snapshot");
+    await advance(1);
+    const saved = ipc.invoke.mock.calls.find(([command]) => command === "record_metric_snapshot")![1].payload;
+    expect(saved.timestamp).toBe(new Date(Date.parse(serverStart) + 60_000).toISOString());
+    expect(saved.samplesCount).toBeGreaterThan(0);
   });
 });

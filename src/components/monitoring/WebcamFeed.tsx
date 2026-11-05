@@ -28,6 +28,7 @@ import { LightingFeedback } from "./lightingFeedback";
 import type { RecordingStatus } from "../../hooks/useMetricRecording";
 import type { ModuleSettings } from "../../services/settingsService";
 import { restrictClassificationToModules } from "../../services/monitoring/moduleClassification";
+import type { PresenceObservation } from "../../services/monitoring/metricAggregation";
 
 export type { UserPresenceState };
 
@@ -51,6 +52,7 @@ export interface WebcamFeedProps {
     presence?: UserPresenceState;
   }) => void;
   onPresenceChange?: (presence: UserPresenceState) => void;
+  onPresenceObservation?: (observation: PresenceObservation) => void;
   onHardwareBusyChange?: (isBusy: boolean) => void;
   onStreamChange?: (stream: MediaStream | null) => void;
   /** Per-inference ocular values; null on camera pause/mute/error. */
@@ -101,6 +103,7 @@ export default function WebcamFeed({
   onCalibrate,
   onPostureUpdate,
   onPresenceChange,
+  onPresenceObservation,
   onHardwareBusyChange,
   onStreamChange,
   onOcularUpdate,
@@ -164,6 +167,7 @@ export default function WebcamFeed({
   const isHardwareBusyRef = useRef<boolean>(false);
   const onPostureUpdateRef = useRef(onPostureUpdate);
   const onPresenceChangeRef = useRef(onPresenceChange);
+  const onPresenceObservationRef = useRef(onPresenceObservation);
   const onHardwareBusyChangeRef = useRef(onHardwareBusyChange);
   const onStreamChangeRef = useRef(onStreamChange);
 
@@ -202,7 +206,8 @@ export default function WebcamFeed({
 
   useEffect(() => {
     onPresenceChangeRef.current = onPresenceChange;
-  }, [onPresenceChange]);
+    onPresenceObservationRef.current = onPresenceObservation;
+  }, [onPresenceChange, onPresenceObservation]);
 
   useEffect(() => {
     onHardwareBusyChangeRef.current = onHardwareBusyChange;
@@ -557,6 +562,7 @@ export default function WebcamFeed({
       const shouldRunInference = elapsedSinceLastInference >= INFERENCE_INTERVAL_MS;
 
       let currentPoseDetected = false;
+      let presenceWasObserved = false;
       let leftShoulderPt: LandmarkPoint | null = null;
       let rightShoulderPt: LandmarkPoint | null = null;
       let poseAngles: PoseAngles | null = null;
@@ -664,6 +670,7 @@ export default function WebcamFeed({
                   point.x < 0 || point.x > 1 || point.y < 0 || point.y > 1);
               }
             }
+            presenceWasObserved = true;
           } catch (detectionErr) {
             resetOcularTracking();
             console.warn("[WebcamFeed] Erro ao processar frame de detecção:", detectionErr);
@@ -675,6 +682,7 @@ export default function WebcamFeed({
         // -------------------------------------------------------------
         // 2. TRATAMENTO DE AUSÊNCIA DO USUÁRIO (ABSENT > 5s)
         // -------------------------------------------------------------
+        if (presenceWasObserved) onPresenceObservationRef.current?.({ timestampMs: currentTime, hasBody: currentPoseDetected });
         if (currentPoseDetected) {
           lastLandmarksDetectedTimeRef.current = now;
 

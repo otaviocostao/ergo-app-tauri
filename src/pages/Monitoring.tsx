@@ -400,6 +400,7 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
             onCalibrate={() => setIsCalibrationOpen(true)}
             onPostureUpdate={handlePostureUpdate}
             onPresenceChange={handlePresenceChange}
+            onPresenceObservation={recording.observePresence}
             onHardwareBusyChange={handleHardwareBusyChange}
             onStreamChange={setCameraStream}
             onOcularUpdate={handleOcularUpdate}
