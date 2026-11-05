@@ -12,7 +12,6 @@ export type CalibrationIllustration = "webcam-position" | "webcam-aligned" |
 export interface CalibrationGuideStep {
   id: number;
   title: string;
-  reason: string;
   description: string;
   illustration: CalibrationIllustration;
 }
@@ -23,7 +22,6 @@ export function buildCalibrationGuide(setup: WorkspaceSetup): CalibrationGuideSt
   const steps: CalibrationGuideStep[] = [{
     id: 6,
     title: setup.isWebcamFront ? "Conferir o enquadramento" : "Posicionar a webcam",
-    reason: `Webcam posicionada de frente: ${setup.isWebcamFront ? "Sim" : "Não"}.`,
     illustration: setup.isWebcamFront ? "webcam-aligned" : "webcam-position",
     description: setup.isWebcamFront
       ? "Sua webcam já está à sua frente. Confira se rosto e ombros ficam visíveis e mantenha esse enquadramento na etapa de calibração."
@@ -37,7 +35,6 @@ export function buildCalibrationGuide(setup: WorkspaceSetup): CalibrationGuideSt
       id: 5,
       title: keyboard && mouse ? "Organizar os acessórios do notebook" : keyboard ? "Adicionar um mouse externo"
         : mouse ? "Adicionar um teclado externo" : "Adicionar teclado e mouse externos",
-      reason: `Teclado externo: ${keyboard ? "Sim" : "Não"}. Mouse externo: ${mouse ? "Sim" : "Não"}.`,
       illustration: keyboard && mouse ? "notebook-peripherals-ready" : keyboard ? "notebook-peripherals-mouse"
         : mouse ? "notebook-peripherals-keyboard" : "notebook-peripherals-both",
       description: keyboard && mouse
@@ -53,7 +50,6 @@ export function buildCalibrationGuide(setup: WorkspaceSetup): CalibrationGuideSt
   steps.push({
     id: 1,
     title: setup.adjustableChair ? "Ajustar a altura da cadeira" : "Apoiar os pés com a cadeira fixa",
-    reason: `Cadeira com regulagem de altura: ${setup.adjustableChair ? "Sim" : "Não"}.`,
     illustration: setup.adjustableChair ? "chair-height" : "chair-footrest",
     description: setup.adjustableChair
       ? "Use a regulagem da cadeira para apoiar os pés no chão e manter uma posição confortável. Confira o apoio das costas e a posição dos joelhos."
@@ -63,7 +59,6 @@ export function buildCalibrationGuide(setup: WorkspaceSetup): CalibrationGuideSt
   steps.push({
     id: 2,
     title: setup.adjustableDesk ? "Ajustar a altura da mesa" : setup.adjustableChair ? "Adaptar a cadeira à mesa fixa" : "Conferir mesa e cadeira fixas",
-    reason: `Mesa com regulagem: ${setup.adjustableDesk ? "Sim" : "Não"}. Cadeira com regulagem: ${setup.adjustableChair ? "Sim" : "Não"}.`,
     illustration: setup.adjustableDesk ? "desk-adjustment" : setup.adjustableChair ? "desk-chair-adjustment" : "desk-fixed",
     description: setup.adjustableDesk
       ? "Ajuste a mesa para usar teclado e mouse com os braços relaxados, próximos ao corpo e sem elevar os ombros. A demonstração mantém a cadeira na mesma posição."
@@ -75,8 +70,6 @@ export function buildCalibrationGuide(setup: WorkspaceSetup): CalibrationGuideSt
   steps.push({
     id: 3,
     title: notebook ? "Ajustar a altura da tela do notebook" : "Ajustar a altura do monitor",
-    reason: notebook ? `Suporte do notebook com regulagem: ${setup.adjustableMonitor ? "Sim" : "Não"}.`
-      : `Monitor com regulagem de altura: ${setup.adjustableMonitor ? "Sim" : "Não"}.`,
     illustration: notebook ? setup.adjustableMonitor ? "notebook-height" : "notebook-height-support"
       : setup.adjustableMonitor ? "monitor-height" : "monitor-height-support",
     description: notebook
@@ -89,7 +82,6 @@ export function buildCalibrationGuide(setup: WorkspaceSetup): CalibrationGuideSt
   }, {
     id: 4,
     title: "Conferir a distância da tela",
-    reason: notebook ? "Dispositivo selecionado: Notebook / Laptop." : "Dispositivo selecionado: Computador de Mesa.",
     illustration: notebook ? "notebook-distance" : "monitor-distance-adjustment",
     description: notebook
       ? "Posicione o notebook e seu suporte à sua frente, a uma distância confortável de leitura, aproximadamente um braço. Mova o conjunto com cuidado e mantenha teclado e mouse ao alcance."

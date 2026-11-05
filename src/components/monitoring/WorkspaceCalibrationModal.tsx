@@ -56,7 +56,6 @@ export interface SetupStep {
   id: number;
   title: string;
   description: string;
-  reason?: string;
   imageSrc?: string;
   imageStillSrc?: string;
   imageAlt?: string;
@@ -511,10 +510,7 @@ export default function WorkspaceCalibrationModal({
         {!isFormStep && !isFinalWebcamStep && currentStep && (
           <div className="min-h-[490px] flex flex-col justify-between space-y-4 animate-in fade-in duration-150">
             <div className="space-y-4 flex-1 flex flex-col">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{currentStep.title}</h3>
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{currentStep.reason}</p>
-              </div>
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{currentStep.title}</h3>
               <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200 font-normal">
                 {currentStep.description}
               </p>

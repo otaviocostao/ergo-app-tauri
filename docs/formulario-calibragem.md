@@ -1,6 +1,6 @@
 # Demonstrações selecionadas pelo formulário de calibragem
 
-O assistente usa o dispositivo e todas as respostas Sim/Não para selecionar um roteiro. Cada etapa informa a resposta que motivou a orientação, apresenta uma demonstração compatível e mantém seu PNG para `prefers-reduced-motion`.
+O assistente usa o dispositivo e todas as respostas Sim/Não para selecionar um roteiro. Cada etapa apresenta o título, a orientação e uma demonstração compatível, com PNG para `prefers-reduced-motion`, sem subtítulos repetindo as respostas do formulário.
 
 Computador de Mesa e Desktop são a mesma opção. A outra opção do formulário é Notebook / Laptop. No notebook, a pergunta de regulagem da tela é apresentada como **Seu suporte para notebook possui regulagem de altura?**, usando o mesmo campo persistido `adjustableMonitor`.
 
@@ -61,6 +61,6 @@ As alternativas de apoio dos pés e de ajuste conjunto de cadeira, mesa e monito
 
 - 672 testes Vitest em 27 arquivos passaram, incluindo todas as 128 combinações das respostas, a passagem dos valores dos controles para as ilustrações e a entrada na captura apenas depois do roteiro.
 - Build TypeScript/Vite passou, mantendo o aviso anterior de bundle acima de 500 kB.
-- Na prévia Chrome, sete preenchimentos representativos cobriram as 17 demonstrações. Todos os GIFs e PNGs corretos carregaram em 960 × 420, com o motivo da orientação exibido e sem iniciar a câmera antecipadamente.
+- Na prévia Chrome da entrega inicial, sete preenchimentos representativos cobriram as 17 demonstrações. Todos os GIFs e PNGs corretos carregaram em 960 × 420, sem iniciar a câmera antecipadamente.
 - Todos os quadros dos 13 GIFs adicionais foram decodificados. Duração, resolução e repetição foram conferidas. Comparações de pixels verificaram que a cadeira fixa e os acessórios já existentes não se movimentam ou desaparecem durante a adição do item faltante.
 - A revisão visual das sequências e da interface foi feita com imagens geradas localmente. Nenhuma webcam física ou banco de dados foi usado nessa prévia.

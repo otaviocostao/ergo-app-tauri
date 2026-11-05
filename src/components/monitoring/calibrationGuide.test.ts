@@ -73,7 +73,6 @@ describe("calibration guidance follows the reported equipment", () => {
           const [gif, still, alt] = CALIBRATION_ILLUSTRATIONS[item.illustration];
           expect(gif).toContain(".gif"); expect(still).toContain(".png");
           expect(alt.length).toBeGreaterThan(15);
-          expect(item.reason.length).toBeGreaterThan(10);
           usedIllustrations.add(item.illustration);
         }
       }
