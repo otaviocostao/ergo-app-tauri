@@ -141,6 +141,25 @@ CREATE TABLE IF NOT EXISTS posture_metrics_snapshots (
 CREATE INDEX IF NOT EXISTS idx_posture_metrics_snapshots_session_id ON posture_metrics_snapshots(session_id);
 CREATE INDEX IF NOT EXISTS idx_posture_metrics_snapshots_timestamp ON posture_metrics_snapshots(timestamp);
 
+CREATE TABLE IF NOT EXISTS typing_metrics_snapshots (
+    id TEXT PRIMARY KEY NOT NULL,
+    session_id TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    window_duration_seconds INTEGER NOT NULL DEFAULT 60,
+    keystrokes_count INTEGER NOT NULL DEFAULT 0,
+    cadence_cpm REAL NOT NULL DEFAULT 0.0,
+    peak_cpm REAL NOT NULL DEFAULT 0.0,
+    active_typing_seconds INTEGER NOT NULL DEFAULT 0,
+    micro_pauses_count INTEGER NOT NULL DEFAULT 0,
+    continuous_typing_minutes INTEGER NOT NULL DEFAULT 0,
+    dominant_status TEXT NOT NULL CHECK (dominant_status IN ('good', 'warning', 'danger')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    FOREIGN KEY (session_id) REFERENCES monitoring_sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_typing_metrics_snapshots_session_id ON typing_metrics_snapshots(session_id);
+CREATE INDEX IF NOT EXISTS idx_typing_metrics_snapshots_timestamp ON typing_metrics_snapshots(timestamp);
+
 CREATE TABLE IF NOT EXISTS posture_alerts (
     id TEXT PRIMARY KEY NOT NULL,
     session_id TEXT NOT NULL,

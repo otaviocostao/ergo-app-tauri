@@ -13,10 +13,23 @@ import { classifyPosture } from "../services/vision/postureClassifier";
 import type { OcularMetrics } from "../services/vision/ocularMetrics";
 import type { KeyboardMonitorCardProps } from "../components/monitoring/KeyboardMonitorCard";
 import { settingsService, type ModuleSettings } from "../services/settingsService";
+import { TYPING_METRICS_UPDATED_EVENT } from "../services/typingMonitorService";
+import type { LiveTypingMetrics } from "../types/typingMetricSnapshot";
 
-// Browser previews have no IPC; one test enables a simulated desktop runtime.
-const ipc = vi.hoisted(() => ({ invoke: vi.fn(), desktop: false }));
+// Browser previews have no IPC; desktop tests enable a simulated Tauri runtime.
+const ipc = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  desktop: false,
+  listeners: new Map<string, (event: { payload: LiveTypingMetrics }) => void>(),
+  unlisten: vi.fn(),
+}));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: ipc.invoke, isTauri: () => ipc.desktop }));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async (eventName: string, handler: (event: { payload: LiveTypingMetrics }) => void) => {
+    ipc.listeners.set(eventName, handler);
+    return ipc.unlisten;
+  }),
+}));
 
 const view = vi.hoisted(() => ({
   feed: null as WebcamFeedProps | null,
@@ -66,7 +79,7 @@ describe("Monitoring classification and temporal alerts", () => {
   });
   afterEach(async () => {
     await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks();
-    ipc.desktop = false; ipc.invoke.mockReset();
+    ipc.desktop = false; ipc.invoke.mockReset(); ipc.listeners.clear(); ipc.unlisten.mockReset();
   });
 
   it("persists snapshots with real blinks and one alert per episode from the page's hysteresis", async () => {
@@ -234,7 +247,7 @@ describe("Monitoring classification and temporal alerts", () => {
 
   describe("default webcam", () => {
     const saved = (webCam: string | null): ModuleSettings => ({
-      id: 1, userId: 1, posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true,
+      id: "settings-1", userId: 1, posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true,
       webCam, createdAt: "", updatedAt: "",
     });
     const updates = () => ipc.invoke.mock.calls.filter(([name]) => name === "update_settings").map(([, args]) => args);
@@ -327,78 +340,178 @@ describe("Monitoring classification and temporal alerts", () => {
       expect(view.keyboard!.enabled).toBe(true);
     });
 
-    it("does not open an empty session while the postural module is disabled", async () => {
-      modules({ posturalAnalysis: false });
-      await render();
-      expect(view.feed!.isMonitoring).toBe(true);
-      await act(async () => view.feed!.onToggleMonitoring!());
-      await act(async () => view.feed!.onToggleMonitoring!());
-      await act(async () => root.unmount());
-      root = createRoot(container);
-      expect(persisted("start_monitoring_session")).toEqual([]);
-      expect(persisted("end_monitoring_session")).toEqual([]);
+      it("does not open an empty session while both postural and typing modules are disabled", async () => {
+        modules({ posturalAnalysis: false, typingAnalysis: false });
+        await render();
+        expect(view.feed!.isMonitoring).toBe(true);
+        await act(async () => view.feed!.onToggleMonitoring!());
+        await act(async () => view.feed!.onToggleMonitoring!());
+        await act(async () => root.unmount());
+        root = createRoot(container);
+        expect(persisted("start_monitoring_session")).toEqual([]);
+        expect(persisted("end_monitoring_session")).toEqual([]);
+      });
+
+      it("waits for the settings before opening a session or turning the camera on", async () => {
+        let resolve!: (settings: ModuleSettings | null) => void;
+        vi.spyOn(settingsService, "get").mockReturnValue(new Promise(done => { resolve = done; }));
+        await act(async () => root.render(<Monitoring />));
+        expect(view.feed!.isMonitoring).toBe(false);
+        expect(view.feed!.disabledMessage).toBeNull();
+        expect(persisted("start_monitoring_session")).toEqual([]);
+        await act(async () => resolve(null));
+        expect(view.feed!.isMonitoring).toBe(true);
+        expect(persisted("start_monitoring_session")).toEqual([["start_monitoring_session", { payload: { userId: 1 } }]]);
+      });
+
+        it("turns the camera off when both camera modules are disabled while keeping the shared session for typing", async () => {
+          modules({ posturalAnalysis: false, ocularAnalysis: false });
+          await act(async () => root.render(<Monitoring />));
+          expect(view.feed!.isMonitoring).toBe(false);
+          expect(view.feed!.disabledMessage).toContain("A câmera fica desligada");
+          expect(persisted("start_monitoring_session")).toEqual([["start_monitoring_session", { payload: { userId: 1 } }]]);
+          expect(persisted("record_metric_snapshot")).toEqual([]);
+          expect(persisted("record_posture_alert")).toEqual([]);
+          expect(view.keyboard!.enabled).toBe(true);
+        });
+
+        it("keeps the camera on for the ocular module alone", async () => {
+          modules({ posturalAnalysis: false, typingAnalysis: false });
+          await render();
+          expect(view.feed!.isMonitoring).toBe(true);
+          expect(view.feed!.disabledMessage).toBeNull();
+        });
+
+        it("keeps the blink rate alert while only the postural module is disabled", async () => {
+          modules({ posturalAnalysis: false });
+          await render();
+          await publish(0, 20_200, { neckAngle: 35, blinkRate: lowBlinks });
+          expect(alerts().map(alert => alert.message)).toEqual(["Frequência de piscadas reduzida"]);
+        });
+
+        it("marks the blink and distance cards inactive and stops ocular alerts", async () => {
+          modules({ ocularAnalysis: false });
+          await render();
+          expect(inactiveCards()).toEqual(["Distância da Tela", "Taxa de Piscadas"]);
+          expect(container.textContent).toContain("Análise ocular desativada em Configurações → Módulos.");
+
+          await act(async () => view.feed!.onOcularUpdate!({
+            blinkEvent: "blink", distanceCm: 60, blinkRate: { blinkCount: 1, observedMs: 0, blinksPerMinute: null, isWarmingUp: true },
+          } as unknown as OcularMetrics));
+          await publish(1e9, 1e9 + 61_000, { distanceCm: 30, blinkRate: lowBlinks });
+          expect(alerts()).toEqual([]);
+          expect(persisted("record_metric_snapshot")).toEqual([[
+            "record_metric_snapshot",
+            { payload: expect.objectContaining({ blinkCount: 0, avgDistanceCm: null, dominantStatus: "good" }) },
+          ]]);
+
+          await publish(1e9 + 61_100, 1e9 + 81_300, { neckAngle: 35 });
+          expect(alerts().map(alert => alert.message)).toEqual(["Ajuste a posição do pescoço"]);
+        });
+
+        it("marks the typing card inactive without affecting the camera metrics", async () => {
+          modules({ typingAnalysis: false });
+          await render();
+          expect(view.keyboard!.enabled).toBe(false);
+          expect(inactiveCards()).toEqual([]);
+        });
+      });
+
+      describe("typing monitoring integration", () => {
+        const initialMetrics: LiveTypingMetrics = {
+          sessionId: "session-1",
+          isMonitoringActive: true,
+          isTyping: false,
+          cpm: 110,
+          peakCpm: 160,
+          totalKeystrokes: 320,
+          continuousMinutes: 5,
+          dominantStatus: "good",
+        };
+
+        beforeEach(() => {
+          ipc.desktop = true;
+          vi.spyOn(settingsService, "get").mockResolvedValue({
+            id: "settings-1",
+            userId: 1,
+            posturalAnalysis: true,
+            ocularAnalysis: true,
+            typingAnalysis: true,
+            webCam: null,
+            createdAt: "",
+            updatedAt: "",
+          });
+          ipc.invoke.mockImplementation(async (command: string, args?: { paused?: boolean; payload?: Record<string, unknown> }) => {
+            if (command === "start_monitoring_session") return { id: "session-1" };
+            if (command === "get_live_typing_metrics") return initialMetrics;
+            if (command === "set_typing_monitoring_paused") {
+              return { ...initialMetrics, isMonitoringActive: !args?.paused };
+            }
+            if (command === "reset_typing_session_metrics") {
+              return {
+                ...initialMetrics,
+                cpm: 0,
+                peakCpm: 0,
+                totalKeystrokes: 0,
+                continuousMinutes: 0,
+                dominantStatus: "good" as const,
+              };
+            }
+            return args?.payload;
+          });
+        });
+
+        it("loads live typing metrics, streams backend events, syncs manual pause, and resets typing session metrics", async () => {
+          await render();
+
+          expect(ipc.invoke).toHaveBeenCalledWith("get_live_typing_metrics");
+          expect(ipc.invoke).toHaveBeenCalledWith("set_typing_monitoring_paused", { paused: false });
+          expect(view.keyboard!.enabled).toBe(true);
+          expect(view.keyboard!.isPaused).toBe(false);
+          expect(view.keyboard!.metrics).toEqual(initialMetrics);
+
+          const listener = ipc.listeners.get(TYPING_METRICS_UPDATED_EVENT);
+          expect(listener).toBeTypeOf("function");
+
+          const streamedMetrics: LiveTypingMetrics = {
+            sessionId: "session-1",
+            isMonitoringActive: true,
+            isTyping: true,
+            cpm: 260,
+            peakCpm: 310,
+            totalKeystrokes: 740,
+            continuousMinutes: 17,
+            dominantStatus: "warning",
+          };
+
+          await act(async () => {
+            listener!({ payload: streamedMetrics });
+          });
+          expect(view.keyboard!.metrics).toEqual(streamedMetrics);
+
+          // Camera occlusion pauses visual posture tracking, but must NOT pause keyboard monitoring.
+          await act(async () => view.feed!.onPresenceChange!("ABSENT"));
+          expect(view.keyboard!.isPaused).toBe(false);
+
+          // Manual pause toggles typing pause in the Rust backend and UI card.
+          await act(async () => view.feed!.onToggleMonitoring!());
+          expect(view.keyboard!.isPaused).toBe(true);
+          expect(ipc.invoke).toHaveBeenCalledWith("set_typing_monitoring_paused", { paused: true });
+
+          await act(async () => view.feed!.onToggleMonitoring!());
+          expect(view.keyboard!.isPaused).toBe(false);
+
+          // Resetting typing session invokes backend command and logs ergonomic break event.
+          await act(async () => {
+            await view.keyboard!.onPauseRequested!();
+          });
+          expect(ipc.invoke).toHaveBeenCalledWith("reset_typing_session_metrics");
+          expect(view.keyboard!.metrics?.totalKeystrokes).toBe(0);
+          expect(view.keyboard!.metrics?.continuousMinutes).toBe(0);
+          expect(view.logs[0]).toMatchObject({
+            type: "info",
+            message: "Pausa de digitação registrada",
+          });
+        });
+      });
     });
-
-    it("waits for the settings before opening a session or turning the camera on", async () => {
-      let resolve!: (settings: ModuleSettings | null) => void;
-      vi.spyOn(settingsService, "get").mockReturnValue(new Promise(done => { resolve = done; }));
-      await act(async () => root.render(<Monitoring />));
-      expect(view.feed!.isMonitoring).toBe(false);
-      expect(view.feed!.disabledMessage).toBeNull();
-      expect(persisted("start_monitoring_session")).toEqual([]);
-      await act(async () => resolve(null));
-      expect(view.feed!.isMonitoring).toBe(true);
-      expect(persisted("start_monitoring_session")).toEqual([["start_monitoring_session", { payload: { userId: 1 } }]]);
-    });
-
-    it("turns the camera off when both camera modules are disabled", async () => {
-      modules({ posturalAnalysis: false, ocularAnalysis: false });
-      await act(async () => root.render(<Monitoring />));
-      expect(view.feed!.isMonitoring).toBe(false);
-      expect(view.feed!.disabledMessage).toContain("A câmera fica desligada");
-      expect(persisted("start_monitoring_session")).toEqual([]);
-      expect(view.keyboard!.enabled).toBe(true);
-    });
-
-    it("keeps the camera on for the ocular module alone", async () => {
-      modules({ posturalAnalysis: false, typingAnalysis: false });
-      await render();
-      expect(view.feed!.isMonitoring).toBe(true);
-      expect(view.feed!.disabledMessage).toBeNull();
-    });
-
-    it("keeps the blink rate alert while only the postural module is disabled", async () => {
-      modules({ posturalAnalysis: false });
-      await render();
-      await publish(0, 20_200, { neckAngle: 35, blinkRate: lowBlinks });
-      expect(alerts().map(alert => alert.message)).toEqual(["Frequência de piscadas reduzida"]);
-    });
-
-    it("marks the blink and distance cards inactive and stops ocular alerts", async () => {
-      modules({ ocularAnalysis: false });
-      await render();
-      expect(inactiveCards()).toEqual(["Distância da Tela", "Taxa de Piscadas"]);
-      expect(container.textContent).toContain("Análise ocular desativada em Configurações → Módulos.");
-
-      await act(async () => view.feed!.onOcularUpdate!({
-        blinkEvent: "blink", distanceCm: 60, blinkRate: { blinkCount: 1, observedMs: 0, blinksPerMinute: null, isWarmingUp: true },
-      } as unknown as OcularMetrics));
-      await publish(1e9, 1e9 + 61_000, { distanceCm: 30, blinkRate: lowBlinks });
-      expect(alerts()).toEqual([]);
-      expect(persisted("record_metric_snapshot")).toEqual([[
-        "record_metric_snapshot",
-        { payload: expect.objectContaining({ blinkCount: 0, avgDistanceCm: null, dominantStatus: "good" }) },
-      ]]);
-
-      await publish(1e9 + 61_100, 1e9 + 81_300, { neckAngle: 35 });
-      expect(alerts().map(alert => alert.message)).toEqual(["Ajuste a posição do pescoço"]);
-    });
-
-    it("marks the typing card inactive without affecting the camera metrics", async () => {
-      modules({ typingAnalysis: false });
-      await render();
-      expect(view.keyboard!.enabled).toBe(false);
-      expect(inactiveCards()).toEqual([]);
-    });
-  });
-});

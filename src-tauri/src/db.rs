@@ -188,4 +188,89 @@ mod tests {
             .unwrap();
         assert_eq!(migration_count, 1);
     }
+
+    #[test]
+    fn fresh_database_enforces_typing_metrics_snapshots_schema_and_cascade() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("ergo.db");
+        run_migrations(&db_path).unwrap();
+        let conn = open_test_database(&db_path);
+        let user_id = insert_test_user(&conn);
+
+        conn.execute(
+            "INSERT INTO monitoring_sessions (id, user_id, started_at)
+             VALUES ('session-1', ?1, '2026-11-04T17:00:00Z')",
+            params![user_id],
+        )
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO typing_metrics_snapshots (
+                id, session_id, timestamp, keystrokes_count, cadence_cpm, peak_cpm,
+                active_typing_seconds, micro_pauses_count, continuous_typing_minutes, dominant_status
+             ) VALUES (
+                'snap-1', 'session-1', '2026-11-04T17:01:00Z', 180, 180.0, 240.0,
+                45, 2, 1, 'good'
+             )",
+            [],
+        )
+        .unwrap();
+
+        let invalid_status = conn
+            .execute(
+                "INSERT INTO typing_metrics_snapshots (id, session_id, timestamp, dominant_status)
+                 VALUES ('snap-invalid-status', 'session-1', '2026-11-04T17:02:00Z', 'invalid')",
+                [],
+            )
+            .unwrap_err();
+        assert!(matches!(
+            invalid_status,
+            rusqlite::Error::SqliteFailure(code, _)
+                if code.code == rusqlite::ErrorCode::ConstraintViolation
+        ));
+
+        let invalid_session = conn
+            .execute(
+                "INSERT INTO typing_metrics_snapshots (id, session_id, timestamp, dominant_status)
+                 VALUES ('snap-orphan', 'non-existent-session', '2026-11-04T17:02:00Z', 'good')",
+                [],
+            )
+            .unwrap_err();
+        assert!(matches!(
+            invalid_session,
+            rusqlite::Error::SqliteFailure(code, _)
+                if code.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY
+        ));
+
+        let session_idx_exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_index_info('idx_typing_metrics_snapshots_session_id')
+                 WHERE name = 'session_id')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(session_idx_exists);
+
+        let timestamp_idx_exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_index_info('idx_typing_metrics_snapshots_timestamp')
+                 WHERE name = 'timestamp')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(timestamp_idx_exists);
+
+        conn.execute("DELETE FROM monitoring_sessions WHERE id = 'session-1'", [])
+            .unwrap();
+        let remaining_snapshots: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM typing_metrics_snapshots WHERE session_id = 'session-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(remaining_snapshots, 0);
+    }
 }
