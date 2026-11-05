@@ -31,8 +31,10 @@ A gravação existente produz um resumo após um minuto completo de leituras vá
 - O início e o encerramento vêm dos horários salvos na sessão.
 - Os últimos 100 alertas da sessão vêm do banco, com mensagem, gravidade, duração registrada e resolução. Notificações repetidas do cooldown não criam cópias do mesmo episódio nessa lista.
 - Presença, concorrência de câmera e ações da interface continuam sendo eventos reais desta execução. Esses avisos temporários não são persistidos nas tabelas de alertas e não reaparecem ao reiniciar o app.
-- Presença e concorrência de câmera são registradas na lista somente quando seu estado muda, evitando o acúmulo de “Usuário presente” a cada atualização.
-- Eventos temporários possuem horário completo e identificador único; são filtrados pelos limites da sessão e ordenados junto aos eventos salvos.
+- “Usuário presente” aparece na primeira detecção válida após um início explícito do monitoramento. Depois disso, só aparece novamente ao retornar de uma ausência confirmada de pelo menos cinco segundos, com uma única mensagem por retorno. Oscilações de enquadramento parcial não reiniciam esse aviso.
+- A calibragem e a captura desligada não geram avisos de presença/ausência. Retomar o monitoramento após calibrar preserva o último estado anunciado; encerrar e iniciar explicitamente permite uma nova mensagem inicial.
+- Concorrência de câmera é registrada na lista somente quando seu estado muda.
+- Eventos temporários possuem horário completo e identificador único; são filtrados pelos limites da sessão e ordenados junto aos eventos salvos. A confirmação **Ambiente de trabalho salvo com sucesso** pertence à conta autenticada e permanece visível entre a sessão encerrada para calibrar e a nova sessão de monitoramento. Ela só é gerada após salvar, e pode ser removida pelo botão de limpar a lista.
 - **Limpar lista de eventos** oculta os itens dessa tela e preserva o banco e a barra. Alertas novos continuam aparecendo; reabrir a tela pode recuperar os eventos salvos.
 - Horários RFC 3339 com fuso e datas antigas do SQLite em UTC são normalizados no backend. A tela os apresenta no horário local em formato `pt-BR`.
 
@@ -47,9 +49,11 @@ A gravação existente produz um resumo após um minuto completo de leituras vá
 ## Validação
 
 - Suíte completa: 704 testes Vitest e 109 testes Rust aprovados, além do build TypeScript/Vite. O aviso já existente de bundle acima de 500 kB permanece.
+- Após os ajustes de presença e confirmação de calibragem: 66 testes relacionados de monitoramento, histórico, modal e navegação passaram, além do build TypeScript/Vite.
 - Testes SQLite em memória com a migration real: autenticação, isolamento entre usuários e sessões, cores, percentual, lacunas, limites da janela, fusos, horários antigos e os últimos 100 alertas com duração/resolução.
 - Testes React: dados carregados, banco vazio, reabertura, polling sem sobreposição, limpeza visual, alertas novos, resposta atrasada de outra conta, falha de leitura, retry e página oculta.
-- Teste de monitoramento: notificações repetidas de presença geram apenas um evento até a próxima mudança de estado.
+- Regressões de presença: enquadramentos parciais repetidos, ausência confirmada com retorno, callbacks antes de iniciar/depois de encerrar, reinício explícito e passagem pela calibragem.
+- Regressões da confirmação de calibragem: apresentação entre o encerramento da sessão e a retomada, manutenção do filtro dos outros eventos, limpeza da lista e isolamento entre contas.
 - Prévia Chrome com dados de teste: card preenchido em 660 e 320 pixels de largura, além de banco vazio, sem transbordamento nem erros de console. Essa prévia não acessa o banco pessoal nem a webcam.
 
 Para conferir no aplicativo, inicie o monitoramento com calibração e leitura válidas, aguarde um minuto completo e observe o primeiro resumo. Confira um alerta persistente, encerre a sessão e reabra o app: os alertas salvos e os blocos da sessão devem permanecer disponíveis. Ao entrar em outra conta, devem aparecer apenas seus próprios registros.
