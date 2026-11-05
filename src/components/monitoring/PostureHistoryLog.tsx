@@ -32,9 +32,10 @@ export default function PostureHistoryLog({
   recordingStatus = "idle",
   isVisible = true,
 }: PostureHistoryLogProps) {
-  const { data, loading, error, retry } = useSessionHistory(userId, recordingStatus, isVisible);
+  const { data: loadedData, session, loading, error, retry } = useSessionHistory(userId, recordingStatus, isVisible);
   const [hidden, setHidden] = useState<{ key: string; ids: Set<string> }>({ key: "", ids: new Set() });
-  const session = data?.session;
+  // A newly saved start must not display the previous session's alerts or hide new live notices.
+  const data = loadedData?.session?.id === session?.id ? loadedData : null;
   const historyKey = `${userId}:${session?.id ?? "none"}`;
   const time = (value: string) => new Date(value).toLocaleTimeString("pt-BR");
   const savedLogs: LogEvent[] = (data?.alerts ?? []).map(alert => ({
@@ -113,7 +114,7 @@ export default function PostureHistoryLog({
 
         <div className="mb-4">
           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400 mb-1.5">
-            <span title={session ? `${new Date(data!.windowStart).toLocaleString("pt-BR")} – ${new Date(data!.windowEnd).toLocaleString("pt-BR")}` : undefined}>
+            <span title={data ? `${new Date(data.windowStart).toLocaleString("pt-BR")} – ${new Date(data.windowEnd).toLocaleString("pt-BR")}` : undefined}>
               {session?.endedAt ? "Últimos 15 minutos da sessão" : "Últimos 15 minutos"}
             </span>
             <span className="font-medium" title="Percentual de resumos salvos com postura predominante adequada neste intervalo.">

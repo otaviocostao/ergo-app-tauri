@@ -6,6 +6,7 @@ import PostureHistoryLog, { type LogEvent, type PostureHistoryLogProps } from ".
 import { sessionHistoryService } from "../../services/sessionHistoryService";
 import { PostureStatus } from "../../enums/postureStatus";
 import type { SessionHistory } from "../../types/sessionHistory";
+import { notifySessionHistoryUpdated } from "../../services/monitoring/sessionHistoryEvents";
 
 vi.mock("../../hooks/useMetricRecording", () => ({ waitForRecordingWrites: () => Promise.resolve() }));
 vi.mock("../../services/sessionHistoryService", () => ({ sessionHistoryService: { get: vi.fn() } }));
@@ -167,5 +168,59 @@ describe("database-backed session history", () => {
     await render({ logs: [{ id: "other-calibration", occurredAt: "2026-11-05T12:10:00Z", timestamp: "12:10:00",
       message: "Another account saved its calibration", type: "success", scope: "account", userId: 2 }] });
     expect(container.textContent).not.toContain("Another account saved its calibration");
+  });
+
+  it("shows a saved alert and its resolution immediately without waiting for the five-second poll", async () => {
+    const initial = history(); initial.alerts = []; read.mockResolvedValue(initial); await render();
+    read.mockResolvedValue(history());
+    await act(async () => notifySessionHistoryUpdated({ userId: 1, sessionId: "session-1" }));
+    expect(container.textContent).toContain("Desvio do pescoço salvo no banco");
+    expect(read).toHaveBeenCalledTimes(2);
+    const resolved = history(); resolved.alerts[0].durationSeconds = 73;
+    read.mockResolvedValue(resolved);
+    await act(async () => notifySessionHistoryUpdated({ userId: 1, sessionId: "session-1" }));
+    expect(container.textContent).toContain("Duração registrada: 73 s");
+    expect(container.textContent?.match(/Desvio do pescoço salvo no banco/g)).toHaveLength(1);
+  });
+
+  it("coalesces saves during a pending read and discards the stale result", async () => {
+    let finish!: (value: SessionHistory) => void;
+    read.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    await render(); const fresh = history(); fresh.alerts[0].message = "Latest saved alert";
+    read.mockResolvedValue(fresh);
+    await act(async () => {
+      for (let index = 0; index < 3; index++) notifySessionHistoryUpdated({ userId: 1, sessionId: "session-1" });
+    });
+    expect(read).toHaveBeenCalledTimes(1);
+    await act(async () => finish(history()));
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("Latest saved alert");
+    expect(container.textContent).not.toContain("Desvio do pescoço salvo no banco");
+  });
+
+  it("displays saved session start metadata and new live events while the history read is pending", async () => {
+    const old = history(); old.session!.endedAt = "2026-11-05T12:15:00Z"; read.mockResolvedValue(old);
+    const live: LogEvent = { id: "new-presence", message: "New monitoring presence", type: "info",
+      occurredAt: "2026-11-05T12:16:01Z", timestamp: "12:16:01" };
+    await render({ logs: [live] }); expect(container.textContent).not.toContain(live.message);
+    let finish!: (value: SessionHistory) => void;
+    read.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const next = history(); next.session!.id = "session-2"; next.session!.startedAt = "2026-11-05T12:16:00Z";
+    await act(async () => notifySessionHistoryUpdated({ userId: 1, sessionId: "session-2", session: next.session! }));
+    expect(container.textContent).toContain("Monitoramento iniciado");
+    expect(container.textContent).toContain(live.message);
+    expect(container.textContent).not.toContain("Desvio do pescoço salvo no banco");
+    await act(async () => finish(next));
+    expect(container.textContent).toContain(live.message);
+  });
+
+  it("ignores save notifications of another user and stops listening while hidden", async () => {
+    await render(); const calls = read.mock.calls.length;
+    await act(async () => notifySessionHistoryUpdated({ userId: 2, sessionId: "other" }));
+    expect(read).toHaveBeenCalledTimes(calls);
+    await render({ isVisible: false });
+    await act(async () => notifySessionHistoryUpdated({ userId: 1, sessionId: "session-1" }));
+    expect(read).toHaveBeenCalledTimes(calls);
+    await render(); expect(read).toHaveBeenCalledTimes(calls + 1);
   });
 });
