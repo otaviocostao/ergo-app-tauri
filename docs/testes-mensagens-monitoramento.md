@@ -2,7 +2,7 @@
 
 As mensagens foram verificadas em camadas: lógica temporal, componentes, gravação IPC, atualização do histórico, fluxo integrado com câmera simulada, consultas SQLite do backend e execução no Chrome com relógio real.
 
-Resultado final: **737 testes Vitest em 36 arquivos, 109 testes Rust e build TypeScript/Vite aprovados**. Esta revisão acrescentou 25 testes: nove de câmera/tempo, quatro de atualização do histórico, três de notificação da gravação e nove do fluxo integrado. O build mantém o aviso anterior de bundle acima de 500 kB.
+Validação do envio de mensagens: **737 testes Vitest em 36 arquivos, 109 testes Rust e build TypeScript/Vite aprovados**. Aquela revisão acrescentou 25 testes: nove de câmera/tempo, quatro de atualização do histórico, três de notificação da gravação e nove do fluxo integrado. O build mantém o aviso anterior de bundle acima de 500 kB.
 
 ## Matriz automatizada
 
@@ -64,4 +64,20 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 Arquivos mais diretamente relacionados: `src/pages/Monitoring.history.integration.test.tsx`, `src/pages/Monitoring.test.tsx`, `src/components/monitoring/WebcamFeed.test.tsx`, `src/components/monitoring/PostureHistoryLog.test.tsx`, `src/hooks/useMetricRecording.test.tsx` e os testes SQLite em `src-tauri/src/services/session_history_service.rs`.
 
-Os avisos de ausência não dependem do resumo de métricas, que continua sendo gravado por janelas completas de um minuto. Os alertas posturais mantêm sua confirmação temporal; essa espera de domínio é diferente do atraso de atualização da lista, removido com a notificação após gravação.
+Os avisos de ausência não dependem do resumo de métricas, que é gravado em ciclos fixos de um minuto da sessão. Os alertas posturais mantêm sua confirmação temporal; essa espera de domínio é diferente do atraso de atualização da lista, removido com a notificação após gravação.
+
+## Ciclos de um minuto e cores dos quadrados
+
+A validação ampliada contém **751 testes Vitest em 36 arquivos e 114 testes Rust**. Os novos testes cobrem:
+
+- Sessão iniciada às 18:25:00: nenhum preenchimento aos 59.999 ms, primeiro resumo salvo e quadrado colorido às 18:26:00.
+- Primeira leitura atrasada e resposta de criação da sessão atrasada: o limite permanece no horário da sessão.
+- Relógio monotônico fracionário: timestamps dos resumos permanecem em minutos UTC exatos.
+- Presença em parte do minuto: as leituras válidas são preservadas e determinam a cor no fim do ciclo.
+- Ausência durante o minuto inteiro, observada pela câmera: resumo `absent`, métricas nulas e quadrado cinza.
+- Pessoa presente sem calibração, permissão de câmera negada ou erro de processamento: resumo `unavailable`, sem fingir ausência; quadrado apenas contornado.
+- Retomada após interrupção: a janela não reinicia e os dados coletados antes da pausa permanecem no ciclo original.
+- Leituras no limite entre dois minutos pertencem ao ciclo seguinte; a cor do minuto anterior não é alterada.
+- Agendador atrasado: cada ciclo vencido é fechado sem repetir evidências antigas de presença/ausência.
+- Últimos 15 ciclos: a barra só avança ao concluir um novo minuto e não muda os horários a cada polling.
+- SQLite: novos estados persistem no esquema existente; payloads de ausência/indisponibilidade com métricas inventadas são rejeitados.

@@ -1,12 +1,12 @@
 # Histórico real da sessão de monitoramento
 
-O card **Histórico da Sessão** consulta `monitoring_sessions`, `posture_metrics_snapshots` e `posture_alerts`. Não usa mais horários, cores ou percentual de exemplo. A migration e o formato de gravação existentes foram preservados.
+O card **Histórico da Sessão** consulta `monitoring_sessions`, `posture_metrics_snapshots` e `posture_alerts`. Não usa horários, cores ou percentual de exemplo. As tabelas e a migration existentes foram preservadas; o campo textual de status dos resumos também distingue `absent` e `unavailable`.
 
 ## Consulta e atualização
 
 - `get_session_history` obtém o usuário da autenticação no Rust, sem aceitar um identificador de usuário enviado pela interface.
 - O repositório seleciona a sessão mais recente dessa conta. Não há fallback para sessões sem proprietário ou de outras contas.
-- Durante a sessão aberta, o intervalo acompanha os últimos 15 minutos. Para uma sessão encerrada, termina no horário de encerramento, permitindo rever seus últimos registros ao reabrir o app.
+- Os blocos seguem os minutos da sessão, sem mudar de intervalo a cada consulta. Nos primeiros minutos, os espaços futuros ficam contornados. Depois de 15 minutos, são mantidos os 15 ciclos completos mais recentes, deslocando a barra somente ao fechar outro ciclo. Sessões encerradas preservam seus últimos ciclos ao reabrir o app.
 - A interface consulta imediatamente após salvar um alerta, sua resolução, um resumo ou uma transição de sessão. O evento interno `ergo:session-history-updated` é emitido somente depois do sucesso da gravação e identifica sua conta. A consulta periódica de cinco segundos permanece como recuperação.
 - O início e o encerramento aparecem com os metadados retornados pela própria gravação, sem esperar outra consulta. Ao iniciar uma sessão nova, os dados em cache da anterior não escondem seus eventos nem preenchem sua barra.
 - A consulta aguarda a criação/finalização da sessão antes de ler. Leituras não se sobrepõem; gravações ocorridas durante uma consulta invalidam sua resposta antiga e solicitam uma nova leitura. Respostas antigas também são descartadas após ocultar a página, trocar de conta ou desmontar o componente.
@@ -15,18 +15,24 @@ O card **Histórico da Sessão** consulta `monitoring_sessions`, `posture_metric
 
 ## Barra e percentual
 
-São 15 blocos de um minuto. O horário do snapshot representa o fechamento do resumo e pertence ao bloco que acaba naquele horário. Cada bloco considera os resumos gravados no intervalo correspondente:
+São 15 blocos com ciclos fixos de 60 segundos a partir do horário salvo de início. Uma sessão iniciada às 18:25:00 fecha seu primeiro ciclo às 18:26:00, mesmo que a primeira leitura válida chegue depois do início ou exista uma interrupção. O timestamp do resumo marca exatamente o encerramento desse ciclo.
 
 - Verde: postura predominante boa.
 - Amarelo: atenção.
 - Vermelho: postura crítica.
-- Cinza: não há resumo válido com amostras nesse intervalo.
+- Cinza preenchido: o usuário esteve ausente durante o minuto inteiro, com evidência contínua de análise da câmera sem detectar corpo e sem amostras posturais válidas.
+- Contorno pontilhado: minuto em andamento ou ainda não iniciado.
+- Contorno amarelo, sem preenchimento: minuto encerrado sem leitura válida, por exemplo por câmera indisponível, falha na análise ou falta de calibração. Isso não afirma ausência do usuário.
+
+Se houver leituras válidas em qualquer parte do minuto, sua cor vem dessas leituras. Uma ausência parcial não descarta o que foi medido e não transforma o ciclo inteiro em cinza. A evidência de presença usa somente timestamp e detecção de corpo; nenhuma imagem ou landmark é armazenada no resumo. Lacunas prolongadas na análise não servem de prova de ausência integral.
 
 Se houver mais de um resumo no mesmo bloco, a postura predominante é ponderada pela quantidade de amostras de cada resumo, com preferência pela condição mais severa em caso de empate.
 
-O percentual mostra **resumos adequados**: número de resumos cuja postura predominante é boa dividido pelo total de resumos válidos salvos na janela. Não representa uma porcentagem exata dos frames individuais nem usa os valores iniciais de 100% da sessão. Os snapshots atuais não armazenam a distribuição individual dos frames. Sem resumos válidos, o card apresenta **Sem resumos registrados**.
+O percentual mostra **minutos adequados**: número de ciclos avaliados cuja postura predominante é boa dividido pelo total de ciclos com leitura válida. Ausência integral, leitura indisponível e ciclos pendentes não entram nesse cálculo. Não representa uma porcentagem exata dos frames individuais nem usa os valores iniciais de 100% da sessão.
 
-A gravação existente produz um resumo após um minuto completo de leituras válidas. Ausência, oclusão, pausa ou calibragem descartam janelas incompletas. Por isso, iniciar o monitoramento não preenche imediatamente a barra e intervalos sem leitura não são classificados como boa postura.
+O resumo fecha a cada minuto de sessão, incluindo os ciclos sem métricas. Ausência, oclusão e interrupções das leituras quebram somente a continuidade do tempo ativo e dos alertas, preservando as amostras já coletadas naquele ciclo. O agendador usa relógio monotônico e ajusta o próximo disparo ao limite do minuto; as datas UTC são derivadas do horário salvo da sessão. Ao encerrar uma sessão, o último ciclo incompleto permanece sem preenchimento.
+
+Os resumos `absent` e `unavailable` têm zero amostras, zero score e métricas nulas, sem inventar postura. A validação Rust rejeita esses status se contiverem métricas. Os cálculos existentes do dashboard ignoram resumos sem amostras. Registros antigos sem evidência de ausência não são convertidos automaticamente em cinza.
 
 ## Lista de eventos
 
