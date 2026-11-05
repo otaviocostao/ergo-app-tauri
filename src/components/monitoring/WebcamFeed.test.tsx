@@ -478,6 +478,76 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     expect(update.mock.lastCall?.[0]).toMatchObject({ neckAngle: 0, shoulderBalance: 100, presence: "ACTIVE" });
   });
 
+  it.each([0, 3000, 6000])("counts initial absence from monitoring start when opening the camera takes %sms", async delay => {
+    landmarks = null;
+    const acquire = getUserMedia.getMockImplementation()!;
+    if (delay) getUserMedia.mockImplementation(constraints => new Promise(resolve => {
+      setTimeout(async () => resolve(await acquire(constraints)), delay);
+    }));
+    await render(); await advance(4999);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(0);
+    await advance(1);
+    if (delay <= 5000) {
+      expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(1);
+    } else {
+      // A missing camera cannot establish absence; once available it adds no second five-second wait.
+      expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(0);
+      await advance(delay - 5000 + 100);
+      expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(1);
+    }
+    await advance(10_000);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(1);
+  });
+
+  it("rearms absence on restart even when nobody returned during the stopped interval", async () => {
+    landmarks = null; await render(); await advance(5000);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(1);
+    await render(false); await advance(20_000); await render(true); await advance(4999);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(1);
+    await advance(1);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(2);
+  });
+
+  it("starts the absence clock on request rather than when the page was mounted", async () => {
+    landmarks = null; await render(false); await advance(60_000);
+    await render(true); await advance(4999);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(0);
+    await advance(1);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(1);
+  });
+
+  it.each([-3_600_000, 3_600_000])("keeps the five-second duration when the wall clock changes by %sms", async offset => {
+    landmarks = null; await render(); await advance(1000);
+    vi.setSystemTime(Date.now() + offset);
+    await advance(3999);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(0);
+    await advance(1);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(1);
+  });
+
+  it("checks absence even if rendering frames are temporarily suspended", async () => {
+    vi.stubGlobal("requestAnimationFrame", vi.fn(() => 0));
+    landmarks = null; await render(); await advance(5000);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(1);
+    await unmount(); const count = presence.mock.calls.length; await advance(10_000);
+    expect(presence).toHaveBeenCalledTimes(count);
+  });
+
+  it("does not report user absence while the camera is muted or permission is denied", async () => {
+    landmarks = null; await render();
+    const track = streams[streams.length - 1].track;
+    await setTrackMuted(track, true); await advance(10_000);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(0);
+    await setTrackMuted(track, false); await advance(4999);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(0);
+    await advance(1);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(1);
+    await render(false); presence.mockClear();
+    getUserMedia.mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
+    await render(true); await advance(10_000);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(0);
+  });
+
   it.each([1200, 5200])("restarts smoothing after a %sms detection gap, then smooths new measurements", async (gap) => {
     faceTransformationMatrix = faceMatrix(40);
     await render(); await advance(200);

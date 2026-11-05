@@ -158,7 +158,7 @@ export default function WebcamFeed({
 
   // Refs de controle de ciclo de inferência
   const lastInferenceTimeRef = useRef<number>(0);
-  const lastLandmarksDetectedTimeRef = useRef<number>(Date.now());
+  const lastLandmarksDetectedTimeRef = useRef<number>(performance.now());
   const presenceRef = useRef<UserPresenceState>("PARTIALLY_OCCLUDED");
   const isMonitoringRef = useRef<boolean>(isMonitoring);
   const isHardwareBusyRef = useRef<boolean>(false);
@@ -172,6 +172,20 @@ export default function WebcamFeed({
     neckAngle: 12,
     shoulderBalance: 96,
   });
+
+  const publishPresence = useCallback((next: UserPresenceState) => {
+    if (presenceRef.current === next) return;
+    presenceRef.current = next;
+    setPresenceState(next);
+    onPresenceChangeRef.current?.(next);
+    if (next === "ABSENT") {
+      onPostureUpdateRef.current?.({
+        neckAngle: Math.round(smoothedMetricsRef.current.neckAngle),
+        shoulderBalance: Math.round(smoothedMetricsRef.current.shoulderBalance),
+        distanceCm: null, status: null, statusLabel: "Usuário Ausente (Pausado)", presence: "ABSENT",
+      });
+    }
+  }, []);
 
   // Mantém refs atualizados sem disparar re-render
   useEffect(() => {
@@ -351,6 +365,8 @@ export default function WebcamFeed({
     }
 
     stopCurrentStream();
+    lastLandmarksDetectedTimeRef.current = performance.now();
+    publishPresence("PARTIALLY_OCCLUDED");
     const requestId = cameraRequestRef.current;
     setIsHardwareBusy(false);
     setHardwareErrorMessage(null);
@@ -399,7 +415,7 @@ export default function WebcamFeed({
           setIsCameraMuted(muted);
           postureFilterRef.current.reset();
           overlayRef.current.reset();
-          lastLandmarksDetectedTimeRef.current = Date.now();
+          lastLandmarksDetectedTimeRef.current = performance.now();
           // Keep metrics paused after unmute until a fresh valid frame arrives.
           if (presenceRef.current !== "PARTIALLY_OCCLUDED") {
             presenceRef.current = "PARTIALLY_OCCLUDED";
@@ -423,7 +439,6 @@ export default function WebcamFeed({
 
       setHasCameraPermission(true);
       setPermissionError(null);
-      lastLandmarksDetectedTimeRef.current = Date.now();
 
       // Atualiza lista de dispositivos caso as labels estivessem anônimas antes do consentimento
       enumerateCameras();
@@ -454,7 +469,7 @@ export default function WebcamFeed({
         setPermissionError("Não foi possível acessar a câmera. Verifique se o dispositivo está conectado e com permissões concedidas.");
       }
     }
-  }, [selectedDeviceId, stopCurrentStream, handleHardwareLock, enumerateCameras, resetOcularTracking]);
+  }, [selectedDeviceId, stopCurrentStream, handleHardwareLock, enumerateCameras, resetOcularTracking, publishPresence]);
 
 
   useEffect(() => {
@@ -468,6 +483,21 @@ export default function WebcamFeed({
       stopCurrentStream();
     };
   }, [isMonitoring, selectedDeviceId, startCamera, stopCurrentStream]);
+
+  useEffect(() => {
+    if (!isMonitoring) return;
+    // Count from monitoring start, not from the later resolution of getUserMedia/play.
+    // Reset the state as well so an absent user is announced again after an explicit restart.
+    lastLandmarksDetectedTimeRef.current = performance.now();
+    publishPresence("PARTIALLY_OCCLUDED");
+    const timer = setInterval(() => {
+      if (!isMonitoringRef.current || !streamRef.current || isHardwareBusyRef.current || isCameraMutedRef.current) return;
+      const gap = performance.now() - lastLandmarksDetectedTimeRef.current;
+      if (gap >= ABSENCE_THRESHOLD_MS) publishPresence("ABSENT");
+      else if (gap > 1000 && presenceRef.current === "ACTIVE") publishPresence("PARTIALLY_OCCLUDED");
+    }, 100);
+    return () => clearInterval(timer);
+  }, [isMonitoring, publishPresence]);
 
   /**
    * Tenta retomar a captura após o usuário encerrar a videochamada concorrente.
@@ -518,7 +548,7 @@ export default function WebcamFeed({
         return;
       }
 
-      const now = Date.now();
+      const now = performance.now();
       const elapsedSinceLastInference = currentTime - lastInferenceTimeRef.current;
 
       // -------------------------------------------------------------
@@ -648,37 +678,7 @@ export default function WebcamFeed({
         if (currentPoseDetected) {
           lastLandmarksDetectedTimeRef.current = now;
 
-          const nextPresence = poseAngles && headPitch !== null ? "ACTIVE" : "PARTIALLY_OCCLUDED";
-          if (presenceRef.current !== nextPresence) {
-            presenceRef.current = nextPresence;
-            setPresenceState(nextPresence);
-            onPresenceChangeRef.current?.(nextPresence);
-          }
-        } else {
-          const timeSinceLastDetection = now - lastLandmarksDetectedTimeRef.current;
-
-          if (timeSinceLastDetection >= ABSENCE_THRESHOLD_MS) {
-            if (presenceRef.current !== "ABSENT") {
-              presenceRef.current = "ABSENT";
-              setPresenceState("ABSENT");
-              onPresenceChangeRef.current?.("ABSENT");
-
-              // Pausa o cômputo de má postura e avisa a página de monitoramento
-              onPostureUpdateRef.current?.({
-                neckAngle: Math.round(smoothedMetricsRef.current.neckAngle),
-                shoulderBalance: Math.round(smoothedMetricsRef.current.shoulderBalance),
-                distanceCm: null,
-                status: null,
-                statusLabel: "Usuário Ausente (Pausado)",
-                presence: "ABSENT",
-              });
-            }
-          } else if (timeSinceLastDetection > 1000 && presenceRef.current === "ACTIVE") {
-            // Breve intervalo transitório de oclusão parcial
-            presenceRef.current = "PARTIALLY_OCCLUDED";
-            setPresenceState("PARTIALLY_OCCLUDED");
-            onPresenceChangeRef.current?.("PARTIALLY_OCCLUDED");
-          }
+          publishPresence(poseAngles && headPitch !== null ? "ACTIVE" : "PARTIALLY_OCCLUDED");
         }
 
         // Paused tracking must not blend pre-gap posture into the first new measurement.
@@ -823,7 +823,7 @@ export default function WebcamFeed({
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [isMonitoring, showOverlay, resetOcularTracking]);
+  }, [isMonitoring, showOverlay, resetOcularTracking, publishPresence]);
 
   return (
     <div
