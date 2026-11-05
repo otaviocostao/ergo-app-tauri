@@ -352,6 +352,7 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
         <div className="lg:col-span-7 flex flex-col gap-6">
           <WebcamFeed
             isMonitoring={captureEnabled}
+            showMetricBadges={false}
             recordingStatus={recording.status}
             disabledMessage={modulesLoading || posturalEnabled || ocularEnabled ? null
               : "As análises postural e ocular estão desativadas em Configurações → Módulos. A câmera fica desligada até que uma delas seja ativada."}
