@@ -76,8 +76,8 @@ def render(progress=0, notebook=False):
     canvas.box((44, 42, 298, 71), "#e4f2ee", 14)
     canvas.text((58, 47), "03  /  ALTURA DO NOTEBOOK" if notebook else "03  /  ALTURA DO MONITOR", 11, GREEN, True)
     if notebook:
-        canvas.text((44, 99), "Usa notebook?", 37, INK, True)
-        canvas.text((44, 143), "Eleve com suporte.", 37, INK, True)
+        canvas.text((44, 99), "Ajuste a altura", 37, INK, True)
+        canvas.text((44, 143), "do notebook.", 37, INK, True)
         canvas.text((46, 210), "Use uma base para elevar a tela", 17, MUTED)
         canvas.text((46, 236), "até a altura dos seus olhos.", 17, MUTED)
     else:
