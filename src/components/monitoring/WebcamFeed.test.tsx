@@ -89,7 +89,11 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   }
 
   async function reachCalibrationCamera() {
-    for (let step = 0; step < 6; step++) await clickButton("Próximo");
+    for (let step = 0; step < 12; step++) {
+      if (document.querySelector('[role="dialog"] video')) return;
+      await clickButton("Próximo");
+    }
+    throw new Error("Calibration camera step was not reached.");
   }
 
   async function renderCalibration(open = true) {

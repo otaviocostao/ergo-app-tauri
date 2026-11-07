@@ -98,18 +98,18 @@ def check(canvas, x, y, color=GREEN):
     canvas.line([(x, y + 5), (x + 5, y + 10), (x + 15, y)], color, 2.5, True)
 
 
-def render(progress, clock=0):
+def render(progress, clock=0, fixed_chair=False):
     c = Canvas()
-    dy = -44 * (1 - progress)
+    dy = -44 if fixed_chair else -44 * (1 - progress)
     settled = progress >= 0.999
 
     # Editorial copy stays still while the chair moves.
     c.box((44, 42, 263, 71), "#e4f2ee", 14)
     c.text((58, 47), "01  /  AJUSTE DA CADEIRA", 11, GREEN, True)
-    c.text((44, 99), "Encontre a", 37, INK, True)
-    c.text((44, 143), "altura ideal.", 37, INK, True)
-    c.text((46, 210), "Ajuste a cadeira até apoiar os pés", 17, MUTED)
-    c.text((46, 236), "e manter os joelhos a 90°.", 17, MUTED)
+    c.text((44, 99), "Cadeira sem ajuste?" if fixed_chair else "Encontre a", 33 if fixed_chair else 37, INK, True)
+    c.text((44, 143), "Apoie bem os pés." if fixed_chair else "altura ideal.", 33 if fixed_chair else 37, INK, True)
+    c.text((46, 210), "Se os pés não alcançam o chão," if fixed_chair else "Ajuste a cadeira até apoiar os pés", 17, MUTED)
+    c.text((46, 236), "use um apoio firme para os pés." if fixed_chair else "e manter os joelhos a 90°.", 17, MUTED)
 
     if settled:
         c.box((44, 295, 280, 337), "#def3ea", 21)
@@ -119,15 +119,21 @@ def render(progress, clock=0):
         c.box((44, 295, 280, 337), "#e7efef", 21)
         c.line([(67, 306), (67, 324)], MUTED, 2, True)
         c.line([(62, 319), (67, 324), (72, 319)], MUTED, 2, True)
-        c.text((88, 304), "Regule a altura", 16, INK, True)
+        c.text((88, 304), "Use um apoio" if fixed_chair else "Regule a altura", 16, INK, True)
 
     # Quiet backdrop and floor are fixed in place to make height changes clear.
     c.ellipse((474, 31, 880, 373), "#e7f3ef")
     c.ellipse((518, 334, 799, 363), "#dce9e5")
     c.line([(457, 353), (898, 353)], "#c4d7d1", 2)
 
-    if settled:
+    if settled and not fixed_chair:
         c.box((695, 346, 780, 353), "#83cbb7", 3)
+
+    if fixed_chair and progress > 0:
+        # Only the footrest moves; the seat and person remain at the same height.
+        offset = 72 * (1 - progress)
+        c.box((683 + offset, 310, 783 + offset, 353), "#72998d", 3)
+        c.box((680 + offset, 305, 786 + offset, 312), "#a8d4c4", 3)
 
     # Five-star chair base, telescopic cylinder, and back support.
     c.line([(608, 306), (608, 334)], "#7e919c", 12, True)
@@ -220,7 +226,7 @@ def render(progress, clock=0):
     c.ellipse((617, 88 + dy, 620, 91 + dy), INK)
     c.line([(622, 107 + dy), (626, 106 + dy)], "#a66d54", 1.4, True)
 
-    if settled:
+    if settled and not fixed_chair:
         # Overlay the actual knee joint and label its interior right angle.
         c.line([(691, 237), (691, 263), (717, 263)], GREEN, 2.5)
         c.ellipse((713, 233, 721, 241), GREEN)
@@ -229,7 +235,7 @@ def render(progress, clock=0):
         c.line([(735, 252), (748, 252)], "#80bead", 2)
         c.text((690, 373), "PÉS NO CHÃO", 11, GREEN, True)
         check(c, 669, 375)
-    else:
+    elif not fixed_chair:
         # Moving arrow alongside the chair indicates its adjustment direction.
         pulse = 3 * sin(clock * 2 * pi)
         c.line([(499, 210 + pulse), (499, 260 + pulse)], GREEN, 3, True)

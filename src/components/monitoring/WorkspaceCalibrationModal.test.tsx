@@ -86,9 +86,11 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
   }
 
   async function reachCalibrationCamera() {
-    for (let step = 0; step < 6; step++) {
+    for (let step = 0; step < 12; step++) {
+      if (document.querySelector('[role="dialog"] video')) return;
       await clickButton("Próximo");
     }
+    throw new Error("Calibration camera step was not reached.");
   }
 
   async function renderModal(open = true) {
@@ -260,6 +262,46 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     );
     expect(onCalibrateSubmit).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it.each([
+    { device: "Computador de Mesa", answers: [false, false, false, false],
+      illustrations: ["webcam-position", "chair-footrest", "desk-fixed", "monitor-height-support", "monitor-distance-adjustment"] },
+    { device: "Notebook / Laptop", answers: [true, false, true, false, true, false],
+      illustrations: ["webcam-aligned", "notebook-peripherals-keyboard", "chair-height", "desk-chair-adjustment", "notebook-height-support", "notebook-distance"] },
+  ])("uses the actual $device form answers throughout the guide", async ({ device, answers, illustrations }) => {
+    await renderModal(); await clickButton(device);
+    const form = document.querySelector('[role="dialog"]')!;
+    const selects = [...form.querySelectorAll("select")];
+    expect(selects).toHaveLength(answers.length);
+    await act(async () => {
+      selects.forEach((select, index) => {
+        select.value = answers[index] ? "sim" : "não";
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    });
+    for (const illustration of illustrations) {
+      await clickButton("Próximo");
+      const image = form.querySelector("img")!;
+      expect(image.getAttribute("src")).toContain(`/${illustration}.gif`);
+      const source = image.closest("picture")?.querySelector("source");
+      expect(source?.getAttribute("srcset")).toContain(`/${illustration}-still.png`);
+      expect(form.querySelector("video")).toBeNull();
+      expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+    }
+    await clickButton("Próximo");
+    expect(form.querySelector("video")).not.toBeNull();
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalled();
+  });
+
+  it("shows each guide step from the top instead of keeping the previous scroll", async () => {
+    await renderModal();
+    const body = document.querySelector<HTMLElement>('[role="dialog"] .overflow-y-auto')!;
+    for (let step = 0; step < 2; step++) {
+      Object.defineProperty(body, "scrollTop", { configurable: true, writable: true, value: 120 });
+      await clickButton("Próximo");
+      expect(body.scrollTop).toBe(0);
+    }
   });
 
   it("allows cancelling an in-progress countdown", async () => {

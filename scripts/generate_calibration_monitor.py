@@ -1,3 +1,5 @@
+"""Render separate monitor/notebook height GIFs and their reduced-motion PNGs."""
+
 from pathlib import Path
 
 from PIL import Image
@@ -72,10 +74,10 @@ def render(progress=0, notebook=False):
     settled = progress >= 1
     canvas = Canvas()
     canvas.box((44, 42, 298, 71), "#e4f2ee", 14)
-    canvas.text((58, 47), "03  /  ALTURA DO MONITOR", 11, GREEN, True)
+    canvas.text((58, 47), "03  /  ALTURA DO NOTEBOOK" if notebook else "03  /  ALTURA DO MONITOR", 11, GREEN, True)
     if notebook:
-        canvas.text((44, 99), "Usa notebook?", 37, INK, True)
-        canvas.text((44, 143), "Eleve com suporte.", 37, INK, True)
+        canvas.text((44, 99), "Ajuste a altura", 37, INK, True)
+        canvas.text((44, 143), "do notebook.", 37, INK, True)
         canvas.text((46, 210), "Use uma base para elevar a tela", 17, MUTED)
         canvas.text((46, 236), "até a altura dos seus olhos.", 17, MUTED)
     else:
@@ -109,39 +111,23 @@ def render(progress=0, notebook=False):
     return canvas.image.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
 
 
-def main():
-    OUTPUT.mkdir(parents=True, exist_ok=True)
-    start = render()
-    monitor_adjusted = render(1)
-    notebook_start = render(notebook=True)
-    notebook_adjusted = render(1, notebook=True)
-    monitor_adjusted.save(OUTPUT / "monitor-height-still.png", optimize=True)
-
-    # Both examples share a palette so colors remain stable across the loop.
-    palette_source = Image.new("RGB", (WIDTH, HEIGHT * 4), BG)
-    for index, scene in enumerate((start, monitor_adjusted, notebook_start, notebook_adjusted)):
-        palette_source.paste(scene, (0, HEIGHT * index))
-    palette = palette_source.quantize(colors=192, method=Image.Quantize.MEDIANCUT)
-
+def save_animation(name, notebook, palette):
+    start = render(notebook=notebook)
+    adjusted = render(1, notebook=notebook)
+    adjusted.save(OUTPUT / f"{name}-still.png", optimize=True)
     blank = Image.new("RGB", start.size, BG)
     frames = []
-    for index in range(200):
+    for index in range(100):
         time = index * 0.08
-        if time < 5.6:
-            frame = render(ease((time - 0.8) / 2))
-        elif time < 6.16:
-            frame = Image.blend(monitor_adjusted, blank, ease((time - 5.6) / 0.56))
-        elif time < 6.72:
-            frame = Image.blend(blank, notebook_start, ease((time - 6.16) / 0.56))
-        elif time < 14.88:
-            frame = render(ease((time - 7.2) / 2), notebook=True)
-        elif time < 15.44:
-            frame = Image.blend(notebook_adjusted, blank, ease((time - 14.88) / 0.56))
+        if time < 6.88:
+            frame = render(ease((time - 0.8) / 2), notebook=notebook)
+        elif time < 7.44:
+            frame = Image.blend(adjusted, blank, ease((time - 6.88) / 0.56))
         else:
-            frame = Image.blend(blank, start, ease((time - 15.44) / 0.56))
+            frame = Image.blend(blank, start, ease((time - 7.44) / 0.56))
         frames.append(frame.quantize(palette=palette, dither=Image.Dither.NONE))
 
-    path = OUTPUT / "monitor-height.gif"
+    path = OUTPUT / f"{name}.gif"
     frames[0].save(path, save_all=True, append_images=frames[1:],
                    duration=80, loop=0, disposal=1, optimize=True)
     with Image.open(path) as gif:
@@ -151,6 +137,18 @@ def main():
             duration += gif.info["duration"]
         print(f"{path.name}: {gif.n_frames} frames, {duration / 1000:.2f}s, "
               f"{path.stat().st_size / 1024:.0f} KiB")
+
+
+def main():
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    # The variants share a palette, but each animation contains only its own device.
+    scenes = [render(progress, notebook=notebook) for notebook in (False, True) for progress in (0, 1)]
+    palette_source = Image.new("RGB", (WIDTH, HEIGHT * len(scenes)), BG)
+    for index, scene in enumerate(scenes):
+        palette_source.paste(scene, (0, HEIGHT * index))
+    palette = palette_source.quantize(colors=192, method=Image.Quantize.MEDIANCUT)
+    save_animation("monitor-height", notebook=False, palette=palette)
+    save_animation("notebook-height", notebook=True, palette=palette)
 
 
 if __name__ == "__main__":
