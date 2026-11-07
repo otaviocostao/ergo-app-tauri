@@ -63,7 +63,11 @@ const fixture = {
   ready: false,
   async openCalibration() {
     await click("Calibrar Postura Base");
-    for (let step = 0; step < 6; step++) await click("Próximo");
+    // The guide length depends on the reported setup; advance until the camera step.
+    for (let step = 0; !document.querySelector('[role="dialog"] video'); step++) {
+      if (step === 12) throw new Error("Calibration camera step was not reached.");
+      await click("Próximo");
+    }
     await delay(1000);
   },
   async closeCalibration() {
