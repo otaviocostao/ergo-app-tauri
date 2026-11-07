@@ -27,15 +27,15 @@ describe("useMetricRecording IPC lifecycle", () => {
   const onHistoryUpdated = vi.fn<(event: Event) => void>();
   let sessionNumber: number;
 
-  function Harness({ enabled, userId }: { enabled: boolean; userId: number | null }) {
-    recorder = useMetricRecording(enabled, userId, onEvent);
+  function Harness({ enabled, userId, recordPosture = true }: { enabled: boolean; userId: number | null; recordPosture?: boolean }) {
+    recorder = useMetricRecording(enabled, userId, onEvent, recordPosture);
     return null;
   }
 
-  async function render(enabled = true, strict = false, userId: number | null = 7) {
+  async function render(enabled = true, strict = false, userId: number | null = 7, recordPosture = true) {
     await act(async () => root.render(strict
-      ? <StrictMode><Harness enabled={enabled} userId={userId} /></StrictMode>
-      : <Harness enabled={enabled} userId={userId} />));
+      ? <StrictMode><Harness enabled={enabled} userId={userId} recordPosture={recordPosture} /></StrictMode>
+      : <Harness enabled={enabled} userId={userId} recordPosture={recordPosture} />));
   }
 
   /** Classifies a frame every 100ms through the real classifier and hysteresis, as the page does. */
@@ -97,9 +97,11 @@ describe("useMetricRecording IPC lifecycle", () => {
     expect(commands()).not.toContain("record_posture_alert");
     await advance(100);
     expect(commands().filter(command => command === "record_posture_alert")).toHaveLength(1);
-    expect(ipc.invoke).toHaveBeenCalledWith("record_posture_alert", { payload: expect.objectContaining({
-      sessionId: "session-1", alertType: "neck_posture", severity: "danger", durationSeconds: 20,
-    }) });
+    expect(ipc.invoke).toHaveBeenCalledWith("record_posture_alert", {
+      payload: expect.objectContaining({
+        sessionId: "session-1", alertType: "neck_posture", severity: "danger", durationSeconds: 20,
+      })
+    });
     await advance(39_800);
     expect(commands()).not.toContain("record_metric_snapshot");
     await advance(100);
@@ -115,9 +117,11 @@ describe("useMetricRecording IPC lifecycle", () => {
     expect(commands()).not.toContain("resolve_posture_alert");
     await render(false);
     expect(commands().slice(-2)).toEqual(["resolve_posture_alert", "end_monitoring_session"]);
-    expect(ipc.invoke).toHaveBeenCalledWith("resolve_posture_alert", { payload: {
-      id: "alert-1", resolvedAt: expect.any(String), durationSeconds: 60, severity: "danger",
-    } });
+    expect(ipc.invoke).toHaveBeenCalledWith("resolve_posture_alert", {
+      payload: {
+        id: "alert-1", resolvedAt: expect.any(String), durationSeconds: 60, severity: "danger",
+      }
+    });
     expect(ipc.invoke.mock.lastCall?.[1].payload).toMatchObject({
       id: "session-1", durationSeconds: 60, averageScore: 67.5, dangerPosturePercentage: 100,
     });
@@ -177,7 +181,7 @@ describe("useMetricRecording IPC lifecycle", () => {
   });
 
   it("surfaces IPC failures, releases the failed window and continues with later snapshots", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => { });
     const implementation = ipc.invoke.getMockImplementation()!;
     let failSnapshot = true;
     ipc.invoke.mockImplementation((command: string, args?: { payload?: unknown }) => {
@@ -209,9 +213,11 @@ describe("useMetricRecording IPC lifecycle", () => {
     const history = commands();
     expect(history.filter(command => command === "start_monitoring_session")).toHaveLength(2);
     expect(history.indexOf("end_monitoring_session")).toBeLessThan(history.lastIndexOf("start_monitoring_session"));
-    expect(ipc.invoke).toHaveBeenCalledWith("end_monitoring_session", { payload: expect.objectContaining({
-      id: "late-session", durationSeconds: 0, averageScore: 0, goodPosturePercentage: 0,
-    }) });
+    expect(ipc.invoke).toHaveBeenCalledWith("end_monitoring_session", {
+      payload: expect.objectContaining({
+        id: "late-session", durationSeconds: 0, averageScore: 0, goodPosturePercentage: 0,
+      })
+    });
   });
 
   it("does not duplicate sessions, snapshots or timers under StrictMode", async () => {
@@ -252,7 +258,7 @@ describe("useMetricRecording IPC lifecycle", () => {
   });
 
   it("reports a failed end and retries the same session without creating another", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => { });
     const implementation = ipc.invoke.getMockImplementation()!;
     let fail = true;
     ipc.invoke.mockImplementation((command: string, args?: { payload?: unknown }) => {
@@ -271,7 +277,7 @@ describe("useMetricRecording IPC lifecycle", () => {
   });
 
   it("recovers from a failed start without leaving a timer or ending an invented session", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => { });
     ipc.invoke.mockRejectedValueOnce(new Error("unavailable"));
     await render();
     expect(recorder.status).toBe("error");
@@ -282,7 +288,7 @@ describe("useMetricRecording IPC lifecycle", () => {
   });
 
   it("retries failed alert resolutions before closing the session", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => { });
     const implementation = ipc.invoke.getMockImplementation()!;
     let attempts = 0;
     ipc.invoke.mockImplementation((command: string, args?: { payload?: unknown }) => {
@@ -297,7 +303,7 @@ describe("useMetricRecording IPC lifecycle", () => {
   });
 
   it("does not open another session while the previous session still fails to close", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => { });
     const implementation = ipc.invoke.getMockImplementation()!;
     let unavailable = true;
     ipc.invoke.mockImplementation((command: string, args?: { payload?: unknown }) => {
@@ -339,7 +345,7 @@ describe("useMetricRecording IPC lifecycle", () => {
   });
 
   it("reports a failed alert write without notifying readers that it was saved", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => { });
     const implementation = ipc.invoke.getMockImplementation()!;
     ipc.invoke.mockImplementation((command: string, args?: { payload?: unknown }) => command === "record_posture_alert"
       ? Promise.reject(new Error("database busy")) : implementation(command, args));
@@ -359,5 +365,20 @@ describe("useMetricRecording IPC lifecycle", () => {
     const saved = ipc.invoke.mock.calls.find(([command]) => command === "record_metric_snapshot")![1].payload;
     expect(saved.timestamp).toBe(new Date(Date.parse(serverStart) + 60_000).toISOString());
     expect(saved.samplesCount).toBeGreaterThan(0);
+  });
+
+  it("publishes active and updates elapsedSeconds without posture snapshots when recordPosture is false", async () => {
+    await render(true, false, 7, false);
+    expect(recorder.status).toBe("active");
+    expect(recorder.elapsedSeconds).toBe(0);
+    feed("danger");
+    await advance(65_000);
+    expect(recorder.elapsedSeconds).toBe(65);
+    expect(commands()).not.toContain("record_metric_snapshot");
+    expect(commands()).not.toContain("record_posture_alert");
+    clearInterval(frameTimer);
+    await render(false, false, 7, false);
+    expect(recorder.status).toBe("idle");
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

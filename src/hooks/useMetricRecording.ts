@@ -107,7 +107,7 @@ export function useMetricRecording(
         return;
       }
 
-      if (!sessionId || !recordPosture) {
+      if (!sessionId) {
         publish(RecordingStatus.ACTIVE);
         return;
       }
@@ -115,6 +115,17 @@ export function useMetricRecording(
       const storedStart = Date.parse(session?.startedAt ?? "");
       const startedAtEpochMs = Number.isFinite(storedStart) ? storedStart : Date.now();
       const startedAtMs = performance.now() - Math.max(0, Date.now() - startedAtEpochMs);
+
+      if (!recordPosture) {
+        publish(RecordingStatus.ACTIVE);
+        const tickElapsed = () => {
+          if (cancelled) return;
+          setElapsedSeconds(Math.max(0, Math.floor((performance.now() - startedAtMs) / 1000)));
+          timer = setTimeout(tickElapsed, 1000);
+        };
+        tickElapsed();
+        return;
+      }
       recorder = {
         aggregation: new MetricAggregation({
           sessionId,
@@ -184,14 +195,14 @@ export function useMetricRecording(
         closed = true;
         if (unfinishedClose === close) unfinishedClose = null;
       };
-        sessionLifecycle = sessionLifecycle.then(close).then(() => publish(RecordingStatus.IDLE)).catch(error => {
-          unfinishedClose = close;
-          const message = "Não foi possível finalizar a sessão de monitoramento. Tente novamente.";
-          publish(RecordingStatus.ERROR, message);
-          reportError(message, error);
-        });
-      };
-    }, [enabled, userId, recordPosture, retryKey]);
+      sessionLifecycle = sessionLifecycle.then(close).then(() => publish(RecordingStatus.IDLE)).catch(error => {
+        unfinishedClose = close;
+        const message = "Não foi possível finalizar a sessão de monitoramento. Tente novamente.";
+        publish(RecordingStatus.ERROR, message);
+        reportError(message, error);
+      });
+    };
+  }, [enabled, userId, recordPosture, retryKey]);
 
   const retry = useCallback(() => {
     if (status !== RecordingStatus.ERROR) return;
