@@ -381,4 +381,34 @@ describe("useMetricRecording IPC lifecycle", () => {
     expect(recorder.status).toBe("idle");
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it("toggles posture recording on and off without ending or recreating the shared session", async () => {
+    await render(true, false, 7, true);
+    feed("danger");
+    await advance(21_000);
+    expect(commands().filter(command => command === "record_posture_alert")).toHaveLength(1);
+
+    // Turning posture off resolves the open alert episode and keeps the same session open.
+    await render(true, false, 7, false);
+    expect(commands().filter(command => command === "resolve_posture_alert")).toHaveLength(1);
+    expect(commands().filter(command => command === "end_monitoring_session")).toHaveLength(0);
+    expect(commands().filter(command => command === "start_monitoring_session")).toHaveLength(1);
+
+    // Minute 1 had 21s of valid samples before posture was disabled, so its partial summary is preserved.
+    await advance(39_000);
+    expect(commands().filter(command => command === "record_metric_snapshot")).toHaveLength(1);
+
+    // Minute 2 has recordPosture = false for the entire window: no empty posture snapshot is saved.
+    await advance(60_000);
+    expect(commands().filter(command => command === "record_metric_snapshot")).toHaveLength(1);
+
+    // Turning posture back on resumes recording into the same session-1.
+    await render(true, false, 7, true);
+    await advance(60_000);
+    const snapshots = ipc.invoke.mock.calls.filter(([command]) => command === "record_metric_snapshot");
+    expect(snapshots).toHaveLength(2);
+    expect(snapshots[1][1].payload).toMatchObject({ sessionId: "session-1" });
+    expect(commands().filter(command => command === "start_monitoring_session")).toHaveLength(1);
+    expect(commands().filter(command => command === "end_monitoring_session")).toHaveLength(0);
+  });
 });

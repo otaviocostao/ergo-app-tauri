@@ -40,6 +40,9 @@ export function useMetricRecording(
   recordPosture = true,
 ) {
   const recorderRef = useRef<Recorder | null>(null);
+  const recordPostureRef = useRef(recordPosture);
+  recordPostureRef.current = recordPosture;
+  const syncPostureRef = useRef<((enabledPosture: boolean) => void) | null>(null);
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
   const ownerRef = useRef(userId);
@@ -57,7 +60,14 @@ export function useMetricRecording(
   }, []);
 
   useEffect(() => {
-    if (!enabled) return;
+    syncPostureRef.current?.(recordPosture);
+  }, [recordPosture]);
+
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     const generation = ++generationRef.current;
     let cancelled = false;
     let closed = false;
@@ -77,11 +87,16 @@ export function useMetricRecording(
 
     const reportError = (message: string, error: unknown) => {
       console.error(message, error);
-      if (mountedRef.current && ownerRef.current === userId && generationRef.current === generation) onEventRef.current({ type: "error", message });
+      if (mountedRef.current && ownerRef.current === userId && generationRef.current === generation) {
+        onEventRef.current({ type: "error", message });
+      }
     };
+
     const enqueue = (write: () => Promise<unknown>, errorMessage: string) => {
       writes = writes.then(write).then(() => {
-        if (sessionId) notifySessionHistoryUpdated({ userId, sessionId });
+        if (sessionId) {
+          notifySessionHistoryUpdated({ userId, sessionId });
+        }
       }).catch(error => reportError(errorMessage, error));
     };
 
@@ -93,16 +108,25 @@ export function useMetricRecording(
     };
 
     sessionLifecycle = sessionLifecycle.then(async () => {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
+
       if (unfinishedClose) {
         await unfinishedClose();
         unfinishedClose = null;
       }
-      if (cancelled) return;
+
+      if (cancelled) {
+        return;
+      }
+
       const session = await monitoringSessionService.startSession({ userId });
       sessionId = session?.id ?? null;
-      if (sessionId && session) notifySessionHistoryUpdated({ userId, sessionId, session });
-      // Services return null in browser previews; no fabricated session IDs.
+      if (sessionId && session) {
+        notifySessionHistoryUpdated({ userId, sessionId, session });
+      }
+
       if (cancelled) {
         return;
       }
@@ -116,25 +140,18 @@ export function useMetricRecording(
       const startedAtEpochMs = Number.isFinite(storedStart) ? storedStart : Date.now();
       const startedAtMs = performance.now() - Math.max(0, Date.now() - startedAtEpochMs);
 
-      if (!recordPosture) {
-        publish(RecordingStatus.ACTIVE);
-        const tickElapsed = () => {
-          if (cancelled) return;
-          setElapsedSeconds(Math.max(0, Math.floor((performance.now() - startedAtMs) / 1000)));
-          timer = setTimeout(tickElapsed, 1000);
-        };
-        tickElapsed();
-        return;
-      }
       recorder = {
         aggregation: new MetricAggregation({
           sessionId,
           startedAtMs,
           startedAtEpochMs,
-          onSnapshot: payload => enqueue(
-            () => postureMetricSnapshotService.recordSnapshot(payload),
-            "Não foi possível salvar o resumo de métricas deste minuto.",
-          ),
+          onSnapshot: payload => {
+            if (!recordPostureRef.current && payload.samplesCount === 0) return;
+            enqueue(
+              () => postureMetricSnapshotService.recordSnapshot(payload),
+              "Não foi possível salvar o resumo de métricas deste minuto.",
+            );
+          },
         }),
         episodes: new PostureAlertEpisodes({
           sessionId,
@@ -155,13 +172,41 @@ export function useMetricRecording(
           },
         }),
       };
-      recorderRef.current = recorder;
+
+      const updateElapsed = (now: number) => {
+        if (cancelled || !recorder) return;
+        const postureSeconds = recorder.aggregation.sessionSummary().durationSeconds ?? 0;
+        setElapsedSeconds(
+          recordPostureRef.current
+            ? postureSeconds
+            : Math.max(postureSeconds, Math.max(0, Math.floor((now - startedAtMs) / 1000))),
+        );
+      };
+
+      const syncPosture = (enabledPosture: boolean) => {
+        if (cancelled || !recorder) return;
+        if (enabledPosture) {
+          recorderRef.current = recorder;
+        } else {
+          if (recorderRef.current === recorder) recorderRef.current = null;
+          recorder.aggregation.pause();
+          recorder.episodes.pause();
+        }
+        updateElapsed(performance.now());
+      };
+
+      syncPostureRef.current = syncPosture;
+      syncPosture(recordPostureRef.current);
       publish(RecordingStatus.ACTIVE);
+
       const pulse = () => {
-        recorder?.aggregation.tick(performance.now());
-        if (!cancelled) setElapsedSeconds(recorder?.aggregation.sessionSummary().durationSeconds ?? 0);
-        if (!cancelled && recorder) timer = setTimeout(pulse,
-          Math.min(1000, Math.max(1, recorder.aggregation.millisecondsUntilNextWindow(performance.now()))));
+        const now = performance.now();
+        recorder?.aggregation.tick(now);
+        updateElapsed(now);
+        if (!cancelled && recorder) {
+          timer = setTimeout(pulse,
+            Math.min(1000, Math.max(1, recorder.aggregation.millisecondsUntilNextWindow(now))));
+        }
       };
       timer = setTimeout(pulse, Math.min(1000, Math.max(1, recorder.aggregation.millisecondsUntilNextWindow(performance.now()))));
     }).catch(error => {
@@ -173,14 +218,23 @@ export function useMetricRecording(
     return () => {
       cancelled = true;
       clearTimeout(timer);
-      if (recorderRef.current === recorder) recorderRef.current = null;
+      syncPostureRef.current = null;
+      if (recorderRef.current === recorder) {
+        recorderRef.current = null;
+      }
+
       recorder?.aggregation.pause();
       recorder?.episodes.pause();
       const endedAt = new Date().toISOString();
       publish(RecordingStatus.ENDING);
+
       const close = async () => {
-        if (closed) return;
+        if (closed) {
+          return;
+        }
+
         await writes;
+
         for (const [id, resolution] of resolutions) await resolveEpisode(id, resolution);
         if (sessionId) {
           // A cancelled start may have created a backend session without a recorder.
@@ -202,7 +256,7 @@ export function useMetricRecording(
         reportError(message, error);
       });
     };
-  }, [enabled, userId, recordPosture, retryKey]);
+  }, [enabled, userId, retryKey]);
 
   const retry = useCallback(() => {
     if (status !== RecordingStatus.ERROR) return;
