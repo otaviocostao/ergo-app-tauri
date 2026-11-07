@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
-export interface LocalUser {
+export interface User {
   id: number;
   externalId: string | null;
   firstName: string;
@@ -16,7 +16,7 @@ export interface LocalUser {
 export type Session =
   | { kind: "anonymous" }
   | { kind: "guest" }
-  | { kind: "authenticated"; user: LocalUser };
+  | { kind: "authenticated"; user: User };
 
 export interface Registration {
   externalId?: string;
@@ -38,7 +38,7 @@ export function authErrorMessage(error: unknown): string {
 
 function requireDesktop() {
   if (!isTauri()) {
-    throw new Error("Para cadastrar ou acessar sua conta local, abra o aplicativo Ergo pelo Tauri.");
+    throw new Error("Para cadastrar ou acessar sua conta, abra o aplicativo Ergo.");
   }
 }
 
@@ -46,7 +46,7 @@ function requireDesktop() {
 // owns the session; internal routes require an authenticated account.
 export const authService = {
   getSession: (): Promise<Session> => isTauri() ? invoke("get_session") : Promise.resolve({ kind: "anonymous" }),
-  async register(data: Registration): Promise<LocalUser> {
+  async register(data: Registration): Promise<User> {
     requireDesktop();
     return invoke("register_local", { payload: data });
   },
