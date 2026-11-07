@@ -256,12 +256,10 @@ it("shows camera interruption once and starts the absence clock on the replaceme
   await advance(1); expect(count(ABSENCE)).toBe(1);
 });
 
-it("shows keyboard pauses and camera preference failures even after the recorded session has ended", async () => {
+it("shows camera preference failures even after the recorded session has ended", async () => {
   vi.spyOn(console, "error").mockImplementation(() => { });
   posePresent = true; await mountAndStart(); await advance(300); await click("Encerrar Monitoramento");
   await advance(100);
-  await act(async () => view.keyboard!.onPauseRequested!());
-  expect(count("Pausa de digitação registrada")).toBe(1);
   failNextCommand = "update_settings";
   const select = container.querySelector('[aria-label="Selecionar câmera"]') as HTMLSelectElement;
   await act(async () => { select.value = "camera-2"; select.dispatchEvent(new Event("change", { bubbles: true })); });

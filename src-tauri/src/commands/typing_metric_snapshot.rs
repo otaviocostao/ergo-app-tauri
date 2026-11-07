@@ -68,10 +68,3 @@ pub fn set_typing_monitoring_paused(
     monitor.set_paused(paused)
 }
 
-#[tauri::command]
-pub fn reset_typing_session_metrics(
-    monitor: State<'_, TypingMonitorControl>,
-) -> Result<LiveTypingMetrics, String> {
-    monitor.reset_session_metrics()
-}
-

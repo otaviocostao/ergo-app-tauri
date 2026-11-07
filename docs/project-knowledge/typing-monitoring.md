@@ -117,8 +117,7 @@ Antes de qualquer inserção unitária (`record_typing_snapshot`) ou em lote tra
 | **Command** | `delete_typing_snapshot` | Remove uma snapshot específica por ID. |
 | **Command** | `get_live_typing_metrics` | Retorna o estado instantâneo (`LiveTypingMetrics`) para hidratação imediata da UI. |
 | **Command** | `set_typing_monitoring_paused` | Pausa ou retoma o monitor de digitação sincronizado com os controles da tela. |
-| **Command** | `reset_typing_session_metrics` | Reinicia manualmente a janela e o contador de uso contínuo (pausa registrada pelo usuário). |
-| **Event** | `"typing-metrics-updated"` | Emitido a cada 1s (e em mudanças de estado/reset) com o payload `LiveTypingMetrics`. |
+| **Event** | `"typing-metrics-updated"` | Emitido a cada 1s (e em mudanças de estado/sessão) com o payload `LiveTypingMetrics`. |
 
 ---
 
@@ -178,7 +177,7 @@ Ao fechar cada ciclo de 60 segundos ativos:
 - Se `keystrokes_count <= 5` (**0 a 5 teclas no minuto**): o minuto é classificado como **minuto esparso/inativo**. Toques eventuais (como pressionar `Espaço` para pausar um vídeo, `PageDown` durante leitura ou confirmar um diálogo com `Enter`) **não** incrementam `continuous_minutes`.
 
 ### 5.3 Regras de Pausa Regenerativa e Reset da Análise de Risco
-Para que o usuário saiba quanto tempo pode ficar sem digitar e quando o risco acumulado é zerado, coexistem **três mecanismos de reset**:
+Para que o usuário saiba quanto tempo pode ficar sem digitar e quando o risco acumulado é zerado, coexistem **dois mecanismos automáticos de pausa regenerativa** durante a sessão (além do reset total das métricas apenas ao encerrar a sessão de monitoramento):
 
 1. **Reset por Ociosidade Absoluta de 2 Minutos (`REGENERATIVE_PAUSE_IDLE_SECONDS = 120`)**:
    - A cada segundo com `0` teclas, `consecutive_idle_seconds` aumenta em `1` (qualquer tecla válida reseta `consecutive_idle_seconds = 0`).
@@ -188,9 +187,6 @@ Para que o usuário saiba quanto tempo pode ficar sem digitar e quando o risco a
 2. **Reset por 2 Minutos Fechados de Baixíssima Atividade (`REGENERATIVE_PAUSE_INACTIVE_MINUTES = 2`)**:
    - Caso o usuário esteja descansando da digitação, mas toque acidentalmente em 1 ou 2 teclas (ex.: mover seta ou `Espaço`), a contagem de 120s de zero absoluto seria interrompida.
    - Para não punir esse cenário, se **2 janelas consecutivas de 60 segundos** fecharem com **`<= 5` teclas cada**, `consecutive_inactive_minutes` atinge `2` e `continuous_minutes` também é **zerado para `0`**.
-
-3. **Reset Manual pelo Usuário (`reset_typing_session_metrics`)**:
-   - Ao clicar no botão *"Resetar métricas de digitação"* (`RotateCcw`) no `KeyboardMonitorCard`, o comando `reset_typing_session_metrics` zera o buffer de 60s, `total_keystrokes`, `continuous_minutes` e contadores de ociosidade, além de registrar o evento informativo `"Pausa de digitação registrada"` no histórico da tela de Monitoramento.
 
 ### 5.4 Compartilhamento e Ciclo de Vida da Sessão (`MonitoringSession`)
 1. **Sessão Unificada entre Postura e Digitação**:
@@ -228,10 +224,10 @@ Regras adicionais de interação com a tela:
 | :--- | :--- |
 | [`src/types/typingMetricSnapshot.ts`](../../src/types/typingMetricSnapshot.ts) | Espelha em `camelCase` os contratos Rust (`TypingStatus`, `TypingMetricSnapshotDTO`, `CreateTypingSnapshotPayload`, `TypingSnapshotHistoryFilter`, `LiveTypingMetrics`). |
 | [`src/services/typingMetricSnapshotService.ts`](../../src/services/typingMetricSnapshotService.ts) | Serviço IPC para consulta de histórico e persistência/remoção de snapshots (`getBySession`, `getHistory`, `recordSnapshot`, `recordSnapshotsBatch`, `deleteSnapshot`), retornando vazio fora do runtime Tauri. |
-| [`src/services/typingMonitorService.ts`](../../src/services/typingMonitorService.ts) | Wrapper resiliente para `get_live_typing_metrics`, `set_typing_monitoring_paused`, `reset_typing_session_metrics` e assinatura segura do evento `"typing-metrics-updated"` (normalizando payloads parciais em testes ou preview web). |
-| [`src/hooks/useTypingMetrics.ts`](../../src/hooks/useTypingMetrics.ts) | Sincroniza `isPaused` com o backend, carrega o estado inicial ao montar/reativar, assina o stream de eventos `"typing-metrics-updated"` com *cleanup* seguro contra *race conditions* e expõe `resetMetrics()`. |
+| [`src/services/typingMonitorService.ts`](../../src/services/typingMonitorService.ts) | Wrapper resiliente para `get_live_typing_metrics`, `set_typing_monitoring_paused` e assinatura segura do evento `"typing-metrics-updated"` (normalizando payloads parciais em testes ou preview web). |
+| [`src/hooks/useTypingMetrics.ts`](../../src/hooks/useTypingMetrics.ts) | Sincroniza `isPaused` com o backend, carrega o estado inicial ao montar/reativar e assina o stream de eventos `"typing-metrics-updated"` com *cleanup* seguro contra *race conditions*. |
 | [`src/hooks/useMetricRecording.ts`](../../src/hooks/useMetricRecording.ts) | Gerencia abertura/encerramento serializado da `MonitoringSession` compartilhada e grava métricas posturais apenas quando `recordPosture === true`. |
-| [`src/pages/Monitoring.tsx`](../../src/pages/Monitoring.tsx) | Orquestra `typingEnabled`, compartilha a `MonitoringSession`, conecta `useTypingMetrics` (desacoplado da presença óptica) e registra logs de pausa manual de digitação. |
+| [`src/pages/Monitoring.tsx`](../../src/pages/Monitoring.tsx) | Orquestra `typingEnabled`, compartilha a `MonitoringSession` e conecta `useTypingMetrics` (desacoplado da presença óptica). |
 | [`src/components/monitoring/KeyboardMonitorCard.tsx`](../../src/components/monitoring/KeyboardMonitorCard.tsx) | Componente puramente orientado a `props` que renderiza `CPM`, `Uso Contínuo`, `Teclas`, indicador pulsante de atividade, banners ergonômicos (`good`/`warning`/`danger`) e estado de módulo inativo. |
 
 ---
@@ -259,8 +255,8 @@ npm run build
   - `services::typing_monitor_service::tests`: valida supressão de auto-repetição e modificadores no `KeystrokeFilter`, cálculo exato de `cpm`/`peak_cpm`/`active_typing_seconds`/`micro_pauses_count` em 60 ticks, progressão `good -> warning -> danger`, reset após 120s ociosos e bloqueio quando `Module::TypingAnalysis` está desativado ou após `logout`.
 - **Frontend (`src`)**:
   - `src/hooks/useTypingMetrics.test.tsx`: sincronização de pausa, carga inicial, recepção de `"typing-metrics-updated"` e fallback fora do Tauri.
-  - `src/components/monitoring/KeyboardMonitorCard.test.tsx`: renderização de métricas via `props`, badges `"Digitando"` / `"Pausa / Inativo"` / `"Em pausa"`, alertas `good` / `warning` / `danger`, botão de reset e estado `enabled={false}`.
-  - `src/pages/Monitoring.test.tsx`: integração ponta a ponta com `MonitoringSession` compartilhada, câmera desligada com sessão mantida para digitação, independência da oclusão da câmera e reset com log de histórico.
+  - `src/components/monitoring/KeyboardMonitorCard.test.tsx`: renderização de métricas via `props`, badges `"Digitando"` / `"Pausa / Inativo"` / `"Em pausa"`, alertas `good` / `warning` / `danger` e estado `enabled={false}`.
+  - `src/pages/Monitoring.test.tsx`: integração ponta a ponta com `MonitoringSession` compartilhada, câmera desligada com sessão mantida para digitação e independência da oclusão da câmera.
 
 ### 7.3 Observação sobre Banco Local Pré-Existente
 Como o projeto adota **migration única** (`0001_initial_migration.sql`), ambientes locais de desenvolvimento que já possuíam um arquivo `ergo.db` antigo em `AppData` (criado antes da introdução de `typing_metrics_snapshots`) devem remover o `ergo.db` local uma única vez antes de executar `npm run tauri dev`, permitindo a recriação limpa do schema completo.

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { typingMonitorService } from "../services/typingMonitorService";
 import {
   DEFAULT_LIVE_TYPING_METRICS,
@@ -12,7 +12,6 @@ export interface UseTypingMetricsOptions {
 
 export interface UseTypingMetricsResult {
   metrics: LiveTypingMetrics;
-  resetMetrics: () => Promise<void>;
 }
 
 export function useTypingMetrics({
@@ -89,15 +88,6 @@ export function useTypingMetrics({
     };
   }, [enabled, isPaused]);
 
-  const resetMetrics = useCallback(async () => {
-    try {
-      const reset = await typingMonitorService.resetSessionMetrics();
-      setMetrics(reset);
-    } catch (error) {
-      console.error("Failed to reset typing session metrics", error);
-    }
-  }, []);
-
-  return { metrics, resetMetrics };
+  return { metrics };
 }
 

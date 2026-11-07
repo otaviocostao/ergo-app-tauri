@@ -127,7 +127,7 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
     },
     posturalEnabled,
   );
-  const { metrics: typingMetrics, resetMetrics: resetTypingMetrics } = useTypingMetrics({
+  const { metrics: typingMetrics } = useTypingMetrics({
     enabled: !modulesLoading && typingEnabled,
     isPaused: typingPaused,
   });
@@ -423,20 +423,6 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
             enabled={typingEnabled}
             isPaused={typingPaused}
             metrics={typingMetrics}
-            onPauseRequested={async () => {
-              await resetTypingMetrics();
-              const newLog: LogEvent = {
-                id: crypto.randomUUID(),
-                occurredAt: new Date().toISOString(),
-                timestamp: new Date().toLocaleTimeString("pt-BR"),
-                type: "info",
-                scope: "account",
-                userId,
-                message: "Pausa de digitação registrada",
-                detail: "Contador de uso contínuo do teclado foi reiniciado.",
-              };
-              setLogs((prev) => [newLog, ...prev].slice(0, 100));
-            }}
           />
         </div>
 

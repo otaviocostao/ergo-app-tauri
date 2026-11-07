@@ -118,7 +118,6 @@ pub fn run() {
             commands::typing_metric_snapshot::delete_typing_snapshot,
             commands::typing_metric_snapshot::get_live_typing_metrics,
             commands::typing_metric_snapshot::set_typing_monitoring_paused,
-            commands::typing_metric_snapshot::reset_typing_session_metrics,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

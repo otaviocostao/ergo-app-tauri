@@ -61,14 +61,6 @@ export const typingMonitorService = {
     return normalizeLiveTypingMetrics(result);
   },
 
-  async resetSessionMetrics(): Promise<LiveTypingMetrics> {
-    if (!isTauri()) {
-      return { ...DEFAULT_LIVE_TYPING_METRICS };
-    }
-    const result = await invoke<LiveTypingMetrics>("reset_typing_session_metrics");
-    return normalizeLiveTypingMetrics(result);
-  },
-
   async subscribe(
     onUpdate: (metrics: LiveTypingMetrics) => void,
   ): Promise<() => void> {

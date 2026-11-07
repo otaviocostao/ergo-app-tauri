@@ -590,21 +590,11 @@ describe("Monitoring classification and temporal alerts", () => {
           if (command === "set_typing_monitoring_paused") {
             return { ...initialMetrics, isMonitoringActive: !args?.paused };
           }
-          if (command === "reset_typing_session_metrics") {
-            return {
-              ...initialMetrics,
-              cpm: 0,
-              peakCpm: 0,
-              totalKeystrokes: 0,
-              continuousMinutes: 0,
-              dominantStatus: "good" as const,
-            };
-          }
           return args?.payload;
         });
       });
 
-        it("loads live typing metrics, streams backend events, syncs manual pause, and resets typing session metrics", async () => {
+        it("loads live typing metrics, streams backend events, and syncs manual pause", async () => {
           await render();
 
           expect(ipc.invoke).toHaveBeenCalledWith("get_live_typing_metrics");
@@ -643,18 +633,6 @@ describe("Monitoring classification and temporal alerts", () => {
 
           await act(async () => view.feed!.onToggleMonitoring!());
           expect(view.keyboard!.isPaused).toBe(false);
-
-        // Resetting typing session invokes backend command and logs ergonomic break event.
-        await act(async () => {
-          await view.keyboard!.onPauseRequested!();
         });
-        expect(ipc.invoke).toHaveBeenCalledWith("reset_typing_session_metrics");
-        expect(view.keyboard!.metrics?.totalKeystrokes).toBe(0);
-        expect(view.keyboard!.metrics?.continuousMinutes).toBe(0);
-        expect(view.logs[0]).toMatchObject({
-          type: "info",
-          message: "Pausa de digitação registrada",
-        });
-      });
     });
   });

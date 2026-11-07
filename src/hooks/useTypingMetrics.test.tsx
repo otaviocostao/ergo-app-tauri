@@ -68,16 +68,6 @@ describe("useTypingMetrics", () => {
     ipc.invoke.mockImplementation(async (command: string) => {
       if (command === "set_typing_monitoring_paused") return initialMetrics;
       if (command === "get_live_typing_metrics") return initialMetrics;
-      if (command === "reset_typing_session_metrics") {
-        return {
-          ...initialMetrics,
-          cpm: 0,
-          peakCpm: 0,
-          totalKeystrokes: 0,
-          continuousMinutes: 0,
-          dominantStatus: "good",
-        };
-      }
       return undefined;
     });
 
@@ -107,13 +97,6 @@ describe("useTypingMetrics", () => {
       listener?.({ payload: pushedMetrics });
     });
     expect(latest?.metrics).toEqual(pushedMetrics);
-
-    await act(async () => {
-      await latest?.resetMetrics();
-    });
-    expect(ipc.invoke).toHaveBeenCalledWith("reset_typing_session_metrics");
-    expect(latest?.metrics.totalKeystrokes).toBe(0);
-    expect(latest?.metrics.continuousMinutes).toBe(0);
   });
 
   it("returns neutral metrics and skips IPC when disabled or outside Tauri", async () => {

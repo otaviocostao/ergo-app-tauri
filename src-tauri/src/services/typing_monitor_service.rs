@@ -516,28 +516,6 @@ impl TypingMonitorControl {
         Ok(live)
     }
 
-    pub fn reset_session_metrics(&self) -> Result<LiveTypingMetrics, String> {
-        let (live, changed) = {
-            let mut state = self
-                .inner
-                .session_state
-                .lock()
-                .map_err(|_| "Failed to lock typing monitor state".to_string())?;
-
-            state.aggregator.reset();
-            self.inner.pending_keystrokes.swap(0, Ordering::Relaxed);
-            let live = state.current_live_metrics();
-            let changed = state.last_emitted.as_ref() != Some(&live);
-            if changed {
-                state.last_emitted = Some(live.clone());
-            }
-            (live, changed)
-        };
-
-        self.emit_if_changed(&live, changed);
-        Ok(live)
-    }
-
     pub fn is_capture_enabled(&self) -> bool {
         self.inner.capture_enabled.load(Ordering::Relaxed)
     }
