@@ -357,6 +357,7 @@ export default function WorkspaceCalibrationModal({
       onClose={handleClose}
       title="Calibrar dispositivo"
       maxWidth="3xl"
+      scrollKey={currentStepIndex}
     >
       <div className="py-2 space-y-4">
         {isLoadingWorkspace && (
@@ -380,7 +381,7 @@ export default function WorkspaceCalibrationModal({
         )}
 
         {isFormStep && !isLoadingWorkspace && !loadError && (
-          <div className="h-[490px] flex flex-col justify-between space-y-4 animate-in fade-in duration-200">
+          <div className="h-[min(490px,calc(80vh-3rem))] flex flex-col justify-between space-y-4 animate-in fade-in duration-200">
             <div className="space-y-4 flex-1 flex flex-col min-h-0">
               <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200 font-normal shrink-0">
                 Para iniciar o processo de calibração, é importante que seu ambiente esteja organizado da maneira correta. Para entendermos melhor suas necessidades, responda a algumas perguntas sobre o seu ambiente de trabalho e dispositivo.
@@ -508,14 +509,14 @@ export default function WorkspaceCalibrationModal({
         )}
 
         {!isFormStep && !isFinalWebcamStep && currentStep && (
-          <div className="min-h-[490px] flex flex-col justify-between space-y-4 animate-in fade-in duration-150">
-            <div className="space-y-4 flex-1 flex flex-col">
+          <div className="h-[min(490px,calc(80vh-3rem))] flex flex-col justify-between space-y-4 animate-in fade-in duration-150">
+            <div className="space-y-4 flex-1 flex flex-col min-h-0">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{currentStep.title}</h3>
               <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200 font-normal">
                 {currentStep.description}
               </p>
 
-              <div className={`w-full flex-1 min-h-[300px] max-h-[350px] ${currentStep.imageSrc ? "bg-[#f5faf9]" : "bg-slate-200 dark:bg-slate-800"} rounded-xl border border-slate-300/70 dark:border-slate-700 flex flex-col items-center justify-center relative overflow-hidden group`}>
+              <div className={`w-full flex-1 min-h-[160px] max-h-[350px] ${currentStep.imageSrc ? "bg-[#f5faf9]" : "bg-slate-200 dark:bg-slate-800"} rounded-xl border border-slate-300/70 dark:border-slate-700 flex flex-col items-center justify-center relative overflow-hidden group`}>
                 {currentStep.imageSrc ? (
                   <picture className="absolute inset-0 block">
                     {currentStep.imageStillSrc && (
