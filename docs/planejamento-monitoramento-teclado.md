@@ -40,7 +40,8 @@ Para atender rigorosamente ao **Princípio 1** (zero impacto/latência na digita
 | **Peso de dependências e Build** | **Mínimo**. `windows-sys` contém apenas declarações FFI *zero-cost* para DLLs nativas do próprio Windows (`user32.dll`), sem compilar C++. | **Leve**, mas adiciona dependências de terceiros para cada SO. |
 | **Funcionamento em Background / Tray** | **Total**. `RIDEV_INPUTSINK` captura eventos mesmo com a janela principal oculta (`window.hide()`) ou minimizada. | **Total**. Opera globalmente na sessão de desktop do usuário. |
 
-> **Decisão Arquitetural Recomendada:**  
+> **Decisão Arquitetural Recomendada:**
+>
 > Definir uma abstração interna enxuta no serviço Rust (`KeyboardInputListener`) utilizando **Win32 Raw Input (`RegisterRawInputDevices` com `RIDEV_INPUTSINK` em `HWND_MESSAGE` via `windows-sys`)** no Windows (`#[cfg(target_os = "windows")]`), mantendo um fallback condicional (`#[cfg(not(target_os = "windows"))]`) com `rdev` caso o projeto seja compilado para Linux/macOS. Em ambos os casos, o callback executa **apenas operações em memória local da stack e um único `AtomicU32::fetch_add(1, Ordering::Relaxed)`**.
 
 ### 2.2 Fluxo Arquitetural Completo
@@ -433,4 +434,3 @@ npm run build
 ### 6.4 Alinhamento com Regras de Negócio (`docs/base-conhecimento/regras-de-negocio.md`)
 - Manter os textos de alerta em `KeyboardMonitorCard.tsx` estritamente como **orientações ergonômicas de pausa e postura de punhos/ombros**, sem caráter de diagnóstico clínico de LER/DORT (**RN-01** e **RN-02**).
 - Atualizar a documentação de divergência **P-01 / RN-03** e **RN-14** na base de conhecimento caso o módulo de cadência de digitação passe a integrar oficialmente o escopo avaliado do projeto.
-

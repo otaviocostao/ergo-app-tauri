@@ -1,4 +1,4 @@
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
@@ -9,6 +9,8 @@ export interface ModalProps {
   children: ReactNode;
   footer?: ReactNode;
   maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "5xl";
+  /** Changing this value scrolls the body back to the top, e.g. between wizard steps. */
+  scrollKey?: string | number;
 }
 
 export default function Modal({
@@ -18,7 +20,14 @@ export default function Modal({
   children,
   footer,
   maxWidth = "xl",
+  scrollKey,
 }: ModalProps) {
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+  }, [scrollKey]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -76,7 +85,7 @@ export default function Modal({
           </button>
         </div>
 
-        <div className="px-6 py-3 overflow-y-auto max-h-[80vh]">{children}</div>
+        <div ref={bodyRef} className="px-6 py-3 overflow-y-auto max-h-[80vh]" style={{ scrollbarGutter: "stable" }}>{children}</div>
 
         {footer && (
           <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100 dark:border-slate-800">

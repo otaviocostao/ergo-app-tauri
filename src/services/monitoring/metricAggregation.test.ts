@@ -139,16 +139,16 @@ describe("MetricAggregation", () => {
     expect(aggregation.samplesCount).toBe(1);
   });
 
-  it("discards partial windows on pause and restarts a complete window on resume", () => {
+  it("keeps valid readings across a pause and closes the original session minute", () => {
     const { aggregation, onSnapshot } = setup();
     for (let index = 0; index < 100; index++) aggregation.recordFrame(frame(index * 100, { status: PostureStatus.WARNING, neckAngle: 18 }));
     aggregation.pause();
-    expect(aggregation.samplesCount).toBe(0);
-    aggregation.tick(100_000);
+    expect(aggregation.samplesCount).toBe(100);
+    aggregation.tick(30_000);
     expect(onSnapshot).not.toHaveBeenCalled();
-    for (let index = 0; index < 600; index++) aggregation.recordFrame(frame(100_000 + index * 100));
-    aggregation.tick(160_000);
-    expect(onSnapshot.mock.lastCall?.[0]).toMatchObject({ samplesCount: 600, maxNeckAngle: 5 });
+    for (let index = 300; index < 600; index++) aggregation.recordFrame(frame(index * 100));
+    aggregation.tick(60_000);
+    expect(onSnapshot.mock.lastCall?.[0]).toMatchObject({ samplesCount: 400, maxNeckAngle: 18, dominantStatus: PostureStatus.GOOD });
   });
 
   it("does not count missing frames as capture time", () => {
@@ -157,7 +157,8 @@ describe("MetricAggregation", () => {
     aggregation.tick(60_000);
     expect(aggregation.samplesCount).toBe(0);
     aggregation.recordFrame(frame(90_000, { status: PostureStatus.DANGER }));
-    expect(onSnapshot).not.toHaveBeenCalled();
+    expect(onSnapshot).toHaveBeenCalledTimes(1);
+    expect(onSnapshot.mock.lastCall?.[0]).toMatchObject({ samplesCount: 200, dominantStatus: PostureStatus.WARNING });
     expect(aggregation.sessionSummary().durationSeconds).toBe(19);
   });
 
@@ -199,5 +200,73 @@ describe("MetricAggregation", () => {
     expect(calculateErgoScore({ neckAngle: null, shoulderBalance: null, distanceCm: null })).toBe(100);
     expect(calculateErgoScore({ neckAngle: 20, shoulderBalance: 40, distanceCm: 85 })).toBe(100 - 20 - 15 - 20);
     expect(calculateErgoScore({ neckAngle: 180, shoulderBalance: 0, distanceCm: 10 })).toBe(0);
+  });
+
+  it("closes at 18:26:00 when the session began at 18:25:00, even when the first reading arrives late", () => {
+    const onSnapshot = vi.fn();
+    const aggregation = new MetricAggregation({ sessionId: "fixed", onSnapshot, startedAtMs: 42,
+      startedAtEpochMs: Date.parse("2026-11-05T18:25:00Z") });
+    for (let time = 10_042; time < 60_042; time += 100) aggregation.recordFrame(frame(time));
+    aggregation.tick(60_041); expect(onSnapshot).not.toHaveBeenCalled();
+    aggregation.tick(60_042);
+    expect(onSnapshot).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      timestamp: "2026-11-05T18:26:00.000Z", samplesCount: 500, dominantStatus: PostureStatus.GOOD,
+    }));
+  });
+
+  it("keeps exact UTC minute timestamps with a fractional monotonic start", () => {
+    const onSnapshot = vi.fn(); const start = 42.123456;
+    const aggregation = new MetricAggregation({ sessionId: "fractional", onSnapshot,
+      startedAtMs: start, startedAtEpochMs: Date.parse("2026-11-05T18:25:00Z") });
+    aggregation.recordFrame(frame(start + 1000)); aggregation.tick(start + 60_000);
+    expect(onSnapshot.mock.lastCall?.[0].timestamp).toBe("2026-11-05T18:26:00.000Z");
+  });
+
+  it("marks only a fully observed absent minute as absent and keeps missing calibration distinct", () => {
+    const { aggregation, onSnapshot } = setup();
+    for (let time = 0; time < 60_000; time += 100) aggregation.observePresence({ timestampMs: time, hasBody: false });
+    aggregation.tick(60_000);
+    expect(onSnapshot.mock.lastCall?.[0]).toMatchObject({ dominantStatus: "absent", samplesCount: 0,
+      avgNeckAngle: null, avgDistanceCm: null, score: 0 });
+    for (let time = 60_000; time < 120_000; time += 100) aggregation.observePresence({ timestampMs: time, hasBody: true });
+    aggregation.tick(120_000);
+    expect(onSnapshot.mock.lastCall?.[0]).toMatchObject({ dominantStatus: "unavailable", samplesCount: 0 });
+  });
+
+  it("colors a mixed minute from its valid readings instead of classifying the whole minute as absent", () => {
+    const { aggregation, onSnapshot } = setup();
+    for (let time = 0; time < 60_000; time += 100) {
+      const present = time < 20_000 || time >= 40_000;
+      aggregation.observePresence({ timestampMs: time, hasBody: present });
+      if (present) aggregation.recordFrame(frame(time, { status: PostureStatus.WARNING, neckAngle: 18 }));
+      else aggregation.pause();
+    }
+    aggregation.tick(60_000);
+    expect(onSnapshot.mock.lastCall?.[0]).toMatchObject({ dominantStatus: PostureStatus.WARNING, samplesCount: 400, avgNeckAngle: 18 });
+  });
+
+  it("does not turn a camera interruption into a confirmed full-minute absence", () => {
+    const { aggregation, onSnapshot } = setup();
+    for (let time = 0; time < 20_000; time += 100) aggregation.observePresence({ timestampMs: time, hasBody: false });
+    aggregation.pause(); aggregation.tick(60_000);
+    expect(onSnapshot.mock.lastCall?.[0]).toMatchObject({ dominantStatus: "unavailable", samplesCount: 0 });
+  });
+
+  it("catches up missed minute deadlines without repeating stale absence or posture evidence", () => {
+    const { aggregation, onSnapshot } = setup();
+    for (let time = 0; time < 60_000; time += 100) aggregation.observePresence({ timestampMs: time, hasBody: false });
+    aggregation.tick(180_000);
+    expect(onSnapshot.mock.calls.map(([payload]) => payload.dominantStatus)).toEqual(["absent", "unavailable", "unavailable"]);
+    expect(new Set(onSnapshot.mock.calls.map(([payload]) => payload.timestamp)).size).toBe(3);
+  });
+
+  it("assigns a presence observation and reading exactly at the boundary to the next minute", () => {
+    const { aggregation, onSnapshot } = setup();
+    for (let time = 0; time < 60_000; time += 100) aggregation.observePresence({ timestampMs: time, hasBody: false });
+    aggregation.observePresence({ timestampMs: 60_000, hasBody: true });
+    aggregation.recordFrame(frame(60_000));
+    expect(onSnapshot.mock.lastCall?.[0].dominantStatus).toBe("absent");
+    aggregation.tick(120_000);
+    expect(onSnapshot.mock.lastCall?.[0]).toMatchObject({ dominantStatus: PostureStatus.GOOD, samplesCount: 1 });
   });
 });

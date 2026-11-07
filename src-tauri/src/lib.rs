@@ -43,6 +43,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            commands::dashboard::get_dashboard_data,
+            commands::session_history::get_session_history,
             // Authentication
             commands::auth::register_local,
             commands::auth::login_local,

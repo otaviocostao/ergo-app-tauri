@@ -13,6 +13,10 @@ pub enum PostureStatus {
     Warning,
     #[serde(alias = "DANGER", alias = "Danger")]
     Danger,
+    #[serde(alias = "ABSENT", alias = "Absent")]
+    Absent,
+    #[serde(alias = "UNAVAILABLE", alias = "Unavailable")]
+    Unavailable,
 }
 
 impl PostureStatus {
@@ -21,6 +25,8 @@ impl PostureStatus {
             PostureStatus::Good => "good",
             PostureStatus::Warning => "warning",
             PostureStatus::Danger => "danger",
+            PostureStatus::Absent => "absent",
+            PostureStatus::Unavailable => "unavailable",
         }
     }
 }
@@ -39,6 +45,8 @@ impl FromStr for PostureStatus {
             "good" => Ok(PostureStatus::Good),
             "warning" => Ok(PostureStatus::Warning),
             "danger" => Ok(PostureStatus::Danger),
+            "absent" => Ok(PostureStatus::Absent),
+            "unavailable" => Ok(PostureStatus::Unavailable),
             other => Err(format!("Unknown posture status: '{}'", other)),
         }
     }
@@ -53,8 +61,12 @@ impl ToSql for PostureStatus {
 impl FromSql for PostureStatus {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
         let text = value.as_str()?;
-        text.parse::<PostureStatus>()
-            .map_err(|e| FromSqlError::Other(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e))))
+        text.parse::<PostureStatus>().map_err(|e| {
+            FromSqlError::Other(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                e,
+            )))
+        })
     }
 }
 

@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:camera-layout": "node --test scripts/camera-layout.test.mjs",
     "postinstall": "node scripts/copy-wasm.mjs",
     "setup:wasm": "node scripts/copy-wasm.mjs",
     "tauri": "tauri",

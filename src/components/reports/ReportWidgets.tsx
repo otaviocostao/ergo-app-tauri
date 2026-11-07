@@ -20,7 +20,7 @@ export function postureChange(report: PostureReport): number | null {
     ? null : report.summary.posturePercent - report.previous.posturePercent;
 }
 
-export function ReportChart({ report }: { report: PostureReport }) {
+export function ReportChart({ report, metric = "posture" }: { report: Pick<PostureReport, "points" | "period" | "start" | "end">; metric?: "posture" | "score" }) {
   const id = useId();
   const { points } = report;
   const chartWidth = 800;
@@ -28,14 +28,16 @@ export function ReportChart({ report }: { report: PostureReport }) {
   const plotWidth = chartWidth - 56;
   const step = plotWidth / points.length;
   const labelEvery = points.length > 16 ? 5 : points.length > 10 ? 3 : 1;
-  return <Panel title={report.period === "day" ? "Sua postura ao longo do dia" : "Evolução da postura no período"}
-    subtitle="Percentual do tempo monitorado em boa postura. Períodos sem leituras ficam sem pontuação."
-    action={<span className="inline-flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400"><span className="size-2 rounded-full bg-primary-500" />Boa postura</span>}>
+  const score = metric === "score";
+  const valueLabel = (value: number) => score ? `${value.toFixed(1)}/100` : formatPercent(value);
+  return <Panel title={score ? "Score registrado por horário" : report.period === "day" ? "Sua postura ao longo do dia" : "Evolução da postura no período"}
+    subtitle={score ? "Média do score salvo, ponderada pelas amostras. Horários sem leituras ficam sem pontuação." : "Percentual do tempo monitorado em boa postura. Períodos sem leituras ficam sem pontuação."}
+    action={<span className="inline-flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400"><span className="size-2 rounded-full bg-primary-500" />{score ? "Score salvo" : "Boa postura"}</span>}>
     <svg viewBox={`0 0 ${chartWidth} ${chartHeight + 35}`} className="block w-full min-w-0" role="img" aria-labelledby={id}>
-      <title id={id}>Percentual de boa postura de {formatDate(report.start)} a {formatDate(report.end)}. Valores disponíveis na tabela do gráfico.</title>
+      <title id={id}>{score ? "Score salvo" : "Percentual de boa postura"} de {formatDate(report.start)} a {formatDate(report.end)}. Valores disponíveis na tabela do gráfico.</title>
       {[0, 25, 50, 75, 100].map(value => <g key={value}>
         <line x1={40} x2={chartWidth - 8} y1={chartHeight - value * 2} y2={chartHeight - value * 2} stroke="currentColor" className="text-slate-100 dark:text-slate-800" strokeDasharray="4 4" />
-        <text x={28} y={chartHeight - value * 2 + 4} textAnchor="end" fontSize={10} fill="currentColor" className="text-slate-400">{value}%</text>
+        <text x={28} y={chartHeight - value * 2 + 4} textAnchor="end" fontSize={10} fill="currentColor" className="text-slate-400">{value}{score ? "" : "%"}</text>
       </g>)}
       {points.map((point, index) => {
         const x = 44 + index * step;
@@ -43,14 +45,14 @@ export function ReportChart({ report }: { report: PostureReport }) {
         return <g key={point.label}>
           {point.value === null
             ? <circle cx={x + step / 2} cy={chartHeight} r={2} fill="currentColor" className="text-slate-300 dark:text-slate-600"><title>{point.label}: sem leituras</title></circle>
-            : <rect x={x + (step - width) / 2} y={chartHeight - point.value * 2} width={width} height={point.value * 2} rx={4} fill="currentColor" className="text-primary-500"><title>{point.label}: {formatPercent(point.value)} em boa postura</title></rect>}
+            : <rect x={x + (step - width) / 2} y={chartHeight - point.value * 2} width={width} height={point.value * 2} rx={4} fill="currentColor" className="text-primary-500"><title>{point.label}: {valueLabel(point.value)}{score ? " de score" : " em boa postura"}</title></rect>}
           {(index % labelEvery === 0 || index === points.length - 1) && <text x={x + step / 2} y={chartHeight + 23} textAnchor="middle" fontSize={10} fill="currentColor" className="text-slate-500 dark:text-slate-400">{point.label}</text>}
         </g>;
       })}
     </svg>
     <details className="mt-3 text-xs text-slate-500 dark:text-slate-400">
       <summary className="w-fit cursor-pointer rounded focus-visible:outline-2 focus-visible:outline-primary-500">Ver valores do gráfico</summary>
-      <div className="mt-3 max-h-48 overflow-auto"><table className="w-full text-left"><caption className="sr-only">Valores do gráfico de evolução postural</caption><thead><tr><th scope="col" className="p-2">{report.period === "day" ? "Horário" : "Data"}</th><th scope="col" className="p-2">Boa postura</th></tr></thead><tbody>{points.map(point => <tr key={point.label} className="border-t border-slate-100 dark:border-slate-800"><th scope="row" className="p-2 font-normal">{point.label}</th><td className="p-2">{point.value === null ? "Sem leituras" : formatPercent(point.value)}</td></tr>)}</tbody></table></div>
+      <div className="mt-3 max-h-48 overflow-auto"><table className="w-full text-left"><caption className="sr-only">Valores do gráfico de evolução postural</caption><thead><tr><th scope="col" className="p-2">{report.period === "day" ? "Horário" : "Data"}</th><th scope="col" className="p-2">{score ? "Score salvo" : "Boa postura"}</th></tr></thead><tbody>{points.map(point => <tr key={point.label} className="border-t border-slate-100 dark:border-slate-800"><th scope="row" className="p-2 font-normal">{point.label}</th><td className="p-2">{point.value === null ? "Sem leituras" : valueLabel(point.value)}</td></tr>)}</tbody></table></div>
     </details>
   </Panel>;
 }

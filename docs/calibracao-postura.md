@@ -10,6 +10,19 @@ A calibração recebe os ângulos brutos para verificar movimento e os ângulos 
 
 Nenhuma amostra é fabricada quando faltam dados. Leituras anteriores à contagem, posteriores ao seu prazo ou pertencentes a frames diferentes não completam uma amostra.
 
+## Ilustração da altura da tela por dispositivo
+
+A etapa de altura usa o dispositivo escolhido no formulário para apresentar somente a demonstração correspondente:
+
+| Dispositivo | Animação | Imagem para movimento reduzido |
+| --- | --- | --- |
+| Computador de Mesa | `monitor-height.gif`: ajuste da base do monitor | `monitor-height-still.png` |
+| Notebook / Laptop | `notebook-height.gif`: elevação do notebook com suporte | `notebook-height-still.png` |
+
+As duas animações têm resolução de 960 × 420 e ciclos de oito segundos. O título, a descrição e o texto alternativo acompanham a escolha. A opção `prefers-reduced-motion` utiliza o PNG da mesma variante. O gerador `scripts/generate_calibration_monitor.py` produz os dois pares, preservando a paleta e o desenho existentes; execute `python -B scripts/generate_calibration_monitor.py` com Pillow instalado para regenerá-los.
+
+O assistente também considera webcam frontal, teclado e mouse externos e regulagem de mesa e cadeira. Quando o monitor ou suporte não possui regulagem, a etapa de altura usa a variante com uma base fixa. O [guia do formulário](formulario-calibragem.md) descreve a correlação completa das respostas com as 17 demonstrações e seus PNGs.
+
 ## Critérios de qualidade
 
 `src/services/vision/postureCalibration.ts` centraliza a avaliação pura e `POSTURE_CALIBRATION_LIMITS`:

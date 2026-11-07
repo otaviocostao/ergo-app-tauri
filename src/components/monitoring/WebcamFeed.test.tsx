@@ -37,6 +37,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   let baseline: PostureCalibrationDTO | null;
   let previewWidth: number;
   let previewHeight: number;
+  let lightLevel: number;
   let drawnFrames: { segments: number; points: number }[];
   let pointPositions: { x: number; y: number }[][];
   let streams: ReturnType<typeof makeStream>[];
@@ -46,7 +47,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   const ocularUpdate = vi.fn<(metrics: OcularMetrics | null) => void>();
   const calibrationUpdate = vi.fn<(frame: PostureCalibrationFrame | null) => void>();
   const classificationUpdate = vi.fn<(classification: PostureClassification | null) => void>();
-  const getUserMedia = vi.fn<() => Promise<MediaStream>>();
+  const getUserMedia = vi.fn<(constraints: MediaStreamConstraints) => Promise<MediaStream>>();
 
   function makeStream(muted = false) {
     const track = {
@@ -88,7 +89,11 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   }
 
   async function reachCalibrationCamera() {
-    for (let step = 0; step < 6; step++) await clickButton("Próximo");
+    for (let step = 0; step < 12; step++) {
+      if (document.querySelector('[role="dialog"] video')) return;
+      await clickButton("Próximo");
+    }
+    throw new Error("Calibration camera step was not reached.");
   }
 
   async function renderCalibration(open = true) {
@@ -116,6 +121,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     classificationUpdate.mockReset();
     previewWidth = 800;
     previewHeight = 450;
+    lightLevel = 128;
     drawnFrames = [];
     pointPositions = [];
     streams = [];
@@ -137,7 +143,8 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(1280);
     vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(720);
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => new DOMRect(0, 0, previewWidth, previewHeight));
-    const context = Object.fromEntries(["clearRect", "beginPath", "moveTo", "lineTo", "stroke", "arc", "fill", "setLineDash", "strokeRect"].map(name => [name, vi.fn()]));
+    const context = Object.fromEntries(["drawImage", "getImageData", "setTransform", "clearRect", "beginPath", "moveTo", "lineTo", "stroke", "arc", "fill", "setLineDash", "strokeRect"].map(name => [name, vi.fn()]));
+    context.getImageData.mockImplementation(() => ({ data: new Uint8ClampedArray([lightLevel, lightLevel, lightLevel, 255]) }));
     context.clearRect.mockImplementation(() => { drawnFrames.push({ segments: 0, points: 0 }); pointPositions.push([]); });
     context.lineTo.mockImplementation(() => { drawnFrames[drawnFrames.length - 1].segments += 1; });
     context.arc.mockImplementation((x: number, y: number) => {
@@ -204,6 +211,9 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     const firstHead = pointPositions[pointPositions.length - 1][0];
     for (const point of landmarks!) point.x += 0.1;
     await advance(200);
+    expect(pointPositions[pointPositions.length - 1][0].x).toBeGreaterThan(firstHead.x - 80);
+    expect(pointPositions[pointPositions.length - 1][0].x).toBeLessThan(firstHead.x);
+    await advance(2000);
     expect(pointPositions[pointPositions.length - 1][0].x).toBeCloseTo(firstHead.x - 80, 6);
     const startButton = [...document.querySelectorAll("button")].find(b => b.textContent?.includes("Iniciar Calibração"));
     expect(startButton?.disabled).toBe(false);
@@ -250,8 +260,8 @@ describe("WebcamFeed and deterministic biomechanics", () => {
 
   it.each([true, false])("hands the camera to calibration and restores the previous monitoring state (%s)", async running => {
     await act(async () => root.render(<Monitoring />)); mounted = true;
+    if (running) await clickButton("Iniciar Monitoramento");
     await advance(200);
-    if (!running) await clickButton("Pausar Monitoramento");
     await clickButton("Calibrar Postura Base");
     expect(streams.filter(item => item.track.stop.mock.calls.length === 0)).toHaveLength(0);
     await reachCalibrationCamera(); await advance(200);
@@ -371,11 +381,78 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     const setWidth = vi.spyOn(HTMLCanvasElement.prototype, "width", "set");
     const setHeight = vi.spyOn(HTMLCanvasElement.prototype, "height", "set");
     await render(); await advance(500);
-    expect(setWidth).toHaveBeenCalledOnce();
-    expect(setHeight).toHaveBeenCalledOnce();
     const canvas = container.querySelector("canvas")!;
+    expect(setWidth.mock.contexts.filter(context => context === canvas)).toHaveLength(1);
+    expect(setHeight.mock.contexts.filter(context => context === canvas)).toHaveLength(1);
     expect(canvas.width).toBe(800);
     expect(canvas.height).toBe(451);
+  });
+
+  it("scales the drawing buffer for DPR without changing the projected CSS coordinates", async () => {
+    vi.stubGlobal("devicePixelRatio", 2);
+    await render(); await advance(200);
+    const canvas = container.querySelector("canvas")!;
+    expect(canvas.width).toBe(1600);
+    expect(canvas.height).toBe(900);
+    expect(pointPositions[pointPositions.length - 1]?.[0].x).toBeCloseTo(400);
+    previewWidth = 600; previewHeight = 400;
+    await advance(32);
+    expect(canvas.width).toBe(1200);
+    expect(canvas.height).toBe(800);
+    expect(pointPositions[pointPositions.length - 1]?.[0].x).toBeCloseTo(300);
+  });
+
+  it("shows live badges without inventing a distance and removes lighting warnings on recovery", async () => {
+    lightLevel = 20;
+    await render(); await advance(2600);
+    expect(container.textContent).toContain("Inclinação cervical");
+    expect(container.textContent).toContain("0.0 °");
+    expect(container.querySelector('[aria-label="Métricas ao vivo"]')?.textContent).toContain("DistânciaIndisponível");
+    expect(container.textContent).toContain("Iluminação insuficiente");
+    lightLevel = 100;
+    await advance(1800);
+    expect(container.textContent).not.toContain("Iluminação insuficiente");
+    await render(false);
+    expect(container.querySelector('[aria-label="Métricas ao vivo"]')).toBeNull();
+  });
+
+  it("does not display metrics of a disabled posture module in live badges", async () => {
+    faceLandmarks = ocularFace();
+    await act(async () => root.render(<WebcamFeed isMonitoring calibration={baseline}
+      onClassificationUpdate={classificationUpdate} onOcularUpdate={ocularUpdate}
+      moduleSettings={{ id: "settings-1", userId: 1, posturalAnalysis: false, ocularAnalysis: true,
+        typingAnalysis: true, webCam: null, createdAt: "", updatedAt: "" }} />));
+    mounted = true; await advance(300);
+    expect(classificationUpdate.mock.lastCall?.[0]?.metrics.neck.value).toBeNull();
+    expect(classificationUpdate.mock.lastCall?.[0]?.metrics.shoulders.value).toBeNull();
+    expect(classificationUpdate.mock.lastCall?.[0]?.metrics.distance.value).toBeNull();
+    expect(container.querySelector('[aria-label="Métricas ao vivo"]')?.textContent).not.toContain("0.0 °");
+    expect(ocularUpdate.mock.lastCall?.[0]?.distanceCm).toBeCloseTo(60);
+  });
+
+  it("continues classifying video when the retained page has no visible preview size", async () => {
+    await render(); await advance(400);
+    const stream = streams.find(item => item.track.stop.mock.calls.length === 0)!;
+    const cameraRequests = getUserMedia.mock.calls.length;
+    const previousTimestamp = classificationUpdate.mock.lastCall![0]!.timestampMs;
+    previewWidth = previewHeight = 0;
+    await advance(1200);
+    expect(classificationUpdate.mock.lastCall![0]!.timestampMs).toBeGreaterThan(previousTimestamp);
+    expect(classificationUpdate.mock.lastCall![0]!.metrics.neck.value).toBe(0);
+    expect(presence.mock.lastCall).toEqual(["ACTIVE"]);
+    expect(stream.track.stop).not.toHaveBeenCalled();
+    previewWidth = 800; previewHeight = 450;
+    await advance(200);
+    expect(pointPositions[pointPositions.length - 1]?.[0].x).toBeCloseTo(400);
+    expect(getUserMedia).toHaveBeenCalledTimes(cameraRequests);
+  });
+
+  it("warns when confident shoulders leave the frame and clears the warning when they return", async () => {
+    landmarks![INDEX.LEFT_SHOULDER].x = -0.1;
+    await render(); await advance(400);
+    expect(container.textContent).toContain("Posicione cabeça e ombros");
+    landmarks = upright(); await advance(400);
+    expect(container.textContent).not.toContain("Posicione cabeça e ombros");
   });
 
   it("converges to exactly neutral displayed values instead of accumulating integer rounding error", async () => {
@@ -403,6 +480,76 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     landmarks = upright(); await advance(200);
     expect(presence.mock.lastCall?.[0]).toBe("ACTIVE");
     expect(update.mock.lastCall?.[0]).toMatchObject({ neckAngle: 0, shoulderBalance: 100, presence: "ACTIVE" });
+  });
+
+  it.each([0, 3000, 6000])("counts initial absence from monitoring start when opening the camera takes %sms", async delay => {
+    landmarks = null;
+    const acquire = getUserMedia.getMockImplementation()!;
+    if (delay) getUserMedia.mockImplementation(constraints => new Promise(resolve => {
+      setTimeout(async () => resolve(await acquire(constraints)), delay);
+    }));
+    await render(); await advance(4999);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(0);
+    await advance(1);
+    if (delay <= 5000) {
+      expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(1);
+    } else {
+      // A missing camera cannot establish absence; once available it adds no second five-second wait.
+      expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(0);
+      await advance(delay - 5000 + 100);
+      expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(1);
+    }
+    await advance(10_000);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(1);
+  });
+
+  it("rearms absence on restart even when nobody returned during the stopped interval", async () => {
+    landmarks = null; await render(); await advance(5000);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(1);
+    await render(false); await advance(20_000); await render(true); await advance(4999);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(1);
+    await advance(1);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(2);
+  });
+
+  it("starts the absence clock on request rather than when the page was mounted", async () => {
+    landmarks = null; await render(false); await advance(60_000);
+    await render(true); await advance(4999);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(0);
+    await advance(1);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(1);
+  });
+
+  it.each([-3_600_000, 3_600_000])("keeps the five-second duration when the wall clock changes by %sms", async offset => {
+    landmarks = null; await render(); await advance(1000);
+    vi.setSystemTime(Date.now() + offset);
+    await advance(3999);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(0);
+    await advance(1);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(1);
+  });
+
+  it("checks absence even if rendering frames are temporarily suspended", async () => {
+    vi.stubGlobal("requestAnimationFrame", vi.fn(() => 0));
+    landmarks = null; await render(); await advance(5000);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(1);
+    await unmount(); const count = presence.mock.calls.length; await advance(10_000);
+    expect(presence).toHaveBeenCalledTimes(count);
+  });
+
+  it("does not report user absence while the camera is muted or permission is denied", async () => {
+    landmarks = null; await render();
+    const track = streams[streams.length - 1].track;
+    await setTrackMuted(track, true); await advance(10_000);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(0);
+    await setTrackMuted(track, false); await advance(4999);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(0);
+    await advance(1);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(1);
+    await render(false); presence.mockClear();
+    getUserMedia.mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
+    await render(true); await advance(10_000);
+    expect(presence.mock.calls.filter(([state]) => state === "ABSENT")).toHaveLength(0);
   });
 
   it.each([1200, 5200])("restarts smoothing after a %sms detection gap, then smooths new measurements", async (gap) => {
@@ -471,16 +618,17 @@ describe("WebcamFeed and deterministic biomechanics", () => {
 
   it("pauses the monitoring page until a valid measurement after unmute", async () => {
     await act(async () => root.render(<Monitoring />)); mounted = true;
+    await clickButton("Iniciar Monitoramento");
     await advance(200);
-    expect(container.textContent).toContain("42 min monitorados");
+    expect(container.textContent).toContain("Monitoramento ativo");
     const track = streams[streams.length - 1].track;
     await setTrackMuted(track, true);
-    expect(container.textContent).not.toContain("42 min monitorados");
+    expect(container.textContent).not.toContain("Monitoramento ativo");
     expect(container.textContent).toContain("Detecção parcial");
     await setTrackMuted(track, false);
-    expect(container.textContent).not.toContain("42 min monitorados");
+    expect(container.textContent).not.toContain("Monitoramento ativo");
     await advance(100);
-    expect(container.textContent).toContain("42 min monitorados");
+    expect(container.textContent).toContain("Monitoramento ativo");
   });
 
   it("detaches mute listeners and ignores old callbacks after replacing the camera", async () => {
@@ -541,6 +689,64 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     expect(update.mock.calls[0][0]).toMatchObject({ neckAngle: 0, shoulderBalance: 100 });
   });
 
+  it.each(["NotReadableError", "TrackStartError", "AbortError"])("keeps the camera selector usable after a virtual camera fails with %s", async errorName => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(navigator.mediaDevices.enumerateDevices).mockResolvedValue([
+      { kind: "videoinput", deviceId: "camera-1", label: "USB camera" },
+      { kind: "videoinput", deviceId: "obs", label: "OBS Virtual Camera" },
+    ] as MediaDeviceInfo[]);
+    getUserMedia.mockImplementation(async constraints => {
+      const id = typeof constraints.video === "object" ? constraints.video.deviceId : null;
+      if (typeof id === "object" && id !== null && "exact" in id && id.exact === "obs") {
+        throw new DOMException("Could not start video source", errorName);
+      }
+      const item = makeStream(); streams.push(item); return item.stream;
+    });
+    await render(); await advance(200);
+    const select = container.querySelector("select")!;
+    const originalTrack = streams[streams.length - 1].track;
+    await act(async () => {
+      select.value = "obs";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await advance(200);
+    expect(originalTrack.stop).toHaveBeenCalledOnce();
+    expect(hardware.mock.lastCall?.[0]).toBe(true);
+    expect(container.querySelector("select")).toBe(select);
+    expect(select.disabled).toBe(false);
+    expect(select.value).toBe("obs");
+    expect([...select.options].map(option => option.value)).toEqual(["camera-1", "obs"]);
+    await act(async () => {
+      select.value = "camera-1";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await advance(200);
+    expect(hardware.mock.lastCall?.[0]).toBe(false);
+    expect(container.querySelector("video")?.srcObject).toBe(streams[streams.length - 1].stream);
+    expect(update.mock.lastCall?.[0].presence).toBe("ACTIVE");
+  });
+
+  it("lets users choose another camera after the active track ends", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(navigator.mediaDevices.enumerateDevices).mockResolvedValue([
+      { kind: "videoinput", deviceId: "camera-1", label: "First camera" },
+      { kind: "videoinput", deviceId: "camera-2", label: "Second camera" },
+    ] as MediaDeviceInfo[]);
+    await render(); await advance(200);
+    const select = container.querySelector("select")!;
+    const track = streams[streams.length - 1].track;
+    await act(async () => track.onended?.call(track as unknown as MediaStreamTrack, new Event("ended")));
+    expect(container.querySelector("select")).toBe(select);
+    await act(async () => {
+      select.value = "camera-2";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await advance(200);
+    expect(select.value).toBe("camera-2");
+    expect(hardware.mock.lastCall?.[0]).toBe(false);
+    expect(update.mock.lastCall?.[0].presence).toBe("ACTIVE");
+  });
+
   describe("default webcam", () => {
     const deviceSelect = vi.fn<(deviceId: string) => void>();
     const requestedDevice = () => {
@@ -564,7 +770,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
 
     it("opens the saved webcam and reports only the user's own choice", async () => {
       await renderWithDefault("camera-2");
-      const select = container.querySelector<HTMLSelectElement>('select[aria-label="Câmera"]')!;
+      const select = container.querySelector<HTMLSelectElement>('select[aria-label="Selecionar câmera"]')!;
       expect(select.value).toBe("camera-2");
       expect(requestedDevice()).toBe("camera-2");
       expect(deviceSelect).not.toHaveBeenCalled();
@@ -600,7 +806,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
         preferredDeviceId="camera-2" onDeviceSelect={deviceSelect} />));
       mounted = true;
       await reachCalibrationCamera(); await advance(200);
-      expect(container.ownerDocument.querySelector<HTMLSelectElement>('select[aria-label="Câmera"]')!.value).toBe("camera-2");
+      expect(container.ownerDocument.querySelector<HTMLSelectElement>('select[aria-label="Selecionar câmera"]')!.value).toBe("camera-2");
       expect(requestedDevice()).toBe("camera-2");
     });
   });
@@ -741,6 +947,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   it("renders blink warm-up and uncalibrated distance without an early fatigue classification", async () => {
     faceLandmarks = ocularFace();
     await act(async () => root.render(<Monitoring />)); mounted = true;
+    await clickButton("Iniciar Monitoramento");
     await advance(200);
     expect(container.textContent).toContain("Taxa de Piscadas");
     expect(container.textContent).toContain("Aguardando dados");
@@ -860,6 +1067,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   it("displays session blink counts and window counts in Monitoring cards", async () => {
     faceLandmarks = ocularFace();
     await act(async () => root.render(<Monitoring />)); mounted = true;
+    await clickButton("Iniciar Monitoramento");
     await advance(200);
     expect(container.textContent).toContain("Piscadas na janela:");
     expect(container.textContent).toContain("Total da sessão:");

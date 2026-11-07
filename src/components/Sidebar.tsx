@@ -66,9 +66,6 @@ export default function Sidebar() {
             <span className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate" title={userFullName || undefined}>
               {userFullName || "Visitante"}
             </span>
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              {user ? "Conta local" : "Modo offline"}
-            </span>
           </div>
         </div>
         <button onClick={signOut} disabled={pending} className="flex items-center gap-3 w-full rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50">

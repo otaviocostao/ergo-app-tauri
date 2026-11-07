@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Cloud, Laptop, Monitor, ShieldCheck } from "lucide-react";
+import { Laptop, Monitor } from "lucide-react";
 import Header from "../components/Header";
 import Button from "../components/Button";
 import Input from "../components/Input";
@@ -62,8 +62,8 @@ export default function Settings() {
   const [phone, setPhone] = useState(user?.phone ? FormatterHelper.formatPhone(user.phone) : "");
   const [profilePhoto, setProfilePhoto] = useState<string | null>(user?.photo ?? null);
 
-  const [isLocalUser, setIsLocalUser] = useState<boolean | null>(null);
-  const [isCheckingLocalUser, setIsCheckingLocalUser] = useState<boolean>(true);
+  const [canEditProfile, setCanEditProfile] = useState<boolean | null>(null);
+  const [isCheckingProfileAccess, setIsCheckingProfileAccess] = useState<boolean>(true);
   const [isSavingUser, setIsSavingUser] = useState<boolean>(false);
   const [userFeedback, setUserFeedback] = useState<{ type: ToastrType; message: string } | null>(null);
 
@@ -96,37 +96,37 @@ export default function Settings() {
     }
   }, [user]);
 
-  // Valida no backend se o usuário é estritamente local (sem external_id)
+  // Check editing permissions through the existing backend contract.
   useEffect(() => {
     let isMounted = true;
 
-    async function checkUserType() {
+    async function checkProfileAccess() {
       if (session.kind === "authenticated" && session.user) {
-        setIsCheckingLocalUser(true);
+        setIsCheckingProfileAccess(true);
         try {
-          const isLocal = await userService.isLocalUser(session.user.id);
+          const editable = await userService.canEditProfile(session.user.id);
           if (isMounted) {
-            setIsLocalUser(isLocal);
+            setCanEditProfile(editable);
           }
         } catch (error) {
-          console.error("Erro ao validar se o usuário é local:", error);
+          console.error("Não foi possível verificar a permissão de edição do perfil:", error);
           if (isMounted) {
-            setIsLocalUser(!session.user.externalId);
+            setCanEditProfile(!session.user.externalId);
           }
         } finally {
           if (isMounted) {
-            setIsCheckingLocalUser(false);
+            setIsCheckingProfileAccess(false);
           }
         }
       } else {
         if (isMounted) {
-          setIsLocalUser(false);
-          setIsCheckingLocalUser(false);
+          setCanEditProfile(false);
+          setIsCheckingProfileAccess(false);
         }
       }
     }
 
-    checkUserType();
+    checkProfileAccess();
 
     return () => {
       isMounted = false;
@@ -257,7 +257,7 @@ export default function Settings() {
 
   const handleSaveUser = async (event: FormEvent) => {
     event.preventDefault();
-    if (!user || !isLocalUser || !isUserFormDirty) return;
+    if (!user || !canEditProfile || !isUserFormDirty) return;
 
     setUserFeedback(null);
     setIsSavingUser(true);
@@ -295,7 +295,7 @@ export default function Settings() {
     }
   };
 
-  const canEditUser = Boolean(user && isLocalUser && !isCheckingLocalUser);
+  const canEditUser = Boolean(user && canEditProfile && !isCheckingProfileAccess);
   const isUserFormDirty = Boolean(
     user && (
       firstName !== user.firstName ||
@@ -438,23 +438,12 @@ export default function Settings() {
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-bold text-slate-800 dark:text-white">Informações do usuário</h2>
-                {canEditUser ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                    <ShieldCheck size={12} />
-                    Conta local
-                  </span>
-                ) : user ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
-                    <Cloud size={12} />
-                    Sincronizado online
-                  </span>
-                ) : null}
               </div>
               <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
                 {canEditUser
-                  ? "Edite e salve suas informações cadastrais locais a qualquer momento"
+                  ? "Edite e salve suas informações cadastrais a qualquer momento."
                   : user
-                    ? "Esta conta é gerenciada pela plataforma online e está disponível somente para leitura."
+                    ? "Suas informações cadastrais estão disponíveis somente para leitura."
                     : "Dados da conta disponíveis somente para leitura em modo visitante."}
               </p>
             </div>
@@ -593,7 +582,7 @@ export default function Settings() {
       {activeTab === "company" && company && (
         <section className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="text-base font-bold text-slate-800 dark:text-white">Informações da empresa</h2>
-          <p className="mb-5 mt-1 text-sm text-gray-500 dark:text-slate-400">Dados da sua empresa cadastrados na plataforma online</p>
+          <p className="mb-5 mt-1 text-sm text-gray-500 dark:text-slate-400">Dados cadastrais da sua empresa.</p>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Input label="Razão Social" value={company.legalName ?? ""} disabled />
@@ -610,9 +599,6 @@ export default function Settings() {
             <Input label="Estado" value={company.state ?? ""} disabled />
             <Input label="País" value={company.country ?? ""} disabled />
             <Input label="Status" value={company.active ? "Ativo" : "Inativo"} disabled />
-            {company.externalId && (
-              <Input label="Código Externo" value={company.externalId} disabled />
-            )}
           </div>
         </section>
       )}

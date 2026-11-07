@@ -86,9 +86,11 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
   }
 
   async function reachCalibrationCamera() {
-    for (let step = 0; step < 6; step++) {
+    for (let step = 0; step < 12; step++) {
+      if (document.querySelector('[role="dialog"] video')) return;
       await clickButton("Próximo");
     }
+    throw new Error("Calibration camera step was not reached.");
   }
 
   async function renderModal(open = true) {
@@ -142,6 +144,9 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => new DOMRect(0, 0, 800, 450));
 
     const dummyContext = {
+      setTransform: vi.fn(),
+      drawImage: vi.fn(),
+      getImageData: vi.fn(() => ({ data: new Uint8ClampedArray([128, 128, 128, 255]) })),
       clearRect: vi.fn(),
       beginPath: vi.fn(),
       moveTo: vi.fn(),
@@ -212,11 +217,14 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     const dialog = document.querySelector('[role="dialog"]');
     expect(dialog?.textContent).toContain("Calibração da Postura");
     expect(dialog?.textContent).toContain("Iniciar Calibração (5s)");
+    expect(dialog?.querySelector("video")?.srcObject).toBeTruthy();
+    expect(dialog?.querySelector('[aria-label="Métricas ao vivo"]')).toBeNull();
 
     // Start 5-second calibration
     await clickButton("Iniciar Calibração (5s)");
     expect(dialog?.textContent).toContain("Gravando postura de referência");
     expect(dialog?.textContent).toContain("5");
+    expect(dialog?.querySelector('[aria-label="Métricas ao vivo"]')).toBeNull();
 
     // Advance 5 seconds (1000ms each)
     await advance(1000);
@@ -237,6 +245,7 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     expect(dialog?.textContent).toContain("Distância de Olhos");
     expect(dialog?.textContent).toContain("60 cm");
     expect(dialog?.textContent).toContain("200 px");
+    expect(dialog?.querySelector('[aria-label="Métricas ao vivo"]')).toBeNull();
 
     // Click "Salvar"
     await clickButton("Salvar");
@@ -253,6 +262,46 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     );
     expect(onCalibrateSubmit).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it.each([
+    { device: "Computador de Mesa", answers: [false, false, false, false],
+      illustrations: ["webcam-position", "chair-footrest", "desk-fixed", "monitor-height-support", "monitor-distance-adjustment"] },
+    { device: "Notebook / Laptop", answers: [true, false, true, false, true, false],
+      illustrations: ["webcam-aligned", "notebook-peripherals-keyboard", "chair-height", "desk-chair-adjustment", "notebook-height-support", "notebook-distance"] },
+  ])("uses the actual $device form answers throughout the guide", async ({ device, answers, illustrations }) => {
+    await renderModal(); await clickButton(device);
+    const form = document.querySelector('[role="dialog"]')!;
+    const selects = [...form.querySelectorAll("select")];
+    expect(selects).toHaveLength(answers.length);
+    await act(async () => {
+      selects.forEach((select, index) => {
+        select.value = answers[index] ? "sim" : "não";
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    });
+    for (const illustration of illustrations) {
+      await clickButton("Próximo");
+      const image = form.querySelector("img")!;
+      expect(image.getAttribute("src")).toContain(`/${illustration}.gif`);
+      const source = image.closest("picture")?.querySelector("source");
+      expect(source?.getAttribute("srcset")).toContain(`/${illustration}-still.png`);
+      expect(form.querySelector("video")).toBeNull();
+      expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+    }
+    await clickButton("Próximo");
+    expect(form.querySelector("video")).not.toBeNull();
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalled();
+  });
+
+  it("shows each guide step from the top instead of keeping the previous scroll", async () => {
+    await renderModal();
+    const body = document.querySelector<HTMLElement>('[role="dialog"] .overflow-y-auto')!;
+    for (let step = 0; step < 2; step++) {
+      Object.defineProperty(body, "scrollTop", { configurable: true, writable: true, value: 120 });
+      await clickButton("Próximo");
+      expect(body.scrollTop).toBe(0);
+    }
   });
 
   it("allows cancelling an in-progress countdown", async () => {
