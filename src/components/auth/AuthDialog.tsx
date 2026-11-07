@@ -8,11 +8,11 @@ interface AuthDialogProps {
   children: ReactNode;
   actions: ReactNode;
   illustration?: ReactNode;
-  variant?: "online" | "success";
+  variant?: "default" | "success";
   showCloseButton?: boolean;
 }
 
-export default function AuthDialog({ open, onClose, title, children, actions, illustration, variant = "online", showCloseButton = true }: AuthDialogProps) {
+export default function AuthDialog({ open, onClose, title, children, actions, illustration, variant = "default", showCloseButton = true }: AuthDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const descriptionId = useId();

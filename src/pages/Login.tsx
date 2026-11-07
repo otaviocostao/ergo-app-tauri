@@ -10,6 +10,9 @@ import { authSecondaryActionClass, authFieldStyles, authPrimaryButtonClass, auth
 import { useAuth } from "../auth/AuthContext";
 import { authErrorMessage } from "../auth/authService";
 
+// Temporarily hidden; keep both registration dialogs available for future use.
+const SHOW_REGISTRATION_OPTIONS = false;
+
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -72,10 +75,14 @@ export default function Login() {
         <span className="shrink-0">Ainda não tem uma conta?</span>
         <span aria-hidden="true" className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
       </div>
-      <Button variant="secondary" size="lg" className={`h-12 ${authSecondaryButtonClass}`} disabled={pending} onClick={() => setRegistrationDialog("options")}>
+      <Button variant="secondary" size="lg" className={`h-12 ${authSecondaryButtonClass}`} disabled={pending} onClick={() => {
+        if (SHOW_REGISTRATION_OPTIONS) setRegistrationDialog("options");
+        else navigate("/cadastro", { viewTransition: true });
+      }}>
         <UserPlus size={18} aria-hidden="true" /> Cadastre-se
       </Button>
       </AuthCard>
+      {SHOW_REGISTRATION_OPTIONS && <>
       <AuthDialog
         open={registrationDialog === "options"}
         showCloseButton={false}
@@ -127,6 +134,7 @@ export default function Login() {
         </ul>
         <p className="mt-4 text-slate-600 dark:text-slate-400">A plataforma on-line ainda não está disponível. Por enquanto, o cadastro será realizado no próprio app, sem envio de dados.</p>
       </AuthDialog>
+      </>}
       <AuthDialog
         open={registrationComplete}
         showCloseButton={false}

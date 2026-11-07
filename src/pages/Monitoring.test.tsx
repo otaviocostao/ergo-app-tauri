@@ -42,6 +42,7 @@ describe("Monitoring classification and temporal alerts", () => {
 
   async function render(strict = false) {
     await act(async () => root.render(strict ? <StrictMode><Monitoring /></StrictMode> : <Monitoring />));
+    if (view.feed!.recordingStatus === "idle" && !view.feed!.isMonitoring) await act(async () => view.feed!.onToggleMonitoring!());
     await act(async () => view.feed!.onPresenceChange!("ACTIVE"));
   }
 
@@ -60,12 +61,14 @@ describe("Monitoring classification and temporal alerts", () => {
 
   beforeEach(() => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    vi.spyOn(performance, "now").mockReturnValue(0);
     view.feed = null; view.modal = null; view.keyboard = null; view.logs = []; view.userId = 1;
     vi.spyOn(postureService, "getActiveCalibration").mockResolvedValue(baseline);
     container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   });
   afterEach(async () => {
     await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks();
+    vi.useRealTimers();
     ipc.desktop = false; ipc.invoke.mockReset();
   });
 
@@ -77,8 +80,7 @@ describe("Monitoring classification and temporal alerts", () => {
       return args?.payload;
     });
     const calls = (command: string) => ipc.invoke.mock.calls.filter(([name]) => name === command).map(([, args]) => args.payload);
-    // Far above performance.now(), so the page's 1s timer never mistakes the test clock for a gap.
-    const base = 1e9;
+    const base = 0;
     await render();
     expect(calls("start_monitoring_session")).toEqual([{ userId: 1 }]);
     const blink = { blinkEvent: "blink", distanceCm: 60, blinkRate: { blinkCount: 1, observedMs: 0, blinksPerMinute: null, isWarmingUp: true } };
@@ -99,6 +101,33 @@ describe("Monitoring classification and temporal alerts", () => {
     })]);
   });
 
+  it("starts only on request, ignores duplicate clicks and waits for end IPC", async () => {
+    vi.spyOn(settingsService, "get").mockResolvedValue(null);
+    ipc.desktop = true;
+    let finishStart!: (value: { id: string }) => void;
+    let finishEnd!: () => void;
+    ipc.invoke.mockImplementation((command: string) => {
+      if (command === "start_monitoring_session") return new Promise(resolve => { finishStart = resolve; });
+      if (command === "end_monitoring_session") return new Promise<void>(resolve => { finishEnd = resolve; });
+      return Promise.resolve();
+    });
+    await act(async () => root.render(<StrictMode><Monitoring /></StrictMode>));
+    expect(ipc.invoke).not.toHaveBeenCalled();
+    expect(view.feed!.isMonitoring).toBe(false);
+    await act(async () => { view.feed!.onToggleMonitoring!(); view.feed!.onToggleMonitoring!(); });
+    expect(view.feed!.recordingStatus).toBe("starting");
+    expect(view.feed!.isMonitoring).toBe(false);
+    expect(ipc.invoke).toHaveBeenCalledTimes(1);
+    await act(async () => finishStart({ id: "one" }));
+    expect(view.feed!.isMonitoring).toBe(true);
+    await act(async () => { view.feed!.onToggleMonitoring!(); view.feed!.onToggleMonitoring!(); });
+    expect(view.feed!.recordingStatus).toBe("ending");
+    expect(view.feed!.isMonitoring).toBe(false);
+    await act(async () => finishEnd());
+    expect(view.feed!.recordingStatus).toBe("idle");
+    expect(ipc.invoke.mock.calls.map(([command]) => command)).toEqual(["start_monitoring_session", "end_monitoring_session"]);
+  });
+
   it("runs good posture, sustained danger, first alert, cooldown and a repeat through the existing history", async () => {
     await render(); await publish(0, 1000);
     expect(alerts()).toEqual([]);
@@ -112,6 +141,115 @@ describe("Monitoring classification and temporal alerts", () => {
     expect(alerts()).toHaveLength(1);
     await publish(201_200, 201_200, { neckAngle: 35 });
     expect(alerts()).toHaveLength(2);
+  });
+
+  it("announces the initial presence once and ignores brief occlusions until a confirmed absence", async () => {
+    vi.useFakeTimers();
+    await render();
+    await act(async () => {
+      for (let index = 0; index < 10; index++) {
+        view.feed!.onPresenceChange!("PARTIALLY_OCCLUDED");
+        view.feed!.onPresenceChange!("ACTIVE");
+      }
+    });
+    expect(view.logs.filter(log => log.message === "Usuário presente")).toHaveLength(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    await act(async () => {
+      view.feed!.onPresenceChange!("ABSENT"); view.feed!.onPresenceChange!("ABSENT");
+      view.feed!.onPresenceChange!("PARTIALLY_OCCLUDED");
+      view.feed!.onPresenceChange!("ACTIVE");
+      view.feed!.onPresenceChange!("PARTIALLY_OCCLUDED");
+      view.feed!.onPresenceChange!("ACTIVE");
+    });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(1);
+    expect(view.logs.filter(log => log.message === "Usuário presente")).toHaveLength(2);
+    expect(view.logs.every(log => log.occurredAt && Number.isFinite(Date.parse(log.occurredAt)))).toBe(true);
+  });
+
+  it("publishes a confirmed initial absence at five seconds without an additional startup delay", async () => {
+    vi.useFakeTimers();
+    await act(async () => root.render(<Monitoring />));
+    await act(async () => view.feed!.onToggleMonitoring!());
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_999); });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(0);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); view.feed!.onPresenceChange!("ABSENT"); });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(1);
+    await act(async () => {
+      view.feed!.onPresenceChange!("ABSENT"); view.feed!.onPresenceChange!("ACTIVE");
+      await vi.advanceTimersByTimeAsync(5_000); view.feed!.onPresenceChange!("ABSENT");
+    });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(2);
+    expect(view.logs.filter(log => log.message === "Usuário presente")).toHaveLength(1);
+  });
+
+  it("ignores brief occlusions and publishes later five-second absences without delay", async () => {
+    vi.useFakeTimers(); await render();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); view.feed!.onPresenceChange!("PARTIALLY_OCCLUDED"); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); view.feed!.onPresenceChange!("ACTIVE"); });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(0);
+    expect(view.logs.filter(log => log.message === "Usuário presente")).toHaveLength(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); view.feed!.onPresenceChange!("ABSENT"); });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(1);
+  });
+
+  it("ignores absence callbacks after stopping and accepts five-second absence on restart", async () => {
+    vi.useFakeTimers(); await render();
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+    await act(async () => view.feed!.onToggleMonitoring!());
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); view.feed!.onPresenceChange!("ABSENT"); });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(0);
+    await act(async () => view.feed!.onToggleMonitoring!());
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_999); });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(0);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); view.feed!.onPresenceChange!("ABSENT"); });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(1);
+  });
+
+  it("ignores calibration absence callbacks and resumes the normal five-second rule", async () => {
+    vi.useFakeTimers(); await render();
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+    await act(async () => view.feed!.onCalibrate!());
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); view.feed!.onPresenceChange!("ABSENT"); });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(0);
+    await act(async () => view.modal!.onClose());
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); view.feed!.onPresenceChange!("ABSENT"); });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(1);
+  });
+
+  it("does not announce presence before starting or after stopping and announces it on the next explicit start", async () => {
+    await act(async () => root.render(<Monitoring />));
+    await act(async () => view.feed!.onPresenceChange!("ACTIVE"));
+    expect(view.logs.filter(log => log.message === "Usuário presente")).toHaveLength(0);
+    await act(async () => view.feed!.onToggleMonitoring!());
+    await act(async () => view.feed!.onPresenceChange!("ACTIVE"));
+    expect(view.logs.filter(log => log.message === "Usuário presente")).toHaveLength(1);
+    await act(async () => view.feed!.onToggleMonitoring!());
+    await act(async () => {
+      view.feed!.onPresenceChange!("ABSENT");
+      view.feed!.onPresenceChange!("ACTIVE");
+    });
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(0);
+    expect(view.logs.filter(log => log.message === "Usuário presente")).toHaveLength(1);
+    await act(async () => view.feed!.onToggleMonitoring!());
+    await act(async () => view.feed!.onPresenceChange!("ACTIVE"));
+    expect(view.logs.filter(log => log.message === "Usuário presente")).toHaveLength(2);
+  });
+
+  it("keeps the presence announcement across calibration and emits a success notice for its owner", async () => {
+    await render();
+    await act(async () => view.feed!.onCalibrate!());
+    await act(async () => {
+      view.feed!.onPresenceChange!("PARTIALLY_OCCLUDED");
+      view.feed!.onPresenceChange!("ABSENT");
+      view.modal!.onCalibrateSubmit({ ...baseline, id: "new" });
+      view.modal!.onClose();
+    });
+    await act(async () => view.feed!.onPresenceChange!("ACTIVE"));
+    expect(view.logs.filter(log => log.message === "Usuário presente")).toHaveLength(1);
+    expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(0);
+    expect(view.logs.filter(log => log.message === "Ambiente de trabalho salvo com sucesso")).toEqual([
+      expect.objectContaining({ scope: "account", userId: 1, type: "success" }),
+    ]);
   });
 
   it("resets invalid or recovered channels without delaying independent metrics", async () => {
@@ -174,9 +312,9 @@ describe("Monitoring classification and temporal alerts", () => {
     view.userId = 2;
     vi.mocked(postureService.getActiveCalibration).mockResolvedValue({ ...baseline, id: "user-2", userId: 2 });
     await render(); await publish(20_200, 40_200, { neckAngle: 35 });
-    expect(alerts()).toHaveLength(1);
+    expect(alerts()).toHaveLength(0);
     await publish(40_300, 40_300, { neckAngle: 35 });
-    expect(alerts()).toHaveLength(2);
+    expect(alerts()).toHaveLength(1);
     expect(postureService.getActiveCalibration).toHaveBeenLastCalledWith(2);
   });
 
@@ -320,7 +458,7 @@ describe("Monitoring classification and temporal alerts", () => {
       expect(container.textContent).toContain("Análise postural desativada em Configurações → Módulos.");
       expect(container.textContent).toContain("Análise postural inativa");
 
-      await publish(1e9, 1e9 + 61_000, { neckAngle: 35, shoulderAngle: 10, distanceCm: 30 });
+      await publish(0, 61_000, { neckAngle: 35, shoulderAngle: 10, distanceCm: 30 });
       expect(alerts()).toEqual([]);
       expect(persisted("record_posture_alert")).toEqual([]);
       expect(persisted("record_metric_snapshot")).toEqual([]);
@@ -346,6 +484,8 @@ describe("Monitoring classification and temporal alerts", () => {
       expect(view.feed!.isMonitoring).toBe(false);
       expect(view.feed!.disabledMessage).toBeNull();
       expect(persisted("start_monitoring_session")).toEqual([]);
+      await act(async () => view.feed!.onToggleMonitoring!());
+      expect(view.feed!.isMonitoring).toBe(false);
       await act(async () => resolve(null));
       expect(view.feed!.isMonitoring).toBe(true);
       expect(persisted("start_monitoring_session")).toEqual([["start_monitoring_session", { payload: { userId: 1 } }]]);
@@ -383,14 +523,14 @@ describe("Monitoring classification and temporal alerts", () => {
       await act(async () => view.feed!.onOcularUpdate!({
         blinkEvent: "blink", distanceCm: 60, blinkRate: { blinkCount: 1, observedMs: 0, blinksPerMinute: null, isWarmingUp: true },
       } as unknown as OcularMetrics));
-      await publish(1e9, 1e9 + 61_000, { distanceCm: 30, blinkRate: lowBlinks });
+      await publish(0, 61_000, { distanceCm: 30, blinkRate: lowBlinks });
       expect(alerts()).toEqual([]);
       expect(persisted("record_metric_snapshot")).toEqual([[
         "record_metric_snapshot",
         { payload: expect.objectContaining({ blinkCount: 0, avgDistanceCm: null, dominantStatus: "good" }) },
       ]]);
 
-      await publish(1e9 + 61_100, 1e9 + 81_300, { neckAngle: 35 });
+      await publish(61_100, 81_300, { neckAngle: 35 });
       expect(alerts().map(alert => alert.message)).toEqual(["Ajuste a posição do pescoço"]);
     });
 

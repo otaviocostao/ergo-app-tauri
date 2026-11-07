@@ -27,11 +27,12 @@ O [índice da base de conhecimento](docs/base-conhecimento/README.md) reúne o e
 
 ---
 
-## Login e cadastro local
+## Login e cadastro
 
 - Ao abrir o app, a tela inicial é o login (`/login`).
-- **Cadastrar** abre um modal para escolher entre o cadastro on-line de empresas e o cadastro off-line. Como ainda não há backend remoto, a opção **Cadastrar online** exibe o aviso de indisponibilidade; **Cadastrar offline** abre o cadastro no próprio app (`/cadastro`).
-- O cadastro local pede nome, sobrenome, e-mail, senha de 8 a 70 caracteres e confirmação da senha. Telefone e data de nascimento são opcionais. Se preenchido, o telefone deve conter DDD e 9 dígitos; o nascimento deve ser uma data real, não futura, correspondente a uma idade de 14 a 100 anos completos. Datas digitadas usam DD/MM/AAAA e são enviadas ao backend como YYYY-MM-DD. Após o sucesso, uma animação de verificação é exibida antes do retorno ao login.
+- **Cadastre-se** abre diretamente o formulário de criação da conta (`/cadastro`), sem seleção de tipo de conta.
+- Os modais anteriores de opções de cadastro e apresentação da plataforma estão preservados em `src/pages/Login.tsx`, temporariamente ocultos por `SHOW_REGISTRATION_OPTIONS = false`. Alterar essa constante para `true` restaura o fluxo de escolha.
+- O cadastro pede nome, sobrenome, e-mail, senha de 8 a 70 caracteres e confirmação da senha. Telefone e data de nascimento são opcionais. Se preenchido, o telefone deve conter DDD e 9 dígitos; o nascimento deve ser uma data real, não futura, correspondente a uma idade de 14 a 100 anos completos. Datas digitadas usam DD/MM/AAAA e são enviadas ao backend como YYYY-MM-DD. Após o sucesso, uma animação de verificação é exibida antes do retorno ao login.
 - A conta permanece no SQLite após encerrar o app. A sessão fica somente na memória do processo Rust: recarregar a tela ou ocultar a janela pelo X mantém a sessão; usar **Sair do Ergo** e abrir novamente exige novo login.
 - Senhas são armazenadas como hash **Argon2id**, com salt aleatório por cadastro. O hash nunca é retornado ao frontend. Após cinco tentativas de login em 30 segundos, novas tentativas aguardam o fim dessa janela.
 - Não há envio de dados, confirmação de e-mail, recuperação de senha ou sincronização online nesta versão. O SQLite não é criptografado; o login não substitui as permissões de acesso aos arquivos do sistema operacional.
@@ -99,7 +100,7 @@ Para autenticação, use `src/auth/authService.ts`, que chama os comandos `regis
 
 As permissões de SQL genérico foram removidas de `src-tauri/capabilities/default.json` para impedir leitura/alteração da tabela de credenciais pelo WebView. O helper antigo `src/db.ts` não é usado nesse fluxo. Novas operações de dados devem ser implementadas como comandos Rust específicos, validando a sessão no backend quando precisarem de autenticação.
 
-As contas e os lembretes por usuário são persistidos no SQLite local. As rotas internas exigem uma conta autenticada. As métricas de ergonomia continuam demonstrativas.
+As contas, os lembretes e as métricas de monitoramento são persistidos no SQLite local. As rotas internas exigem uma conta autenticada. A tela inicial consulta o histórico da conta conectada; os relatórios detalhados ainda usam dados demonstrativos.
 
 ### Preferência de tema por usuário
 
@@ -163,20 +164,38 @@ Em **Configurações → Módulos** (`/settings?tab=modules`), cada conta escolh
 
 A mesma tabela guarda em `web_cam` a webcam padrão da conta (o `deviceId` do navegador). Escolher uma câmera no seletor do Monitoramento, ou da etapa de câmera da calibração, salva a escolha com `update_settings` (`{ webCam }`; `null` remove). Todas as análises visuais abrem a webcam salva quando ela está conectada e, caso contrário, a primeira câmera disponível, sem apagar a preferência.
 
+Alterações salvas de módulos e webcam são propagadas para as páginas montadas da mesma conta, inclusive o Monitoramento em segundo plano. A troca da webcam padrão preserva a sessão. Desativar a análise postural finaliza a gravação postural; a câmera continua disponível para a análise ocular quando ela estiver ativa. Desativar ambas desliga a captura. Os badges também deixam indisponíveis as métricas dos módulos desativados. O início do monitoramento continua dependendo do botão **Iniciar Monitoramento**.
+
 A tabela foi adicionada à migração inicial, cujo checksum mudou: bancos criados antes desta alteração precisam ser recriados conforme o procedimento de migrações acima.
 
 Para conferir manualmente: recrie o banco, entre na conta, ative os avisos em **Avisos de ergonomia**, crie em **Lembretes** um lembrete ativo de Postura e outro de Hidratação e desative **Análise postural** em **Módulos**. Os avisos “Revise sua postura” e “Mude de posição” e o lembrete de Postura devem ficar desativados e bloqueados, e o de Hidratação, ativo. No Monitoramento, os cards de pescoço, ombros, distância e coluna e o resumo devem indicar o módulo inativo, sem alertas posturais no histórico nem nova sessão nos relatórios. Repita com **Análise ocular** (piscadas e distância, aviso de pausa visual, câmera desligada com as duas análises inativas) e **Análise de digitação** (card de digitação). Reative os módulos e confirme que os avisos e lembretes continuam desligados até serem ativados.
 
 ### Relatórios de postura
 
-A opção **Relatórios** no menu abre `/reports`. Os três cartões **Ver detalhes** da tela inicial abrem as respectivas seções: índice ergonômico, boa postura e alertas. Os endereços antigos em `/dashboard/` redirecionam para essas seções.
+A opção **Relatórios** no menu abre `/reports`. O link da tela inicial identifica esses relatórios como demonstrativos. Os endereços antigos em `/dashboard/` redirecionam para as seções correspondentes de índice ergonômico, boa postura e alertas.
 
 - Filtros de dia, semana (domingo a sábado) e mês, com seleção de data e navegação entre períodos. Filtros e seção ficam na URL para preservar a navegação de voltar/avançar.
 - Visão geral com evolução em pontos percentuais, tempo em boa postura, alertas por hora, tempo em monitoramento, meta demonstrativa de 6h e histórico diário. A seção de alertas inclui a contagem de alertas críticos.
 - Detalhes com distribuição do tempo dentro/fora da faixa, mapa de intervalos de 10 minutos, melhores horários e registro de alertas por tipo.
 - O índice é ponderado pelo tempo monitorado; dias sem leituras não recebem pontuação. Períodos em andamento comparam os dias decorridos com o mesmo trecho do período anterior (limitado ao tamanho do mês anterior).
 
-O **histórico demonstrativo** é gerado em `src/data/reports.ts` para os últimos 120 dias, com leituras em dias úteis. A tela inicial usa essa mesma fonte; o aviso demonstrativo foi removido da interface. Os relatórios ainda não consultam as medições persistidas pelo backend nem o monitoramento ao vivo; a evolução exibida é ilustrativa.
+O **histórico demonstrativo dos relatórios** é gerado em `src/data/reports.ts` para os últimos 120 dias, com leituras em dias úteis. Os relatórios ainda não consultam as medições persistidas pelo backend nem o monitoramento ao vivo; a evolução exibida é ilustrativa.
+
+### Monitoramento e Dashboard reais (Task 4.5)
+
+O Monitoramento começa ocioso. **Iniciar Monitoramento** abre a sessão pelo gravador existente e ativa a câmera; **Encerrar Monitoramento** libera a captura, aguarda as escritas, resolve episódios de alerta e salva o resumo da sessão. Os botões indicam início/encerramento em andamento e bloqueiam cliques repetidos. Falhas de IPC permitem nova tentativa, preservando um fechamento pendente antes de abrir outra sessão. Navegar entre as páginas internas mantém a mesma câmera, sessão e coleta de métricas; voltar ao Monitoramento recupera a tela em andamento. Encerrar manualmente, sair da conta ou trocar de usuário finaliza a sessão. A calibragem mantém seu ciclo anterior de pausa/retomada e fecha ao navegar para outra página; janelas incompletas de snapshots continuam sendo descartadas nos encerramentos.
+
+O canvas suaviza somente o desenho e acompanha espelhamento, recorte e resolução da tela. Badges compactos no canto superior esquerdo apresentam desvio cervical e dos ombros em graus e distância em centímetros, com as cores do classificador existente. Eles ficam ocultos na calibragem, que preserva a câmera, o esqueleto e a coleta da postura base. Valores ausentes aparecem como indisponíveis. Avisos indicam enquadramento, distância inadequada e pouca luz e ficam organizados abaixo dos indicadores. A luminosidade é estimada localmente em uma imagem transitória de 32 × 18 pixels, no máximo duas vezes por segundo: aviso abaixo de 40/255 por 2 segundos e recuperação acima de 55/255 por 1 segundo. Esses parâmetros são provisórios e dependem de validação com a webcam; não representam avaliação clínica. Imagens e landmarks não são enviados por IPC nem persistidos.
+
+A tela inicial real é `src/pages/Dashboard.tsx`; `Home.tsx` não é a página usada pelas rotas. O comando `get_dashboard_data` deriva o proprietário da sessão autenticada no Rust. O índice é o percentual de boa postura ponderado pela duração das sessões encerradas; sessões sem duração válida e valores iniciais de sessões abertas não pontuam. Os resumos são atribuídos ao dia local de início da sessão. O gráfico usa o score já salvo, ponderado pelas amostras de cada snapshot, agrupado pelo horário da leitura. Horários sem dados ficam indisponíveis. A meta de 6h permanece demonstrativa e pausas confirmadas aparecem como **Não registrado**. A navegação aguarda as escritas da tela anterior; carregamento, vazio, erro e troca de conta possuem tratamento próprio. A prévia web informa que o histórico exige o aplicativo desktop, sem criar dados de exemplo.
+
+O [relatório da Task 4.5](docs/task-4.5-feedback-ui.md) reúne evidências por requisito, resultados dos testes, limites e roteiro de validação manual.
+
+A calibragem e a área principal reservam o espaço da barra de rolagem com `scrollbar-gutter: stable`. Isso impede um ciclo em que a barra aparece, estreita o vídeo, reduz sua altura proporcional e some, ampliando o vídeo novamente a cada quadro. A correção preserva a captura, as métricas e os avisos existentes.
+
+Execute `npm run test:camera-layout` para verificar esse comportamento em um navegador real. O teste usa Chrome/Edge instalado (ou o caminho em `CHROME_PATH`), vídeo sintético e o layout do aplicativo; não acessa webcam física nem banco. Ele alterna vinte vezes entre câmeras 16:9 e 4:3 perto dos limites de rolagem e confere também a entrada e saída de rolagem no Monitoramento.
+
+Se uma câmera não iniciar ou sua transmissão for interrompida, o seletor continua disponível para escolher outro dispositivo. O teste de navegador também simula uma OBS Virtual Camera que falha ao abrir e verifica a recuperação com outra câmera, tanto na calibragem quanto no Monitoramento.
 
 ### Testes
 

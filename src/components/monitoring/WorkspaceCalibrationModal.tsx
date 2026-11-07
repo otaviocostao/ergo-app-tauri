@@ -581,6 +581,7 @@ export default function WorkspaceCalibrationModal({
 
             <WebcamFeed
               isMonitoring={isOpen}
+              showMetricBadges={false}
               preferredDeviceId={preferredDeviceId}
               onDeviceSelect={onDeviceSelect}
               onPostureUpdate={onPostureUpdate}

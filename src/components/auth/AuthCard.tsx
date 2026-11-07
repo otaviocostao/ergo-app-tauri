@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Bell, BellRing, Monitor, ScanEye, SlidersHorizontal, UserRound } from "lucide-react";
+import { Bell, BellRing, ScanEye, SlidersHorizontal, UserRound } from "lucide-react";
 
 interface AuthCardProps {
   titleId: string;
@@ -38,10 +38,6 @@ export default function AuthCard({ titleId, children, contentClassName = "" }: A
               </li>
             ))}
           </ul>
-        </div>
-        <div className="relative mt-5 flex items-start gap-2.5 border-t border-white/15 pt-4 text-xs leading-5 text-primary-100 md:mt-6 md:pt-5">
-          <Monitor size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
-          <p>Conta local. Seus dados ficam neste dispositivo.</p>
         </div>
       </aside>
       <div className={`min-w-0 px-6 py-7 sm:px-8 sm:py-8 lg:px-10 ${contentClassName}`}>

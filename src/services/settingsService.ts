@@ -23,6 +23,20 @@ const MODULE_FIELDS: Record<Module, ModuleField> = {
   [Module.TYPING_ANALYSIS]: "typingAnalysis",
 };
 
+export const SETTINGS_UPDATED_EVENT = "ergo:settings-updated";
+export interface SettingsUpdatedDetail {
+  settings: ModuleSettings;
+  fields: (keyof UpdateModuleSettingsPayload)[];
+}
+
+/** Keep retained monitoring and settings pages in sync without restarting unchanged sessions. */
+function publishSettings(settings: ModuleSettings, fields: SettingsUpdatedDetail["fields"]): ModuleSettings {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent<SettingsUpdatedDetail>(SETTINGS_UPDATED_EVENT, { detail: { settings, fields } }));
+  }
+  return settings;
+}
+
 /** Same links as the backend: disabling the module turns these notices off. */
 export const NOTICE_MODULES: Record<SystemReminderType, Module> = {
   POSTURE_CHECK: Module.POSTURAL_ANALYSIS,
@@ -52,9 +66,11 @@ export function withModuleEnabled(settings: ModuleSettings, module: Module, enab
 
 export const settingsService = {
   get: (): Promise<ModuleSettings | null> => isTauri() ? invoke("get_settings") : Promise.resolve(null),
-  update: (payload: UpdateModuleSettingsPayload): Promise<ModuleSettings> => invoke("update_settings", { payload }),
-  setModuleEnabled: (module: Module, enabled: boolean): Promise<ModuleSettings> =>
-    invoke("set_module_enabled", { payload: { module, enabled } }),
-  setWebCam: (webCam: string | null): Promise<ModuleSettings> => invoke("update_settings", { payload: { webCam } }),
+  update: async (payload: UpdateModuleSettingsPayload): Promise<ModuleSettings> =>
+    publishSettings(await invoke("update_settings", { payload }), Object.keys(payload) as SettingsUpdatedDetail["fields"]),
+  setModuleEnabled: async (module: Module, enabled: boolean): Promise<ModuleSettings> =>
+    publishSettings(await invoke("set_module_enabled", { payload: { module, enabled } }), [MODULE_FIELDS[module]]),
+  setWebCam: async (webCam: string | null): Promise<ModuleSettings> =>
+    publishSettings(await invoke("update_settings", { payload: { webCam } }), ["webCam"]),
   delete: (): Promise<boolean> => invoke("delete_settings"),
 };

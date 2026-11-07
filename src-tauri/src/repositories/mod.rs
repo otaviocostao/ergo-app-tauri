@@ -9,3 +9,5 @@ pub mod monitoring_session_repository;
 pub mod posture_metric_snapshot_repository;
 pub mod posture_alert_repository;
 pub mod posture_repository;
+pub mod dashboard_repository;
+pub mod session_history_repository;
