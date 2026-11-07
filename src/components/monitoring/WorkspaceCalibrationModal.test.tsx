@@ -294,6 +294,16 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalled();
   });
 
+  it("shows each guide step from the top instead of keeping the previous scroll", async () => {
+    await renderModal();
+    const body = document.querySelector<HTMLElement>('[role="dialog"] .overflow-y-auto')!;
+    for (let step = 0; step < 2; step++) {
+      Object.defineProperty(body, "scrollTop", { configurable: true, writable: true, value: 120 });
+      await clickButton("Próximo");
+      expect(body.scrollTop).toBe(0);
+    }
+  });
+
   it("allows cancelling an in-progress countdown", async () => {
     await renderModal();
     await reachCalibrationCamera();
