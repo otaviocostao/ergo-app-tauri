@@ -25,7 +25,7 @@ import type { PostureCalibrationDTO } from "../../types/postureCalibration";
 import type { UserPresenceState } from "../../types/vision";
 import { CanvasPose, metricColor } from "./canvasFeedback";
 import { LightingFeedback } from "./lightingFeedback";
-import type { RecordingStatus } from "../../hooks/useMetricRecording";
+import { RecordingStatus } from "../../enums/recordingStatus";
 import type { ModuleSettings } from "../../services/settingsService";
 import { restrictClassificationToModules } from "../../services/monitoring/moduleClassification";
 import type { PresenceObservation } from "../../services/monitoring/metricAggregation";
@@ -1038,19 +1038,19 @@ export default function WebcamFeed({
                 variant="primary"
                 size="md"
                 onClick={onToggleMonitoring}
-                disabled={recordingStatus === "starting" || recordingStatus === "ending"}
-                isLoading={recordingStatus === "starting" || recordingStatus === "ending"}
+                disabled={recordingStatus === RecordingStatus.STARTING || recordingStatus === RecordingStatus.ENDING}
+                isLoading={recordingStatus === RecordingStatus.STARTING || recordingStatus === RecordingStatus.ENDING}
                 className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white  backdrop-blur-md transition-all shadow-lg"
               >
-                {recordingStatus === "starting" ? "Iniciando Monitoramento" : recordingStatus === "ending" ? "Encerrando Monitoramento" : recordingStatus === "error" ? "Tentar Novamente" : isMonitoring ? (
-                  <>
-                    <VideoOff size={16} /> Encerrar Monitoramento
-                  </>
-                ) : (
-                  <>
-                    <Video size={16} /> Iniciar Monitoramento
-                  </>
-                )}
+                  { recordingStatus === RecordingStatus.STARTING ? "Iniciando Monitoramento" : recordingStatus === RecordingStatus.ENDING ? "Encerrando Monitoramento" : recordingStatus === RecordingStatus.ERROR ? "Tentar Novamente" : isMonitoring ? (
+                    <>
+                      <VideoOff size={16} /> Encerrar Monitoramento
+                    </>
+                  ) : (
+                    <>
+                      <Video size={16} /> Iniciar Monitoramento
+                    </>
+                  )}
               </Button>
             )}
 
@@ -1058,7 +1058,7 @@ export default function WebcamFeed({
               <Button
                 size="md"
                 onClick={onCalibrate}
-                disabled={recordingStatus === "starting" || recordingStatus === "ending" || recordingStatus === "error"}
+                disabled={recordingStatus === RecordingStatus.STARTING || recordingStatus === RecordingStatus.ENDING || recordingStatus === RecordingStatus.ERROR}
                 className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white backdrop-blur-md transition-all shadow-lg"
               >
                 <Crosshair size={14} />

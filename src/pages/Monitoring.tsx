@@ -16,6 +16,7 @@ import type { PostureCalibrationDTO } from "../types/postureCalibration";
 import type { PostureClassification, PostureMetric } from "../types/postureClassification";
 import { PostureStatus, POSTURE_STATUS_LABELS } from "../enums/postureStatus";
 import { Module, MODULE_LABELS } from "../enums/module";
+import { RecordingStatus } from "../enums/recordingStatus";
 import {
   DEFAULT_POSTURE_CLASSIFICATION_CONFIG as classificationConfig,
   getPostureStatusLabel, PostureAlertCooldown, PostureHysteresis,
@@ -131,13 +132,13 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
     isPaused: typingPaused,
   });
   const captureEnabled = isMonitoring && !isCalibrationOpen && cameraModulesEnabled &&
-    (!(posturalEnabled || typingEnabled) || recording.status === "active");
+  (!(posturalEnabled || typingEnabled) || recording.status === RecordingStatus.ACTIVE);
   monitoringContextRef.current = { enabled: captureEnabled, userId, modules: moduleSettings };
 
   const toggleMonitoring = () => {
-    if (transitionRequestedRef.current || recording.status === "starting" || recording.status === "ending") return;
+    if (transitionRequestedRef.current || recording.status === RecordingStatus.STARTING || recording.status === RecordingStatus.ENDING) return;
     transitionRequestedRef.current = true;
-    if (recording.status === "error") { recording.retry(); return; }
+    if (recording.status === RecordingStatus.ERROR) { recording.retry(); return; }
     if (!isMonitoring) {
       lastAnnouncedPresenceRef.current = null;
       setSessionBlinkCount(0);
@@ -149,7 +150,7 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
   };
 
   useEffect(() => {
-    if (recording.status !== "starting" && recording.status !== "ending") transitionRequestedRef.current = false;
+    if (recording.status !== RecordingStatus.STARTING && recording.status !== RecordingStatus.ENDING) transitionRequestedRef.current = false;
   }, [recording.status, isMonitoring]);
 
   const handlePostureUpdate = (metrics: {
@@ -293,16 +294,16 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
       });
     return () => {
       isMounted = false;
-  };
-}, [userId]);
+    };
+  }, [userId]);
 
   const handleCalibrateSubmit = (savedCalibration?: PostureCalibrationDTO | null) => {
     if (monitoringContextRef.current.userId !== userId) return;
     if (savedCalibration) {
       setCalibration(savedCalibration);
     } else {
-  postureService
-    .getActiveCalibration(userId)
+      postureService
+        .getActiveCalibration(userId)
         .then((cal) => {
           if (cal) {
             setCalibration(cal);
@@ -434,94 +435,94 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
                 message: "Pausa de digitação registrada",
                 detail: "Contador de uso contínuo do teclado foi reiniciado.",
               };
-            setLogs((prev) => [newLog, ...prev].slice(0, 100));
-          }}
-        />
-    </div>
+              setLogs((prev) => [newLog, ...prev].slice(0, 100));
+            }}
+          />
+        </div>
 
-            <div className="lg:col-span-5 flex flex-col gap-3">
-              <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-2xl p-5 text-white border border-slate-800 shadow-md flex flex-col justify-between gap-4">
-                <div className="flex gap-4">
-                  <div className="flex gap-2">
-                    <h2 className="text-base font-bold text-white">Resumo da sua ergonomia</h2>
-                    <span
-                      className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${!posturalEnabled || isPaused || postureStatus === null
-                        ? "bg-slate-800 text-slate-400 border border-slate-700"
-                        : postureStatus === PostureStatus.GOOD
-                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                          : postureStatus === PostureStatus.WARNING
-                            ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                            : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
-                        }`}
-                    >
-                      {!posturalEnabled
-                        ? "Módulo inativo"
-                        : !isMonitoring
-                          ? "Pausado"
-                          : userPresence === "ABSENT"
-                            ? "Ausente (Pausado)"
-                            : userPresence === "PARTIALLY_OCCLUDED"
-                              ? "Ajuste o enquadramento"
-                              : postureStatus === null
-                                ? "Aguardando dados"
-                                : postureStatus === PostureStatus.GOOD
-                                  ? "Excelente"
-                                  : postureStatus === PostureStatus.WARNING
-                                    ? "Atenção"
-                                    : "Crítico"}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex">
-                  <p className="text-xs text-slate-300 mt-1 sm:pr-6">
-                    {!posturalEnabled
-                      ? "A análise postural está desativada em Configurações → Módulos. Ative-a para acompanhar pescoço, ombros, coluna e distância da tela."
-                      : !isMonitoring
-                        ? "O monitoramento está pausado. Inicie o monitoramento para visualizar a análise postural e métricas em tempo real."
-                        : userPresence === "ABSENT"
-                          ? "Nenhum usuário detectado há mais de 5 segundos. O cálculo de métricas e gráficos está pausado até o seu retorno."
-                          : userPresence === "PARTIALLY_OCCLUDED"
-                            ? "Aguardando pontos confiáveis da cabeça e dos ombros. Ajuste o enquadramento para retomar as métricas."
-                            : postureStatus === null
-                              ? "Calibre a postura base e aguarde leituras válidas para classificar sua postura."
-                              : postureStatus === PostureStatus.GOOD
-                                ? "Sua coluna e pescoço estão alinhados dentro das diretrizes ideais."
-                                : "Ajuste sua inclinação do pescoço ou altura da tela para melhorar sua postura."}
-                  </p>
-
-                  <div className="flex items-center gap-6 text-xs text-slate-300 shrink-0 border-t sm:border-t-0 sm:border-l border-slate-700/60 pt-3 sm:pt-0 sm:pl-6 w-full sm:w-auto justify-between sm:justify-start">
-                    <div className="flex flex-col">
-                      <span className="text-slate-400">Status Geral:</span>
-                      <span
-                    className={`font-semibold ${!posturalEnabled || isPaused || postureStatus === null
-                          ? "text-slate-400"
-                          : postureStatus === "good"
-                            ? "text-emerald-400"
-                            : postureStatus === "warning"
-                              ? "text-amber-400"
-                              : "text-rose-400"
-                          }`}
-                      >
-                        {!posturalEnabled
-                            ? "Análise postural inativa"
-                            : !isMonitoring
+        <div className="lg:col-span-5 flex flex-col gap-3">
+          <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-2xl p-5 text-white border border-slate-800 shadow-md flex flex-col justify-between gap-4">
+            <div className="flex gap-4">
+              <div className="flex gap-2">
+                <h2 className="text-base font-bold text-white">Resumo da sua ergonomia</h2>
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${!posturalEnabled || isPaused || postureStatus === null
+                    ? "bg-slate-800 text-slate-400 border border-slate-700"
+                    : postureStatus === PostureStatus.GOOD
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                      : postureStatus === PostureStatus.WARNING
+                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                        : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                    }`}
+                >
+                  {!posturalEnabled
+                    ? "Módulo inativo"
+                    : !isMonitoring
                       ? "Pausado"
                       : userPresence === "ABSENT"
-                        ? "Usuário Ausente"
+                        ? "Ausente (Pausado)"
                         : userPresence === "PARTIALLY_OCCLUDED"
-                          ? "Detecção parcial"
-                          : statusText}
+                          ? "Ajuste o enquadramento"
+                          : postureStatus === null
+                            ? "Aguardando dados"
+                            : postureStatus === PostureStatus.GOOD
+                              ? "Excelente"
+                              : postureStatus === PostureStatus.WARNING
+                                ? "Atenção"
+                                : "Crítico"}
+                </span>
+              </div>
+            </div>
+            <div className="flex">
+              <p className="text-xs text-slate-300 mt-1 sm:pr-6">
+                {!posturalEnabled
+                  ? "A análise postural está desativada em Configurações → Módulos. Ative-a para acompanhar pescoço, ombros, coluna e distância da tela."
+                  : !isMonitoring
+                    ? "O monitoramento está pausado. Inicie o monitoramento para visualizar a análise postural e métricas em tempo real."
+                    : userPresence === "ABSENT"
+                      ? "Nenhum usuário detectado há mais de 5 segundos. O cálculo de métricas e gráficos está pausado até o seu retorno."
+                      : userPresence === "PARTIALLY_OCCLUDED"
+                        ? "Aguardando pontos confiáveis da cabeça e dos ombros. Ajuste o enquadramento para retomar as métricas."
+                        : postureStatus === null
+                          ? "Calibre a postura base e aguarde leituras válidas para classificar sua postura."
+                          : postureStatus === PostureStatus.GOOD
+                            ? "Sua coluna e pescoço estão alinhados dentro das diretrizes ideais."
+                            : "Ajuste sua inclinação do pescoço ou altura da tela para melhorar sua postura."}
+              </p>
+
+              <div className="flex items-center gap-6 text-xs text-slate-300 shrink-0 border-t sm:border-t-0 sm:border-l border-slate-700/60 pt-3 sm:pt-0 sm:pl-6 w-full sm:w-auto justify-between sm:justify-start">
+                <div className="flex flex-col">
+                  <span className="text-slate-400">Status Geral:</span>
+                  <span
+                    className={`font-semibold ${!posturalEnabled || isPaused || postureStatus === null
+                      ? "text-slate-400"
+                      : postureStatus === "good"
+                        ? "text-emerald-400"
+                        : postureStatus === "warning"
+                          ? "text-amber-400"
+                          : "text-rose-400"
+                      }`}
+                  >
+                    {!posturalEnabled
+                      ? "Análise postural inativa"
+                      : !isMonitoring
+                        ? "Pausado"
+                        : userPresence === "ABSENT"
+                          ? "Usuário Ausente"
+                          : userPresence === "PARTIALLY_OCCLUDED"
+                            ? "Detecção parcial"
+                            : statusText}
                   </span>
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-slate-400">Sessão:</span>
-                      <span className="font-semibold text-white">
-                        {recording.status === "starting" ? "Iniciando" : recording.status === "ending" ? "Encerrando" : `${Math.floor(recording.elapsedSeconds / 60)} min ${recording.elapsedSeconds % 60} s monitorados`}
-                      </span>
-                    </div>
-                  </div>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-slate-400">Sessão:</span>
+                  <span className="font-semibold text-white">
+                    {recording.status === RecordingStatus.STARTING ? "Iniciando" : recording.status === RecordingStatus.ENDING ? "Encerrando" : `${Math.floor(recording.elapsedSeconds / 60)} min ${recording.elapsedSeconds % 60} s monitorados`}
+                  </span>
                 </div>
               </div>
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <ErgoMetricsCard

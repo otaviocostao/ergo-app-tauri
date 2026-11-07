@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PostureHistoryLog, { type LogEvent, type PostureHistoryLogProps } from "./PostureHistoryLog";
 import { sessionHistoryService } from "../../services/sessionHistoryService";
 import { PostureStatus } from "../../enums/postureStatus";
+import { RecordingStatus } from "../../enums/recordingStatus";
 import type { SessionHistory } from "../../types/sessionHistory";
 import { notifySessionHistoryUpdated } from "../../services/monitoring/sessionHistoryEvents";
 
@@ -15,9 +16,11 @@ const read = vi.mocked(sessionHistoryService.get);
 function history(): SessionHistory {
   const end = Date.parse("2026-11-05T12:15:00Z");
   return {
-    session: { id: "session-1", userId: 1, startedAt: "2026-11-05T12:00:00Z", endedAt: null,
+    session: {
+      id: "session-1", userId: 1, startedAt: "2026-11-05T12:00:00Z", endedAt: null,
       durationSeconds: 0, averageScore: 100, goodPosturePercentage: 100,
-      warningPosturePercentage: 0, dangerPosturePercentage: 0, totalAlertsCount: 1 },
+      warningPosturePercentage: 0, dangerPosturePercentage: 0, totalAlertsCount: 1
+    },
     windowStart: "2026-11-05T12:00:00Z", windowEnd: "2026-11-05T12:15:00Z",
     timeline: Array.from({ length: 15 }, (_, index) => ({
       startedAt: new Date(end - (15 - index) * 60_000).toISOString(),
@@ -27,9 +30,11 @@ function history(): SessionHistory {
       state: index < 3 ? "recorded" : "pending",
     })),
     adequateSummaryPercentage: 100 / 3,
-    alerts: [{ id: "alert-1", sessionId: "session-1", timestamp: "2026-11-05T12:10:00Z",
+    alerts: [{
+      id: "alert-1", sessionId: "session-1", timestamp: "2026-11-05T12:10:00Z",
       alertType: "neck_posture", severity: "danger", durationSeconds: 42,
-      message: "Desvio do pescoço salvo no banco", resolvedAt: "2026-11-05T12:11:00Z" }],
+      message: "Desvio do pescoço salvo no banco", resolvedAt: "2026-11-05T12:11:00Z"
+    }],
   };
 }
 
@@ -37,7 +42,7 @@ describe("database-backed session history", () => {
   let root: Root;
   let container: HTMLDivElement;
   async function render(props: Partial<PostureHistoryLogProps> = {}) {
-    await act(async () => root.render(<PostureHistoryLog logs={[]} userId={1} recordingStatus="active" {...props} />));
+    await act(async () => root.render(<PostureHistoryLog logs={[]} userId={1} recordingStatus={RecordingStatus.ACTIVE} {...props} />));
   }
   async function tick(milliseconds = 5_000) {
     await act(async () => { await vi.advanceTimersByTimeAsync(milliseconds); });
@@ -73,7 +78,7 @@ describe("database-backed session history", () => {
     const empty = history(); empty.session = null; empty.alerts = []; empty.adequateSummaryPercentage = null;
     empty.timeline = empty.timeline.map(item => ({ ...item, status: null, samplesCount: 0, summariesCount: 0, state: "pending" }));
     read.mockResolvedValue(empty);
-    await render({ recordingStatus: "idle" });
+    await render({ recordingStatus: RecordingStatus.IDLE });
     expect(container.textContent).toContain("Nenhuma sessão de monitoramento registrada");
     expect(container.textContent).toContain("Nenhum minuto registrado");
     expect(container.querySelectorAll(".bg-emerald-500")).toHaveLength(0);
@@ -83,11 +88,11 @@ describe("database-backed session history", () => {
 
   it("reloads saved history on reopening and keeps the completed session's time range", async () => {
     const saved = history(); saved.session!.endedAt = "2026-11-05T12:15:00Z"; read.mockResolvedValue(saved);
-    await render({ recordingStatus: "idle" });
+    await render({ recordingStatus: RecordingStatus.IDLE });
     expect(container.textContent).toContain("Últimos 15 minutos da sessão");
     expect(container.textContent).toContain("Monitoramento encerrado");
     await act(async () => root.unmount()); root = createRoot(container);
-    await render({ recordingStatus: "idle" });
+    await render({ recordingStatus: RecordingStatus.IDLE });
     expect(container.textContent).toContain("Desvio do pescoço salvo no banco");
     expect(read).toHaveBeenCalledTimes(2);
   });
@@ -152,8 +157,10 @@ describe("database-backed session history", () => {
       id: "calibration-saved", occurredAt: "2026-11-05T12:15:01Z", timestamp: "12:15:01",
       message: "Ambiente de trabalho salvo com sucesso", type: "success", scope: "account", userId: 1,
     };
-    const presence: LogEvent = { id: "old-presence", occurredAt: "2026-11-05T12:15:01Z",
-      timestamp: "12:15:01", message: "Presence outside this session", type: "info" };
+    const presence: LogEvent = {
+      id: "old-presence", occurredAt: "2026-11-05T12:15:01Z",
+      timestamp: "12:15:01", message: "Presence outside this session", type: "info"
+    };
     await render({ logs: [notice, presence] });
     expect(container.textContent).toContain(notice.message);
     expect(container.textContent).not.toContain(presence.message);
@@ -166,8 +173,12 @@ describe("database-backed session history", () => {
   });
 
   it("does not display another account's calibration notice", async () => {
-    await render({ logs: [{ id: "other-calibration", occurredAt: "2026-11-05T12:10:00Z", timestamp: "12:10:00",
-      message: "Another account saved its calibration", type: "success", scope: "account", userId: 2 }] });
+    await render({
+      logs: [{
+        id: "other-calibration", occurredAt: "2026-11-05T12:10:00Z", timestamp: "12:10:00",
+        message: "Another account saved its calibration", type: "success", scope: "account", userId: 2
+      }]
+    });
     expect(container.textContent).not.toContain("Another account saved its calibration");
   });
 
@@ -201,8 +212,10 @@ describe("database-backed session history", () => {
 
   it("displays saved session start metadata and new live events while the history read is pending", async () => {
     const old = history(); old.session!.endedAt = "2026-11-05T12:15:00Z"; read.mockResolvedValue(old);
-    const live: LogEvent = { id: "new-presence", message: "New monitoring presence", type: "info",
-      occurredAt: "2026-11-05T12:16:01Z", timestamp: "12:16:01" };
+    const live: LogEvent = {
+      id: "new-presence", message: "New monitoring presence", type: "info",
+      occurredAt: "2026-11-05T12:16:01Z", timestamp: "12:16:01"
+    };
     await render({ logs: [live] }); expect(container.textContent).not.toContain(live.message);
     let finish!: (value: SessionHistory) => void;
     read.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));

@@ -6,6 +6,7 @@ import { MetricAggregation, frameFromClassification, type PresenceObservation } 
 import { PostureAlertEpisodes, type AlertResolution } from "../services/monitoring/postureAlertEpisodes";
 import type { PostureAlertCondition, PostureClassification, PostureMetric } from "../types/postureClassification";
 import { notifySessionHistoryUpdated } from "../services/monitoring/sessionHistoryEvents";
+import { RecordingStatus } from "../enums/recordingStatus";
 
 export interface RecordingEvent {
   type: "error";
@@ -20,6 +21,12 @@ interface Recorder {
 // A new page/session must wait for pending writes and the previous session's end.
 // This also handles React StrictMode's setup/cleanup/setup cycle.
 let sessionLifecycle: Promise<void> = Promise.resolve();
+let unfinishedClose: (() => Promise<void>) | null = null;
+
+/** Navigation may mount the dashboard while the previous page is still saving. */
+export function waitForRecordingWrites(): Promise<void> {
+  return sessionLifecycle;
+}
 
 /**
  * Persists a monitoring session shared by active analysis modules (posture + typing),
@@ -40,7 +47,7 @@ export function useMetricRecording(
   const mountedRef = useRef(false);
   const generationRef = useRef(0);
   const [retryKey, setRetryKey] = useState(0);
-  const [status, setStatus] = useState<RecordingStatus>("idle");
+  const [status, setStatus] = useState<RecordingStatus>(RecordingStatus.IDLE);
   const [error, setError] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
@@ -78,7 +85,7 @@ export function useMetricRecording(
       }).catch(error => reportError(errorMessage, error));
     };
 
-    publish("starting");
+    publish(RecordingStatus.STARTING);
     setElapsedSeconds(0);
     const resolveEpisode = async (id: string, resolution: AlertResolution) => {
       await postureAlertService.resolveAlert({ id, ...resolution });
@@ -101,7 +108,7 @@ export function useMetricRecording(
       }
 
       if (!sessionId || !recordPosture) {
-        publish("active");
+        publish(RecordingStatus.ACTIVE);
         return;
       }
 
@@ -138,7 +145,7 @@ export function useMetricRecording(
         }),
       };
       recorderRef.current = recorder;
-      publish("active");
+      publish(RecordingStatus.ACTIVE);
       const pulse = () => {
         recorder?.aggregation.tick(performance.now());
         if (!cancelled) setElapsedSeconds(recorder?.aggregation.sessionSummary().durationSeconds ?? 0);
@@ -148,7 +155,7 @@ export function useMetricRecording(
       timer = setTimeout(pulse, Math.min(1000, Math.max(1, recorder.aggregation.millisecondsUntilNextWindow(performance.now()))));
     }).catch(error => {
       const message = unfinishedClose ? "Não foi possível finalizar a sessão anterior. Tente novamente." : "Não foi possível iniciar a sessão de monitoramento.";
-      publish("error", message);
+      publish(RecordingStatus.ERROR, message);
       reportError(message, error);
     });
 
@@ -159,7 +166,7 @@ export function useMetricRecording(
       recorder?.aggregation.pause();
       recorder?.episodes.pause();
       const endedAt = new Date().toISOString();
-      publish("ending");
+      publish(RecordingStatus.ENDING);
       const close = async () => {
         if (closed) return;
         await writes;
@@ -177,29 +184,29 @@ export function useMetricRecording(
         closed = true;
         if (unfinishedClose === close) unfinishedClose = null;
       };
-      sessionLifecycle = sessionLifecycle.then(close).then(() => publish("idle")).catch(error => {
-        unfinishedClose = close;
-        const message = "Não foi possível finalizar a sessão de monitoramento. Tente novamente.";
-        publish("error", message);
-        reportError(message, error);
-      });
-    };
-  }, [enabled, userId, recordPosture, retryKey]);
+        sessionLifecycle = sessionLifecycle.then(close).then(() => publish(RecordingStatus.IDLE)).catch(error => {
+          unfinishedClose = close;
+          const message = "Não foi possível finalizar a sessão de monitoramento. Tente novamente.";
+          publish(RecordingStatus.ERROR, message);
+          reportError(message, error);
+        });
+      };
+    }, [enabled, userId, recordPosture, retryKey]);
 
   const retry = useCallback(() => {
-    if (status !== "error") return;
+    if (status !== RecordingStatus.ERROR) return;
     if (enabled) { setRetryKey(value => value + 1); return; }
-    if (!unfinishedClose) { setStatus("idle"); setError(null); return; }
+    if (!unfinishedClose) { setStatus(RecordingStatus.IDLE); setError(null); return; }
     const owner = userId;
-    setStatus("ending"); setError(null);
+    setStatus(RecordingStatus.ENDING); setError(null);
     sessionLifecycle = sessionLifecycle.then(async () => {
       await unfinishedClose?.();
       unfinishedClose = null;
-      if (mountedRef.current && ownerRef.current === owner) setStatus("idle");
+      if (mountedRef.current && ownerRef.current === owner) setStatus(RecordingStatus.IDLE);
     }).catch(error => {
       console.error("Failed to finalize monitoring session", error);
       if (mountedRef.current && ownerRef.current === owner) {
-        setStatus("error");
+        setStatus(RecordingStatus.ERROR);
         setError("Não foi possível finalizar a sessão de monitoramento. Tente novamente.");
       }
     });

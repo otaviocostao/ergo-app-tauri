@@ -1,7 +1,7 @@
 import { AlertTriangle, CheckCircle2, Info, Clock, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useSessionHistory } from "../../hooks/useSessionHistory";
-import type { RecordingStatus } from "../../hooks/useMetricRecording";
+import { RecordingStatus } from "../../enums/recordingStatus";
 import { POSTURE_STATUS_LABELS, PostureStatus } from "../../enums/postureStatus";
 
 export interface LogEvent {
@@ -29,7 +29,7 @@ export default function PostureHistoryLog({
   onClearLogs,
   className = "",
   userId = null,
-  recordingStatus = "idle",
+  recordingStatus = RecordingStatus.IDLE,
   isVisible = true,
 }: PostureHistoryLogProps) {
   const { data: loadedData, session, loading, error, retry } = useSessionHistory(userId, recordingStatus, isVisible);
@@ -45,11 +45,15 @@ export default function PostureHistoryLog({
     detail: `${alert.resolvedAt ? "Encerrado" : "Em andamento"} · Duração registrada: ${alert.durationSeconds} s.`,
   }));
   if (session) {
-    savedLogs.push({ id: `session:${session.id}:start`, occurredAt: session.startedAt, timestamp: time(session.startedAt),
-      type: "info", message: "Monitoramento iniciado", detail: "Sessão registrada para acompanhar sua postura." });
-    if (session.endedAt) savedLogs.push({ id: `session:${session.id}:end`, occurredAt: session.endedAt,
+    savedLogs.push({
+      id: `session:${session.id}:start`, occurredAt: session.startedAt, timestamp: time(session.startedAt),
+      type: "info", message: "Monitoramento iniciado", detail: "Sessão registrada para acompanhar sua postura."
+    });
+    if (session.endedAt) savedLogs.push({
+      id: `session:${session.id}:end`, occurredAt: session.endedAt,
       timestamp: time(session.endedAt), type: "success", message: "Monitoramento encerrado",
-      detail: "Consulte abaixo os alertas registrados nesta sessão." });
+      detail: "Consulte abaixo os alertas registrados nesta sessão."
+    });
   }
   // Stored episodes replace repeated cooldown notifications of the same posture condition.
   // Presence, hardware and interface notices remain actual events from this execution.
@@ -132,14 +136,14 @@ export default function PostureHistoryLog({
                 state === "absent"
                   ? "bg-slate-400 dark:bg-slate-600"
                   : item?.status === PostureStatus.GOOD
-                  ? "bg-emerald-500 hover:bg-emerald-600"
-                  : item?.status === PostureStatus.WARNING
-                    ? "bg-amber-500 hover:bg-amber-600"
-                    : item?.status === PostureStatus.DANGER
-                      ? "bg-rose-500 hover:bg-rose-600"
-                      : state === "unavailable"
-                        ? "border border-amber-500/60 bg-transparent"
-                        : "border border-dashed border-slate-300 dark:border-slate-600 bg-transparent";
+                    ? "bg-emerald-500 hover:bg-emerald-600"
+                    : item?.status === PostureStatus.WARNING
+                      ? "bg-amber-500 hover:bg-amber-600"
+                      : item?.status === PostureStatus.DANGER
+                        ? "bg-rose-500 hover:bg-rose-600"
+                        : state === "unavailable"
+                          ? "border border-amber-500/60 bg-transparent"
+                          : "border border-dashed border-slate-300 dark:border-slate-600 bg-transparent";
               const label = state === "absent" ? "Usuário ausente durante todo o minuto"
                 : state === "unavailable" ? "Sem leituras válidas neste minuto"
                   : item?.status ? POSTURE_STATUS_LABELS[item.status]
