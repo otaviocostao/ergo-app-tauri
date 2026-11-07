@@ -62,7 +62,7 @@ export default function Settings() {
   const [phone, setPhone] = useState(user?.phone ? FormatterHelper.formatPhone(user.phone) : "");
   const [profilePhoto, setProfilePhoto] = useState<string | null>(user?.photo ?? null);
 
-  const [canEditProfile, setIsProfileEditable] = useState<boolean | null>(null);
+  const [canEditProfile, setCanEditProfile] = useState<boolean | null>(null);
   const [isCheckingProfileAccess, setIsCheckingProfileAccess] = useState<boolean>(true);
   const [isSavingUser, setIsSavingUser] = useState<boolean>(false);
   const [userFeedback, setUserFeedback] = useState<{ type: ToastrType; message: string } | null>(null);
@@ -106,12 +106,12 @@ export default function Settings() {
         try {
           const editable = await userService.canEditProfile(session.user.id);
           if (isMounted) {
-            setIsProfileEditable(editable);
+            setCanEditProfile(editable);
           }
         } catch (error) {
           console.error("Não foi possível verificar a permissão de edição do perfil:", error);
           if (isMounted) {
-            setIsProfileEditable(!session.user.externalId);
+            setCanEditProfile(!session.user.externalId);
           }
         } finally {
           if (isMounted) {
@@ -120,7 +120,7 @@ export default function Settings() {
         }
       } else {
         if (isMounted) {
-          setIsProfileEditable(false);
+          setCanEditProfile(false);
           setIsCheckingProfileAccess(false);
         }
       }
