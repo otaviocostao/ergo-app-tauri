@@ -39,10 +39,13 @@ pub fn continue_offline(auth_state: State<'_, AuthState>) -> Result<Session, Aut
 
 #[tauri::command]
 pub fn logout(
+    state: State<'_, AppState>,
     auth_state: State<'_, AuthState>,
     typing_monitor: State<'_, TypingMonitorControl>,
 ) -> Result<(), AuthError> {
-    auth_service::logout(&auth_state)?;
-    let _ = typing_monitor.clear_all();
-    Ok(())
+    let conn = state.db.lock().map_err(|_| AuthError::internal())?;
+    typing_monitor
+        .clear_all(&conn)
+        .map_err(|_| AuthError::internal())?;
+    auth_service::logout(&auth_state)
 }
