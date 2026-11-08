@@ -200,20 +200,25 @@ Para que o usuário saiba quanto tempo pode ficar sem digitar e quando o risco a
    - Se `posturalAnalysis` e `ocularAnalysis` estiverem desativados, mas `typingAnalysis` estiver ativo: **a webcam permanece desligada**, nenhum snapshot ou alerta postural é gerado, porém a `MonitoringSession` é aberta e encerrada normalmente para que o backend Rust associe todas as snapshots de teclado daquele período à sessão ativa do usuário.
    - Se **ambos** (`posturalAnalysis` e `typingAnalysis`) estiverem desativados, nenhuma sessão é aberta no banco para evitar sessões vazias.
 3. **Troca ou Encerramento de Sessão**:
-   - Hooks nos comandos `start_monitoring_session`, `end_monitoring_session` e `delete_monitoring_session` notificam `TypingMonitorControl::refresh_context`.
-   - Ao detectar mudança de `session_id` (ou encerramento para `None`), o agregador de teclado é reiniciado automaticamente para que métricas de uma sessão anterior nunca vazem para uma nova sessão.
+   - Os comandos de início e encerramento associam ou desassociam a sessão em `TypingMonitorControl`. Excluir uma sessão também remove seus snapshots pela chave estrangeira com `ON DELETE CASCADE`.
+   - Ao encerrar a sessão, desligar o módulo de digitação ou sair da conta, o backend interrompe a captura, incorpora as teclas pendentes e salva a janela incompleta com sua duração efetiva antes de limpar o agregador. Janelas parciais sem teclas não geram um registro.
+   - Uma falha de gravação é devolvida ao comando e mantém os agregados disponíveis para uma nova tentativa. O worker também salva a janela antes de limpar o estado quando detecta mudança de autenticação ou desativação do módulo.
+   - O logout salva as métricas antes de remover a autenticação, mantendo o lock do banco durante essa sequência. Repetir o encerramento após uma gravação bem-sucedida não duplica o snapshot.
+4. **Duração da Sessão Compartilhada**:
+   - O tempo exibido e `monitoring_sessions.duration_seconds` usam o mesmo relógio monotônico, baseado no início salvo da sessão. Ligar ou desligar a postura preserva esse relógio e o identificador da sessão quando a digitação continua ativa.
+   - A duração é congelada no momento de encerrar; esperas de gravação e novas tentativas não acrescentam tempo à sessão. Scores e percentuais de postura continuam calculados somente sobre amostras posturais válidas.
 
 ### 5.5 Condições de Ativação, Pausa, Câmera, Módulos (`RN-14`) e Autenticação
 O monitor de teclado só contabiliza teclas e avança ticks quando **todas as 4 condições abaixo** são verdadeiras simultaneamente:
 1. **Usuário autenticado (`Session::User(user_id)`)**: visitantes (`Guest`) ou estado deslogado (`Anonymous` / após `logout`) mantêm o monitor bloqueado e zerado.
-2. **Módulo `Module::TypingAnalysis` ativo em `settings` (`RN-14`)**: alterações em `update_settings`, `set_module_enabled` ou `delete_settings` acionam `refresh_context` na mesma hora. Com o módulo inativo, nenhuma tecla é contada, nenhuma snapshot é gravada e o card exibe `"Módulo inativo"`.
+2. **Módulo `Module::TypingAnalysis` ativo em `settings` (`RN-14`)**: alterações em `update_settings`, `set_module_enabled` ou `delete_settings` sincronizam `TypingMonitorControl` na mesma hora. A desativação salva a janela já coletada; com o módulo inativo, nenhuma tecla nova é contada, nenhuma janela nova avança e o card exibe `"Módulo inativo"`.
 3. **Sessão de monitoramento aberta (`ended_at IS NULL`)** para o `user_id` autenticado.
 4. **Não pausado manualmente (`paused == false`)**.
 
 Regras adicionais de interação com a tela:
 - **Independência de Ausência/Oclusão na Câmera**: quando o `WebcamFeed` detecta `ABSENT` (usuário fora do enquadramento > 5s), `PARTIALLY_OCCLUDED` ou câmera ocupada por Meet/Teams (`isHardwareBusy`), apenas as métricas visuais são pausadas. O monitoramento de digitação **continua ativo**, pois o usuário pode estar usando um monitor lateral, com a tampa da webcam fechada ou temporariamente fora do ângulo óptico enquanto digita.
 - **Pausa Manual e Calibração**: pausar o monitoramento pelo botão principal (`!isMonitoring`) ou abrir o modal de calibração (`isCalibrationOpen`) envia `set_typing_monitoring_paused({ paused: true })` ao backend, congelando o estado e exibindo o badge `"Em pausa"`.
-- **Descarte de Teclas Durante Inatividade**: sempre que qualquer uma das 4 condições acima é falsa, o worker drena e descarta `pending_keystrokes.swap(0)` e mantém `capture_enabled = false`, garantindo que teclas digitadas durante uma pausa nunca sejam somadas de uma vez ao retomar.
+- **Teclas Pendentes e Inatividade**: a captura é interrompida antes de drenar o contador atômico. As teclas já coletadas são incorporadas à janela anterior antes de pausá-la ou salvá-la; teclas digitadas enquanto `capture_enabled = false` não são contabilizadas ao retomar.
 - **Continuidade na Bandeja do Sistema (*System Tray*)**: ao fechar a janela principal no `X`, o aplicativo apenas oculta a WebView (`window.hide()` em `system_tray.rs`). Como as threads `typing-input-listener` e `typing-monitor-worker` pertencem ao processo Rust e a `MonitoringSession` continua aberta no SQLite, a contagem e a gravação de snapshots de 60s seguem ininterruptas até o usuário encerrar pelo menu *"Sair"* da bandeja (`RunEvent::Exit` executa `typing_monitor.stop()`).
 
 ---
