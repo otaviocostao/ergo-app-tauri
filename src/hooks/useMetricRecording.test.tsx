@@ -379,36 +379,97 @@ describe("useMetricRecording IPC lifecycle", () => {
     clearInterval(frameTimer);
     await render(false, false, 7, false);
     expect(recorder.status).toBe("idle");
+    expect(ipc.invoke).toHaveBeenCalledWith("end_monitoring_session", {
+      payload: expect.objectContaining({
+        id: "session-1", durationSeconds: 65, averageScore: 0,
+        goodPosturePercentage: 0, warningPosturePercentage: 0, dangerPosturePercentage: 0,
+      }),
+    });
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps the elapsed session clock when posture is enabled after typing-only monitoring", async () => {
+    await render(true, false, 7, false);
+    await advance(65_000);
+    expect(recorder.elapsedSeconds).toBe(65);
+    await render(true, false, 7, true);
+    expect(recorder.elapsedSeconds).toBe(65);
+    await advance(5_000);
+    expect(recorder.elapsedSeconds).toBe(70);
+    expect(commands().filter(command => command === "start_monitoring_session")).toHaveLength(1);
+    await render(false, false, 7, true);
+    expect(ipc.invoke).toHaveBeenCalledWith("end_monitoring_session", {
+      payload: expect.objectContaining({ id: "session-1", durationSeconds: 70 }),
+    });
+  });
+
+  it("freezes the shared duration on stop despite queued writes and a later close retry", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => { });
+    let finishWrite!: () => void;
+    const pendingWrite = new Promise<void>(resolve => { finishWrite = resolve; });
+    const implementation = ipc.invoke.getMockImplementation()!;
+    let failEnd = true;
+    ipc.invoke.mockImplementation((command: string, args?: { payload?: unknown }) => {
+      if (command === "record_metric_snapshot") return pendingWrite;
+      if (command === "end_monitoring_session" && failEnd) {
+        failEnd = false;
+        return Promise.reject(new Error("database busy"));
+      }
+      return implementation(command, args);
+    });
+    await render(); feed(); await advance(65_000);
+    clearInterval(frameTimer);
+    await render(false);
+    await advance(10_000);
+    await act(async () => finishWrite());
+    expect(recorder.status).toBe("error");
+    await advance(10_000);
+    await act(async () => recorder.retry());
+    const ends = ipc.invoke.mock.calls.filter(([command]) => command === "end_monitoring_session");
+    expect(ends).toHaveLength(2);
+    expect(ends[0][1].payload).toMatchObject({ id: "session-1", durationSeconds: 65 });
+    expect(ends[1][1]).toEqual(ends[0][1]);
   });
 
   it("toggles posture recording on and off without ending or recreating the shared session", async () => {
     await render(true, false, 7, true);
     feed("danger");
     await advance(21_000);
+    expect(recorder.elapsedSeconds).toBe(21);
     expect(commands().filter(command => command === "record_posture_alert")).toHaveLength(1);
 
     // Turning posture off resolves the open alert episode and keeps the same session open.
     await render(true, false, 7, false);
+    expect(recorder.elapsedSeconds).toBe(21);
     expect(commands().filter(command => command === "resolve_posture_alert")).toHaveLength(1);
     expect(commands().filter(command => command === "end_monitoring_session")).toHaveLength(0);
     expect(commands().filter(command => command === "start_monitoring_session")).toHaveLength(1);
 
     // Minute 1 had 21s of valid samples before posture was disabled, so its partial summary is preserved.
     await advance(39_000);
+    expect(recorder.elapsedSeconds).toBe(60);
     expect(commands().filter(command => command === "record_metric_snapshot")).toHaveLength(1);
 
     // Minute 2 has recordPosture = false for the entire window: no empty posture snapshot is saved.
     await advance(60_000);
+    expect(recorder.elapsedSeconds).toBe(120);
     expect(commands().filter(command => command === "record_metric_snapshot")).toHaveLength(1);
 
     // Turning posture back on resumes recording into the same session-1.
     await render(true, false, 7, true);
+    expect(recorder.elapsedSeconds).toBe(120);
     await advance(60_000);
+    expect(recorder.elapsedSeconds).toBe(180);
     const snapshots = ipc.invoke.mock.calls.filter(([command]) => command === "record_metric_snapshot");
     expect(snapshots).toHaveLength(2);
     expect(snapshots[1][1].payload).toMatchObject({ sessionId: "session-1" });
     expect(commands().filter(command => command === "start_monitoring_session")).toHaveLength(1);
     expect(commands().filter(command => command === "end_monitoring_session")).toHaveLength(0);
+    await render(false, false, 7, true);
+    expect(ipc.invoke).toHaveBeenCalledWith("end_monitoring_session", {
+      payload: expect.objectContaining({
+        id: "session-1", durationSeconds: 180, averageScore: 67.5, dangerPosturePercentage: 100,
+      }),
+    });
   });
 });
