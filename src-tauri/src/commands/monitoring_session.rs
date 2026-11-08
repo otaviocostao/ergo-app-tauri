@@ -33,7 +33,7 @@ pub fn end_monitoring_session(
     let session_id = payload.id.clone();
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let ended = monitoring_session_service::end_monitoring_session(&conn, payload)?;
-    let _ = typing_monitor.detach_session(&conn, &session_id);
+    typing_monitor.detach_session(&conn, &session_id)?;
     Ok(ended)
 }
 
@@ -73,7 +73,7 @@ pub fn delete_monitoring_session(
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let deleted = monitoring_session_service::delete_monitoring_session(&conn, &id)?;
     if deleted {
-        let _ = typing_monitor.detach_session(&conn, &id);
+        typing_monitor.detach_session(&conn, &id)?;
     }
     Ok(deleted)
 }
