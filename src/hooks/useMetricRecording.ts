@@ -31,7 +31,8 @@ export function waitForRecordingWrites(): Promise<void> {
 /**
  * Persists a monitoring session shared by active analysis modules (posture + typing),
  * recording 60s posture aggregate snapshots and confirmed posture alert episodes when
- * `recordPosture` is enabled.
+ * `recordPosture` is enabled. Session duration follows the same monotonic clock for
+ * every module; posture scores and percentages still use only valid posture samples.
  */
 export function useMetricRecording(
   enabled: boolean,
@@ -73,10 +74,16 @@ export function useMetricRecording(
     let closed = false;
     let sessionId: string | null = null;
     let recorder: Recorder | null = null;
+    let startedAtMs: number | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let writes = Promise.resolve();
     const openAlertIds = new Map<PostureMetric, string | null>();
     const resolutions = new Map<string, AlertResolution>();
+
+    // The shared session clock does not depend on available posture measurements.
+    const sessionElapsedSeconds = (now: number) => startedAtMs === null
+      ? 0
+      : Math.max(0, Math.floor((now - startedAtMs) / 1000));
 
     const publish = (next: RecordingStatus, message: string | null = null) => {
       if (mountedRef.current && ownerRef.current === userId && generationRef.current === generation) {
@@ -138,7 +145,7 @@ export function useMetricRecording(
 
       const storedStart = Date.parse(session?.startedAt ?? "");
       const startedAtEpochMs = Number.isFinite(storedStart) ? storedStart : Date.now();
-      const startedAtMs = performance.now() - Math.max(0, Date.now() - startedAtEpochMs);
+      startedAtMs = performance.now() - Math.max(0, Date.now() - startedAtEpochMs);
 
       recorder = {
         aggregation: new MetricAggregation({
@@ -175,12 +182,7 @@ export function useMetricRecording(
 
       const updateElapsed = (now: number) => {
         if (cancelled || !recorder) return;
-        const postureSeconds = recorder.aggregation.sessionSummary().durationSeconds ?? 0;
-        setElapsedSeconds(
-          recordPostureRef.current
-            ? postureSeconds
-            : Math.max(postureSeconds, Math.max(0, Math.floor((now - startedAtMs) / 1000))),
-        );
+        setElapsedSeconds(sessionElapsedSeconds(now));
       };
 
       const syncPosture = (enabledPosture: boolean) => {
@@ -226,6 +228,8 @@ export function useMetricRecording(
       recorder?.aggregation.pause();
       recorder?.episodes.pause();
       const endedAt = new Date().toISOString();
+      // Freeze the duration before pending writes or a failed close can delay persistence.
+      const durationSeconds = sessionElapsedSeconds(performance.now());
       publish(RecordingStatus.ENDING);
 
       const close = async () => {
@@ -243,7 +247,7 @@ export function useMetricRecording(
             durationSeconds: 0, averageScore: 0, goodPosturePercentage: 0,
             warningPosturePercentage: 0, dangerPosturePercentage: 0,
           };
-          const session = await monitoringSessionService.endSession({ id: sessionId, endedAt, ...summary });
+          const session = await monitoringSessionService.endSession({ id: sessionId, endedAt, ...summary, durationSeconds });
           notifySessionHistoryUpdated({ userId, sessionId, session: session ?? undefined });
         }
         closed = true;
