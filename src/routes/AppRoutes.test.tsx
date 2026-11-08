@@ -83,6 +83,7 @@ describe("monitoring across authenticated routes", () => {
   async function publish(from: number, through: number) {
     await act(async () => {
       for (let timestampMs = from; timestampMs <= through; timestampMs += 100) {
+        vi.mocked(performance.now).mockReturnValue(timestampMs);
         view.feed!.onClassificationUpdate!(classifyPosture({
           timestampMs, captureId: 1, neckAngle: 10, shoulderAngle: 2, distanceCm: 60, blinkRate: null,
         }, baseline));
