@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
+import Button from "../components/Button";
 import Header from "../components/Header";
+import { useSyncTopbarMonitoring } from "../components/Topbar";
 import WebcamFeed from "../components/monitoring/WebcamFeed";
 import ErgoMetricsCard from "../components/monitoring/ErgoMetricsCard";
 import KeyboardMonitorCard from "../components/monitoring/KeyboardMonitorCard";
@@ -28,8 +30,8 @@ import {
   Sliders,
   UserCheck,
   Eye,
-  Volume2,
-  VolumeX,
+  Play,
+  Square,
 } from "lucide-react";
 
 import type { UserPresenceState } from "../types/vision";
@@ -92,7 +94,6 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
   const [calibration, setCalibration] = useState<PostureCalibrationDTO | null>(null);
   const [sessionBlinkCount, setSessionBlinkCount] = useState(0);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
-  const [soundAlerts, setSoundAlerts] = useState(true);
   const [ocularMetrics, setOcularMetrics] = useState<OcularMetrics | null>(null);
   const distanceCm = ocularMetrics?.distanceCm ?? null;
   const [classification, setClassification] = useState<PostureClassification | null>(null);
@@ -132,7 +133,7 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
     isPaused: typingPaused,
   });
   const captureEnabled = isMonitoring && !isCalibrationOpen && cameraModulesEnabled &&
-  (!(posturalEnabled || typingEnabled) || recording.status === RecordingStatus.ACTIVE);
+    (!(posturalEnabled || typingEnabled) || recording.status === RecordingStatus.ACTIVE);
   monitoringContextRef.current = { enabled: captureEnabled, userId, modules: moduleSettings };
 
   const toggleMonitoring = () => {
@@ -370,6 +371,7 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
   const neckDeviation = neck?.value ?? null;
   const shoulderDeviation = shoulders?.value ?? null;
   const calibratedShoulderBalance = getShoulderBalance(shoulderDeviation);
+  useSyncTopbarMonitoring(isMonitoring, recording.status);
 
   return (
     <div className="w-full h-full flex flex-col gap-6 pb-8">
@@ -378,17 +380,29 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
         subtitle="Supervisão contínua em tempo real da sua postura corporal e atividade no computador"
         action={
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setSoundAlerts(!soundAlerts)}
-              className={`p-2 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors ${soundAlerts
-                ? "bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200"
-                : "bg-slate-100/50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-400"
-                }`}
-              title={soundAlerts ? "Desativar alertas sonoros" : "Ativar alertas sonoros"}
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={toggleMonitoring}
+              disabled={recording.status === RecordingStatus.STARTING || recording.status === RecordingStatus.ENDING}
+              isLoading={recording.status === RecordingStatus.STARTING || recording.status === RecordingStatus.ENDING}
             >
-              {soundAlerts ? <Volume2 size={16} className="text-primary-500" /> : <VolumeX size={16} />}
-              <span className="hidden md:inline">{soundAlerts ? "Som Ativo" : "Som Mudo"}</span>
-            </button>
+              {recording.status === RecordingStatus.STARTING ? (
+                "Iniciando Monitoramento"
+              ) : recording.status === RecordingStatus.ENDING ? (
+                "Encerrando Monitoramento"
+              ) : recording.status === RecordingStatus.ERROR ? (
+                "Tentar Novamente"
+              ) : isMonitoring ? (
+                <>
+                  <Square size={16} /> Encerrar Monitoramento
+                </>
+              ) : (
+                <>
+                  <Play size={16} /> Iniciar Monitoramento
+                </>
+              )}
+            </Button>
           </div>
         }
       />
@@ -409,7 +423,6 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
             classificationConfig={classificationConfig}
             moduleSettings={moduleSettings}
             onClassificationUpdate={handleClassificationUpdate}
-            onToggleMonitoring={toggleMonitoring}
             onCalibrate={() => setIsCalibrationOpen(true)}
             onPostureUpdate={handlePostureUpdate}
             onPresenceChange={handlePresenceChange}

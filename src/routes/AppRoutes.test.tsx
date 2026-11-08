@@ -28,7 +28,6 @@ vi.mock("../auth/AuthContext", () => ({
 vi.mock("../theme/ThemeContext", () => ({ useTheme: () => ({ isInitializing: false }) }));
 vi.mock("../theme/ThemeFeedback", () => ({ default: () => null }));
 vi.mock("../components/Sidebar", () => ({ default: () => null }));
-vi.mock("../components/Topbar", () => ({ default: () => null }));
 vi.mock("../pages/Dashboard", () => ({ default: () => <p>Início de teste</p> }));
 vi.mock("../pages/Settings", () => ({ default: () => <p>Configurações de teste</p> }));
 vi.mock("../pages/Reports", () => ({ default: () => null }));
@@ -36,14 +35,18 @@ vi.mock("../pages/Reminders", () => ({ default: () => null }));
 vi.mock("../pages/Login", () => ({ default: () => <p>Login de teste</p> }));
 vi.mock("../pages/Register", () => ({ default: () => null }));
 vi.mock("../components/auth/AuthLayout", () => ({ default: () => <p>Área de acesso</p> }));
-vi.mock("../components/monitoring/WebcamFeed", () => ({ default: (props: WebcamFeedProps) => {
-  view.feed = props;
-  return <video data-testid="monitoring-camera" />;
-} }));
-vi.mock("../components/monitoring/WorkspaceCalibrationModal", () => ({ default: (props: WorkspaceCalibrationModalProps) => {
-  view.modal = props;
-  return null;
-} }));
+vi.mock("../components/monitoring/WebcamFeed", () => ({
+  default: (props: WebcamFeedProps) => {
+    view.feed = props;
+    return <video data-testid="monitoring-camera" />;
+  }
+}));
+vi.mock("../components/monitoring/WorkspaceCalibrationModal", () => ({
+  default: (props: WorkspaceCalibrationModalProps) => {
+    view.modal = props;
+    return null;
+  }
+}));
 vi.mock("../components/monitoring/KeyboardMonitorCard", () => ({ default: () => null }));
 
 const baseline: PostureCalibrationDTO = {
@@ -73,7 +76,9 @@ describe("monitoring across authenticated routes", () => {
     await act(async () => { link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 })); });
   }
   async function toggle() {
-    await act(async () => view.feed!.onToggleMonitoring!());
+    const button = [...container.querySelectorAll("button")].find(item =>
+      item.textContent?.includes("Monitoramento") || item.textContent?.includes("Tentar Novamente"))!;
+    await act(async () => button.click());
   }
   async function publish(from: number, through: number) {
     await act(async () => {
@@ -149,14 +154,27 @@ describe("monitoring across authenticated routes", () => {
       webCam: "camera-1", createdAt: "", updatedAt: "",
     };
     ipc.invoke.mockImplementation(async (command: string, args?: { payload?: Record<string, unknown> }) => {
-      if (command === "get_settings") return settings;
+      if (command === "get_settings") {
+        return settings;
+      }
+
       if (command === "set_module_enabled") {
-        const field = args?.payload?.module === Module.POSTURAL_ANALYSIS ? "posturalAnalysis" : "ocularAnalysis";
+        const field = args?.payload?.module === Module.POSTURAL_ANALYSIS
+          ? "posturalAnalysis"
+          : args?.payload?.module === Module.OCULAR_ANALYSIS
+            ? "ocularAnalysis"
+            : "typingAnalysis";
         settings = { ...settings, [field]: args?.payload?.enabled };
         return settings;
       }
-      if (command === "update_settings") { settings = { ...settings, ...args?.payload }; return settings; }
-      if (command === "start_monitoring_session") return { id: `session-${calls(command).length}` };
+      if (command === "update_settings") {
+        settings = { ...settings, ...args?.payload }; return settings;
+      }
+
+      if (command === "start_monitoring_session") {
+        return { id: `session-${calls(command).length}` };
+      }
+
       return args?.payload;
     });
     await render(); await navigate("Monitorar"); await toggle();
@@ -168,11 +186,13 @@ describe("monitoring across authenticated routes", () => {
     expect(calls("start_monitoring_session")).toHaveLength(1);
     expect(calls("end_monitoring_session")).toHaveLength(0);
     await act(async () => { await settingsService.setModuleEnabled(Module.POSTURAL_ANALYSIS, false); });
-    expect(calls("end_monitoring_session")).toHaveLength(1);
-    expect(view.feed!.isMonitoring).toBe(true); // Ocular capture continues without a posture session.
+    expect(calls("end_monitoring_session")).toHaveLength(0);
+    expect(view.feed!.isMonitoring).toBe(true);
     expect(view.feed!.moduleSettings?.posturalAnalysis).toBe(false);
     await act(async () => { await settingsService.setModuleEnabled(Module.OCULAR_ANALYSIS, false); });
     expect(view.feed!.isMonitoring).toBe(false);
+    await act(async () => { await settingsService.setModuleEnabled(Module.TYPING_ANALYSIS, false); });
+    expect(calls("end_monitoring_session")).toHaveLength(1);
     await act(async () => { await settingsService.setModuleEnabled(Module.POSTURAL_ANALYSIS, true); });
     expect(view.feed!.isMonitoring).toBe(true);
     expect(calls("start_monitoring_session")).toHaveLength(2);

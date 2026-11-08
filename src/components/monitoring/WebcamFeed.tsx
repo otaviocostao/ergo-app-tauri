@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
-  Video,
   VideoOff,
   Crosshair,
   AlertCircle,
@@ -34,13 +33,12 @@ export type { UserPresenceState };
 
 export interface WebcamFeedProps {
   isMonitoring: boolean;
-  /** Why the camera is off regardless of the user's toggle; hides the start and calibrate actions. */
+  /** Why the camera is off regardless of the user's toggle; hides the calibrate action. */
   disabledMessage?: string | null;
   /** Saved default webcam; used whenever it is connected, otherwise the first camera. */
   preferredDeviceId?: string | null;
   /** Called only when the user picks a camera in the select, never for automatic choices. */
   onDeviceSelect?: (deviceId: string) => void;
-  onToggleMonitoring?: () => void;
   recordingStatus?: RecordingStatus;
   onCalibrate?: () => void;
   onPostureUpdate?: (metrics: {
@@ -98,7 +96,6 @@ export default function WebcamFeed({
   disabledMessage = null,
   preferredDeviceId = null,
   onDeviceSelect,
-  onToggleMonitoring,
   recordingStatus,
   onCalibrate,
   onPostureUpdate,
@@ -1031,40 +1028,17 @@ export default function WebcamFeed({
           </div>
         )}
 
-        {(onToggleMonitoring || onCalibrate) && !disabledMessage && (
-          <div className="absolute bottom-4 flex items-center justify-center gap-2 z-20">
-            {onToggleMonitoring && (
-              <Button
-                variant="primary"
-                size="md"
-                onClick={onToggleMonitoring}
-                disabled={recordingStatus === RecordingStatus.STARTING || recordingStatus === RecordingStatus.ENDING}
-                isLoading={recordingStatus === RecordingStatus.STARTING || recordingStatus === RecordingStatus.ENDING}
-                className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white  backdrop-blur-md transition-all shadow-lg"
-              >
-                  { recordingStatus === RecordingStatus.STARTING ? "Iniciando Monitoramento" : recordingStatus === RecordingStatus.ENDING ? "Encerrando Monitoramento" : recordingStatus === RecordingStatus.ERROR ? "Tentar Novamente" : isMonitoring ? (
-                    <>
-                      <VideoOff size={16} /> Encerrar Monitoramento
-                    </>
-                  ) : (
-                    <>
-                      <Video size={16} /> Iniciar Monitoramento
-                    </>
-                  )}
-              </Button>
-            )}
-
-            {onCalibrate && (
-              <Button
-                size="md"
-                onClick={onCalibrate}
-                disabled={recordingStatus === RecordingStatus.STARTING || recordingStatus === RecordingStatus.ENDING || recordingStatus === RecordingStatus.ERROR}
-                className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white backdrop-blur-md transition-all shadow-lg"
-              >
-                <Crosshair size={14} />
-                Calibrar Postura Base
-              </Button>
-            )}
+        {onCalibrate && !disabledMessage && (
+          <div className="absolute bottom-4 right-4 flex items-center justify-end gap-2 z-20">
+            <Button
+              size="md"
+              onClick={onCalibrate}
+              disabled={recordingStatus === RecordingStatus.STARTING || recordingStatus === RecordingStatus.ENDING || recordingStatus === RecordingStatus.ERROR}
+              className="bg-slate-900/90 hover:bg-slate-800 active:bg-slate-800 text-white backdrop-blur-md transition-all shadow-lg"
+            >
+              <Crosshair size={14} />
+              Calibrar Postura Base
+            </Button>
           </div>
         )}
       </div>
