@@ -413,6 +413,35 @@ impl TypingMonitorControl {
         }
     }
 
+    /// Call while holding the database and session locks, before clearing any session data.
+    fn flush_partial_window(
+        &self,
+        conn: &Connection,
+        state: &mut TypingMonitorSessionState,
+        now_utc: DateTime<Utc>,
+    ) -> Result<(), String> {
+        self.inner.capture_enabled.store(false, Ordering::Relaxed);
+        let pending = self.inner.pending_keystrokes.swap(0, Ordering::Relaxed);
+        let Some(session_id) = state.session_id.as_deref() else {
+            return Ok(());
+        };
+        state.aggregator.fold_pending_keystrokes(pending);
+
+        // A failed write must retain the complete window for the next attempt.
+        let mut flushed = state.aggregator.clone();
+        if let Some(payload) = flushed.flush_partial(session_id, now_utc) {
+            // Explicit session deletion intentionally discards its associated metrics.
+            if monitoring_session_repository::find_by_id(conn, session_id)
+                .map_err(|error| error.to_string())?
+                .is_some()
+            {
+                typing_metric_snapshot_service::record_typing_snapshot(conn, payload)?;
+            }
+        }
+        state.aggregator = flushed;
+        Ok(())
+    }
+
     pub fn attach_session(
         &self,
         user_id: Option<i64>,
@@ -463,24 +492,17 @@ impl TypingMonitorControl {
         session_id: &str,
         now_utc: DateTime<Utc>,
     ) -> Result<LiveTypingMetrics, String> {
-        let (partial_snapshot, live, changed) = {
+        let (live, changed) = {
             let mut state = self
                 .inner
                 .session_state
                 .lock()
                 .map_err(|_| "Failed to lock typing monitor state".to_string())?;
 
-            let mut partial_snapshot = None;
             if state.session_id.as_deref() == Some(session_id) {
-                if state.is_actively_capturing() {
-                    let pending = self.inner.pending_keystrokes.swap(0, Ordering::Relaxed);
-                    state.aggregator.fold_pending_keystrokes(pending);
-                }
+                state.is_paused = true;
+                self.flush_partial_window(conn, &mut state, now_utc)?;
 
-                if state.module_enabled {
-                    partial_snapshot = state.aggregator.flush_partial(session_id, now_utc);
-                }
-                
                 state.session_id = None;
                 state.user_id = None;
                 state.is_paused = false;
@@ -493,23 +515,14 @@ impl TypingMonitorControl {
             if changed {
                 state.last_emitted = Some(live.clone());
             }
-            (partial_snapshot, live, changed)
+            (live, changed)
         };
-
-        if let Some(payload) = partial_snapshot {
-            if monitoring_session_repository::find_by_id(conn, &payload.session_id)
-                .map_err(|e| e.to_string())?
-                .is_some()
-            {
-                typing_metric_snapshot_service::record_typing_snapshot(conn, payload)?;
-            }
-        }
 
         self.emit_if_changed(&live, changed);
         Ok(live)
     }
 
-    pub fn clear_all(&self) -> Result<LiveTypingMetrics, String> {
+    pub fn clear_all(&self, conn: &Connection) -> Result<LiveTypingMetrics, String> {
         let (live, changed) = {
             let mut state = self
                 .inner
@@ -517,6 +530,8 @@ impl TypingMonitorControl {
                 .lock()
                 .map_err(|_| "Failed to lock typing monitor state".to_string())?;
 
+            state.module_enabled = false;
+            self.flush_partial_window(conn, &mut state, Utc::now())?;
             state.session_id = None;
             state.user_id = None;
             state.is_paused = false;
@@ -536,7 +551,7 @@ impl TypingMonitorControl {
         Ok(live)
     }
 
-    pub fn on_module_disabled(&self) -> Result<LiveTypingMetrics, String> {
+    pub fn on_module_disabled(&self, conn: &Connection) -> Result<LiveTypingMetrics, String> {
         let (live, changed) = {
             let mut state = self
                 .inner
@@ -545,6 +560,7 @@ impl TypingMonitorControl {
                 .map_err(|_| "Failed to lock typing monitor state".to_string())?;
 
             state.module_enabled = false;
+            self.flush_partial_window(conn, &mut state, Utc::now())?;
             state.aggregator.reset();
 
             self.sync_atomic_gate(&state);
@@ -600,6 +616,7 @@ impl TypingMonitorControl {
                 .map_err(|_| "Failed to lock typing monitor state".to_string())?;
 
             if paused && state.is_actively_capturing() {
+                self.inner.capture_enabled.store(false, Ordering::Relaxed);
                 let pending = self.inner.pending_keystrokes.swap(0, Ordering::Relaxed);
                 state.aggregator.fold_pending_keystrokes(pending);
             }
@@ -648,16 +665,20 @@ impl TypingMonitorControl {
                 .lock()
                 .map_err(|_| "Failed to lock typing monitor state".to_string())?;
 
-            state.module_enabled = has_valid_auth && module_enabled;
-
             if !has_valid_auth || state.user_id != auth_user_id {
+                state.module_enabled = false;
+                self.flush_partial_window(conn, &mut state, now_utc)?;
                 state.session_id = None;
                 state.user_id = None;
                 state.is_paused = false;
                 state.aggregator.reset();
             } else if !module_enabled {
+                state.module_enabled = false;
+                self.flush_partial_window(conn, &mut state, now_utc)?;
                 state.aggregator.reset();
             }
+
+            state.module_enabled = has_valid_auth && module_enabled;
 
             let snapshot_payload = if state.is_actively_capturing() {
                 self.inner.capture_enabled.store(true, Ordering::Relaxed);
@@ -825,12 +846,7 @@ fn run_windows_raw_input_listener(
             dwFlags: RIDEV_INPUTSINK,
             hwndTarget: hwnd,
         };
-        if RegisterRawInputDevices(
-            &device,
-            1,
-            std::mem::size_of::<RAWINPUTDEVICE>() as u32,
-        ) == 0
-        {
+        if RegisterRawInputDevices(&device, 1, std::mem::size_of::<RAWINPUTDEVICE>() as u32) == 0 {
             eprintln!("Failed to register raw input keyboard sink");
             let _ = DestroyWindow(hwnd);
             return;
@@ -1156,7 +1172,9 @@ mod tests {
 
         for sec in 0..60 {
             control.add_simulated_keystrokes(3);
-            control.poll_tick(&conn, &auth_state, utc_at(0, sec)).unwrap();
+            control
+                .poll_tick(&conn, &auth_state, utc_at(0, sec))
+                .unwrap();
         }
 
         let saved =
@@ -1176,12 +1194,14 @@ mod tests {
             },
         )
         .unwrap();
-        control.on_module_disabled().unwrap();
+        control.on_module_disabled(&conn).unwrap();
         assert!(!control.is_capture_enabled());
 
         for sec in 0..60 {
             control.add_simulated_keystrokes(5);
-            control.poll_tick(&conn, &auth_state, utc_at(1, sec)).unwrap();
+            control
+                .poll_tick(&conn, &auth_state, utc_at(1, sec))
+                .unwrap();
         }
 
         let saved_after_disable =
@@ -1210,7 +1230,7 @@ mod tests {
         assert_eq!(control.get_live_metrics().unwrap().total_keystrokes, 10);
 
         auth_service::logout(&auth_state).unwrap();
-        control.clear_all().unwrap();
+        control.clear_all(&conn).unwrap();
         assert!(!control.is_capture_enabled());
 
         control.add_simulated_keystrokes(10);
@@ -1219,6 +1239,214 @@ mod tests {
         assert_eq!(live_logged_out.session_id, None);
         assert!(!live_logged_out.is_monitoring_active);
         assert_eq!(live_logged_out.total_keystrokes, 0);
+    }
+
+    #[test]
+    fn disabling_module_flushes_partial_window_and_pending_keys_once() {
+        let (conn, auth_state, user_id) = setup_test_env();
+        let control = TypingMonitorControl::new_for_tests();
+        control
+            .attach_session(Some(user_id), "session-1".to_string(), true)
+            .unwrap();
+        for sec in 0..20 {
+            control.add_simulated_keystrokes(if sec < 15 { 3 } else { 0 });
+            control
+                .poll_tick(&conn, &auth_state, utc_at(0, sec))
+                .unwrap();
+        }
+        control.add_simulated_keystrokes(4);
+        settings_service::set_module_enabled(
+            &conn,
+            &auth_state,
+            SetModuleEnabledPayload {
+                module: Module::TypingAnalysis,
+                enabled: false,
+            },
+        )
+        .unwrap();
+
+        control.on_module_disabled(&conn).unwrap();
+        assert!(!control.is_capture_enabled());
+        assert_eq!(control.get_live_metrics().unwrap().total_keystrokes, 0);
+        control.on_module_disabled(&conn).unwrap();
+        control
+            .poll_tick(&conn, &auth_state, utc_at(0, 21))
+            .unwrap();
+        control
+            .detach_session_at(&conn, "session-1", utc_at(0, 22))
+            .unwrap();
+
+        let saved =
+            typing_metric_snapshot_service::get_typing_snapshots_by_session(&conn, "session-1")
+                .unwrap();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].keystrokes_count, 49);
+        assert_eq!(saved[0].window_duration_seconds, 21);
+    }
+
+    #[test]
+    fn logout_flushes_paused_partial_window_before_clearing_the_session() {
+        let (conn, auth_state, user_id) = setup_test_env();
+        let control = TypingMonitorControl::new_for_tests();
+        control
+            .attach_session(Some(user_id), "session-1".to_string(), true)
+            .unwrap();
+        for sec in 0..20 {
+            control.add_simulated_keystrokes(if sec < 15 { 3 } else { 0 });
+            control
+                .poll_tick(&conn, &auth_state, utc_at(0, sec))
+                .unwrap();
+        }
+        control.add_simulated_keystrokes(4);
+        control.set_paused(true).unwrap();
+        control.clear_all(&conn).unwrap();
+        auth_service::logout(&auth_state).unwrap();
+        assert!(!control.is_capture_enabled());
+        assert_eq!(control.get_live_metrics().unwrap().session_id, None);
+
+        control.clear_all(&conn).unwrap();
+        control
+            .poll_tick(&conn, &auth_state, utc_at(0, 21))
+            .unwrap();
+        control
+            .detach_session_at(&conn, "session-1", utc_at(0, 22))
+            .unwrap();
+        let saved =
+            typing_metric_snapshot_service::get_typing_snapshots_by_session(&conn, "session-1")
+                .unwrap();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].keystrokes_count, 49);
+    }
+
+    #[test]
+    fn worker_flushes_partial_windows_when_access_changes_without_a_command() {
+        for logout in [false, true] {
+            let (conn, auth_state, user_id) = setup_test_env();
+            let control = TypingMonitorControl::new_for_tests();
+            control
+                .attach_session(Some(user_id), "session-1".to_string(), true)
+                .unwrap();
+            control.add_simulated_keystrokes(45);
+            control.poll_tick(&conn, &auth_state, utc_at(0, 0)).unwrap();
+            control.add_simulated_keystrokes(4);
+            if logout {
+                auth_service::logout(&auth_state).unwrap();
+            } else {
+                settings_service::set_module_enabled(
+                    &conn,
+                    &auth_state,
+                    SetModuleEnabledPayload {
+                        module: Module::TypingAnalysis,
+                        enabled: false,
+                    },
+                )
+                .unwrap();
+            }
+            control.poll_tick(&conn, &auth_state, utc_at(0, 1)).unwrap();
+            control.poll_tick(&conn, &auth_state, utc_at(0, 2)).unwrap();
+            assert!(!control.is_capture_enabled());
+            let saved =
+                typing_metric_snapshot_service::get_typing_snapshots_by_session(&conn, "session-1")
+                    .unwrap();
+            assert_eq!(saved.len(), 1);
+            assert_eq!(saved[0].keystrokes_count, 49);
+        }
+    }
+
+    #[test]
+    fn failed_partial_flush_retains_keys_for_a_worker_retry_without_duplicates() {
+        let (conn, auth_state, user_id) = setup_test_env();
+        let control = TypingMonitorControl::new_for_tests();
+        control
+            .attach_session(Some(user_id), "session-1".to_string(), true)
+            .unwrap();
+        control.add_simulated_keystrokes(45);
+        control.poll_tick(&conn, &auth_state, utc_at(0, 0)).unwrap();
+        control.add_simulated_keystrokes(4);
+        settings_service::set_module_enabled(
+            &conn,
+            &auth_state,
+            SetModuleEnabledPayload {
+                module: Module::TypingAnalysis,
+                enabled: false,
+            },
+        )
+        .unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER fail_typing_insert BEFORE INSERT ON typing_metrics_snapshots
+            BEGIN SELECT RAISE(ABORT, 'simulated write failure'); END;",
+        )
+        .unwrap();
+
+        assert!(control.on_module_disabled(&conn).is_err());
+        assert!(!control.is_capture_enabled());
+        assert_eq!(control.get_live_metrics().unwrap().total_keystrokes, 49);
+        assert!(control.poll_tick(&conn, &auth_state, utc_at(0, 1)).is_err());
+        assert_eq!(control.get_live_metrics().unwrap().total_keystrokes, 49);
+
+        conn.execute_batch("DROP TRIGGER fail_typing_insert;")
+            .unwrap();
+        control.poll_tick(&conn, &auth_state, utc_at(0, 2)).unwrap();
+        control
+            .detach_session_at(&conn, "session-1", utc_at(0, 3))
+            .unwrap();
+        let saved =
+            typing_metric_snapshot_service::get_typing_snapshots_by_session(&conn, "session-1")
+                .unwrap();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].keystrokes_count, 49);
+    }
+
+    #[test]
+    fn failed_logout_flush_can_be_retried_without_losing_the_partial_window() {
+        let (conn, auth_state, user_id) = setup_test_env();
+        let control = TypingMonitorControl::new_for_tests();
+        control
+            .attach_session(Some(user_id), "session-1".to_string(), true)
+            .unwrap();
+        control.add_simulated_keystrokes(45);
+        control.poll_tick(&conn, &auth_state, utc_at(0, 0)).unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER fail_typing_insert BEFORE INSERT ON typing_metrics_snapshots
+            BEGIN SELECT RAISE(ABORT, 'simulated write failure'); END;",
+        )
+        .unwrap();
+        assert!(control.clear_all(&conn).is_err());
+        assert!(!control.is_capture_enabled());
+        assert_eq!(
+            control.get_live_metrics().unwrap().session_id.as_deref(),
+            Some("session-1")
+        );
+        assert_eq!(control.get_live_metrics().unwrap().total_keystrokes, 45);
+
+        conn.execute_batch("DROP TRIGGER fail_typing_insert;")
+            .unwrap();
+        control.clear_all(&conn).unwrap();
+        auth_service::logout(&auth_state).unwrap();
+        control
+            .detach_session_at(&conn, "session-1", utc_at(0, 1))
+            .unwrap();
+        let saved =
+            typing_metric_snapshot_service::get_typing_snapshots_by_session(&conn, "session-1")
+                .unwrap();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].keystrokes_count, 45);
+    }
+
+    #[test]
+    fn disabling_or_clearing_an_empty_window_does_not_create_snapshots() {
+        let (conn, auth_state, user_id) = setup_test_env();
+        let control = TypingMonitorControl::new_for_tests();
+        control
+            .attach_session(Some(user_id), "session-1".to_string(), true)
+            .unwrap();
+        control.poll_tick(&conn, &auth_state, utc_at(0, 0)).unwrap();
+        control.on_module_disabled(&conn).unwrap();
+        control.clear_all(&conn).unwrap();
+        let saved =
+            typing_metric_snapshot_service::get_typing_snapshots_by_session(&conn, "session-1")
+                .unwrap();
+        assert!(saved.is_empty());
     }
 
     #[test]
@@ -1232,7 +1460,9 @@ mod tests {
         for sec in 0..20 {
             let keys = if sec < 15 { 3 } else { 0 };
             control.add_simulated_keystrokes(keys);
-            control.poll_tick(&conn, &auth_state, utc_at(0, sec)).unwrap();
+            control
+                .poll_tick(&conn, &auth_state, utc_at(0, sec))
+                .unwrap();
         }
 
         control.set_paused(true).unwrap();
@@ -1273,7 +1503,9 @@ mod tests {
             .unwrap();
         for sec in 0..60 {
             control.add_simulated_keystrokes(2);
-            control.poll_tick(&conn, &auth_state, utc_at(5, sec)).unwrap();
+            control
+                .poll_tick(&conn, &auth_state, utc_at(5, sec))
+                .unwrap();
         }
 
         control.add_simulated_keystrokes(4);
