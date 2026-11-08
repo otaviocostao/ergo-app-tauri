@@ -15,6 +15,7 @@ use crate::models::typing_metric_snapshot::{
     CreateTypingSnapshotPayload, LiveTypingMetrics, TypingStatus,
     DEFAULT_TYPING_WINDOW_DURATION_SECONDS,
 };
+use crate::repositories::monitoring_session_repository;
 use crate::services::auth_service::{self, AuthState};
 use crate::services::{settings_service, typing_metric_snapshot_service};
 
@@ -40,7 +41,7 @@ pub fn classify_typing_status(continuous_minutes: i64) -> TypingStatus {
     }
 }
 
-fn count_micro_pauses(window: &[u32; WINDOW_SECONDS]) -> i64 {
+fn count_micro_pauses(window: &[u32]) -> i64 {
     let mut seen_activity = false;
     let mut current_zero_run = 0usize;
     let mut micro_pauses = 0i64;
@@ -60,12 +61,19 @@ fn count_micro_pauses(window: &[u32; WINDOW_SECONDS]) -> i64 {
     micro_pauses
 }
 
-fn calculate_peak_cpm(window: &[u32; WINDOW_SECONDS]) -> f64 {
-    let max_five_second_sum = window
-        .windows(PEAK_BURST_WINDOW_SECONDS)
-        .map(|slice| slice.iter().sum::<u32>())
-        .max()
-        .unwrap_or(0);
+fn calculate_peak_cpm(window: &[u32]) -> f64 {
+    if window.is_empty() {
+        return 0.0;
+    }
+    let max_five_second_sum = if window.len() >= PEAK_BURST_WINDOW_SECONDS {
+        window
+            .windows(PEAK_BURST_WINDOW_SECONDS)
+            .map(|slice| slice.iter().sum::<u32>())
+            .max()
+            .unwrap_or(0)
+    } else {
+        window.iter().sum::<u32>()
+    };
     f64::from(max_five_second_sum) * (60.0 / PEAK_BURST_WINDOW_SECONDS as f64)
 }
 
@@ -190,6 +198,63 @@ impl TypingCadenceAggregator {
             continuous_minutes: self.continuous_minutes,
             dominant_status,
         }
+    }
+
+    pub fn fold_pending_keystrokes(&mut self, pending: u32) {
+        if pending == 0 {
+            return;
+        }
+        self.total_keystrokes += i64::from(pending);
+        self.consecutive_idle_seconds = 0;
+        if usize::from(self.elapsed_window_seconds) + 1 < WINDOW_SECONDS {
+            self.seconds_window[self.cursor] = pending;
+            self.cursor = (self.cursor + 1) % WINDOW_SECONDS;
+            self.elapsed_window_seconds += 1;
+        } else {
+            let last_idx = (self.cursor + WINDOW_SECONDS - 1) % WINDOW_SECONDS;
+            self.seconds_window[last_idx] = self.seconds_window[last_idx].saturating_add(pending);
+        }
+    }
+
+    pub fn flush_partial(
+        &mut self,
+        session_id: &str,
+        now_utc: DateTime<Utc>,
+    ) -> Option<CreateTypingSnapshotPayload> {
+        let elapsed = usize::from(self.elapsed_window_seconds);
+        if elapsed == 0 || elapsed > WINDOW_SECONDS {
+            return None;
+        }
+
+        let ordered = self.ordered_window();
+        let partial_window = &ordered[WINDOW_SECONDS - elapsed..];
+        let keystrokes_count: i64 = partial_window.iter().map(|&k| i64::from(k)).sum();
+        if keystrokes_count <= 0 {
+            self.elapsed_window_seconds = 0;
+            return None;
+        }
+
+        let window_duration_seconds = elapsed as i64;
+        let cadence_cpm = (keystrokes_count as f64 / window_duration_seconds as f64) * 60.0;
+        let peak_cpm = calculate_peak_cpm(partial_window);
+        let active_typing_seconds = partial_window.iter().filter(|&&k| k > 0).count() as i64;
+        let micro_pauses_count = count_micro_pauses(partial_window);
+        let dominant_status = classify_typing_status(self.continuous_minutes);
+
+        self.elapsed_window_seconds = 0;
+
+        Some(CreateTypingSnapshotPayload {
+            session_id: session_id.to_string(),
+            timestamp: Some(now_utc.to_rfc3339()),
+            window_duration_seconds,
+            keystrokes_count,
+            cadence_cpm,
+            peak_cpm,
+            active_typing_seconds,
+            micro_pauses_count,
+            continuous_typing_minutes: self.continuous_minutes,
+            dominant_status,
+        })
     }
 
     pub fn reset(&mut self) {
@@ -384,15 +449,38 @@ impl TypingMonitorControl {
         Ok(live)
     }
 
-    pub fn detach_session(&self, session_id: &str) -> Result<LiveTypingMetrics, String> {
-        let (live, changed) = {
+    pub fn detach_session(
+        &self,
+        conn: &Connection,
+        session_id: &str,
+    ) -> Result<LiveTypingMetrics, String> {
+        self.detach_session_at(conn, session_id, Utc::now())
+    }
+
+    pub fn detach_session_at(
+        &self,
+        conn: &Connection,
+        session_id: &str,
+        now_utc: DateTime<Utc>,
+    ) -> Result<LiveTypingMetrics, String> {
+        let (partial_snapshot, live, changed) = {
             let mut state = self
                 .inner
                 .session_state
                 .lock()
                 .map_err(|_| "Failed to lock typing monitor state".to_string())?;
 
+            let mut partial_snapshot = None;
             if state.session_id.as_deref() == Some(session_id) {
+                if state.is_actively_capturing() {
+                    let pending = self.inner.pending_keystrokes.swap(0, Ordering::Relaxed);
+                    state.aggregator.fold_pending_keystrokes(pending);
+                }
+
+                if state.module_enabled {
+                    partial_snapshot = state.aggregator.flush_partial(session_id, now_utc);
+                }
+                
                 state.session_id = None;
                 state.user_id = None;
                 state.is_paused = false;
@@ -405,8 +493,17 @@ impl TypingMonitorControl {
             if changed {
                 state.last_emitted = Some(live.clone());
             }
-            (live, changed)
+            (partial_snapshot, live, changed)
         };
+
+        if let Some(payload) = partial_snapshot {
+            if monitoring_session_repository::find_by_id(conn, &payload.session_id)
+                .map_err(|e| e.to_string())?
+                .is_some()
+            {
+                typing_metric_snapshot_service::record_typing_snapshot(conn, payload)?;
+            }
+        }
 
         self.emit_if_changed(&live, changed);
         Ok(live)
@@ -501,6 +598,11 @@ impl TypingMonitorControl {
                 .session_state
                 .lock()
                 .map_err(|_| "Failed to lock typing monitor state".to_string())?;
+
+            if paused && state.is_actively_capturing() {
+                let pending = self.inner.pending_keystrokes.swap(0, Ordering::Relaxed);
+                state.aggregator.fold_pending_keystrokes(pending);
+            }
 
             state.is_paused = paused;
             self.sync_atomic_gate(&state);
@@ -1117,5 +1219,82 @@ mod tests {
         assert_eq!(live_logged_out.session_id, None);
         assert!(!live_logged_out.is_monitoring_active);
         assert_eq!(live_logged_out.total_keystrokes, 0);
+    }
+
+    #[test]
+    fn detach_session_flushes_partial_window_when_keys_present_and_resets_live_metrics() {
+        let (conn, auth_state, user_id) = setup_test_env();
+        let control = TypingMonitorControl::new_for_tests();
+
+        control
+            .attach_session(Some(user_id), "session-1".to_string(), true)
+            .unwrap();
+        for sec in 0..20 {
+            let keys = if sec < 15 { 3 } else { 0 };
+            control.add_simulated_keystrokes(keys);
+            control.poll_tick(&conn, &auth_state, utc_at(0, sec)).unwrap();
+        }
+
+        control.set_paused(true).unwrap();
+        let live_after_detach = control
+            .detach_session_at(&conn, "session-1", utc_at(0, 20))
+            .unwrap();
+        assert_eq!(live_after_detach.session_id, None);
+        assert_eq!(live_after_detach.total_keystrokes, 0);
+
+        let saved_short =
+            typing_metric_snapshot_service::get_typing_snapshots_by_session(&conn, "session-1")
+                .unwrap();
+        assert_eq!(saved_short.len(), 1);
+        assert_eq!(saved_short[0].window_duration_seconds, 20);
+        assert_eq!(saved_short[0].keystrokes_count, 45);
+        assert_eq!(saved_short[0].cadence_cpm, 135.0);
+        assert_eq!(saved_short[0].active_typing_seconds, 15);
+        assert_eq!(saved_short[0].micro_pauses_count, 1);
+
+        let session_2 = MonitoringSession {
+            id: "session-2".to_string(),
+            user_id: Some(user_id),
+            started_at: "2026-11-04T14:05:00Z".to_string(),
+            ended_at: None,
+            duration_seconds: 0,
+            average_score: 100.0,
+            good_posture_percentage: 100.0,
+            warning_posture_percentage: 0.0,
+            danger_posture_percentage: 0.0,
+            total_alerts_count: 0,
+            created_at: Some("2026-11-04T14:05:00Z".to_string()),
+            updated_at: Some("2026-11-04T14:05:00Z".to_string()),
+        };
+        monitoring_session_repository::insert(&conn, &session_2).unwrap();
+
+        control
+            .attach_session(Some(user_id), "session-2".to_string(), true)
+            .unwrap();
+        for sec in 0..60 {
+            control.add_simulated_keystrokes(2);
+            control.poll_tick(&conn, &auth_state, utc_at(5, sec)).unwrap();
+        }
+
+        control.add_simulated_keystrokes(4);
+        control.poll_tick(&conn, &auth_state, utc_at(6, 0)).unwrap();
+        control.add_simulated_keystrokes(2);
+        control.poll_tick(&conn, &auth_state, utc_at(6, 1)).unwrap();
+
+        control
+            .detach_session_at(&conn, "session-2", utc_at(6, 2))
+            .unwrap();
+
+        let saved_62s =
+            typing_metric_snapshot_service::get_typing_snapshots_by_session(&conn, "session-2")
+                .unwrap();
+        assert_eq!(saved_62s.len(), 2);
+        assert_eq!(saved_62s[0].window_duration_seconds, 60);
+        assert_eq!(saved_62s[0].keystrokes_count, 120);
+        assert_eq!(saved_62s[1].window_duration_seconds, 2);
+        assert_eq!(saved_62s[1].keystrokes_count, 6);
+        assert_eq!(saved_62s[1].cadence_cpm, 180.0);
+        assert_eq!(saved_62s[1].active_typing_seconds, 2);
+        assert_eq!(saved_62s[1].continuous_typing_minutes, 1);
     }
 }
