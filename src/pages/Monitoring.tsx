@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
+import Button from "../components/Button";
 import Header from "../components/Header";
+import { useSyncTopbarMonitoring } from "../components/Topbar";
 import WebcamFeed from "../components/monitoring/WebcamFeed";
 import ErgoMetricsCard from "../components/monitoring/ErgoMetricsCard";
 import KeyboardMonitorCard from "../components/monitoring/KeyboardMonitorCard";
@@ -9,12 +11,14 @@ import { postureService } from "../services/postureService";
 import { useOptionalAuth } from "../auth/AuthContext";
 import { useMetricRecording } from "../hooks/useMetricRecording";
 import { useModuleSettings } from "../hooks/useModuleSettings";
+import { useTypingMetrics } from "../hooks/useTypingMetrics";
 import { isModuleEnabled, settingsService } from "../services/settingsService";
 import { getInactiveModule, restrictClassificationToModules } from "../services/monitoring/moduleClassification";
 import type { PostureCalibrationDTO } from "../types/postureCalibration";
 import type { PostureClassification, PostureMetric } from "../types/postureClassification";
 import { PostureStatus, POSTURE_STATUS_LABELS } from "../enums/postureStatus";
 import { Module, MODULE_LABELS } from "../enums/module";
+import { RecordingStatus } from "../enums/recordingStatus";
 import {
   DEFAULT_POSTURE_CLASSIFICATION_CONFIG as classificationConfig,
   getPostureStatusLabel, PostureAlertCooldown, PostureHysteresis,
@@ -26,8 +30,8 @@ import {
   Sliders,
   UserCheck,
   Eye,
-  Volume2,
-  VolumeX,
+  Play,
+  Square,
 } from "lucide-react";
 
 import type { UserPresenceState } from "../types/vision";
@@ -82,13 +86,14 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
   const { settings: moduleSettings, setSettings: setModuleSettings, isLoading: modulesLoading } = useModuleSettings();
   const posturalEnabled = isModuleEnabled(moduleSettings, Module.POSTURAL_ANALYSIS);
   const ocularEnabled = isModuleEnabled(moduleSettings, Module.OCULAR_ANALYSIS);
+  const typingEnabled = isModuleEnabled(moduleSettings, Module.TYPING_ANALYSIS);
   // Waiting for the settings avoids switching the camera on, or opening a session, only to stop it.
   const cameraModulesEnabled = !modulesLoading && (posturalEnabled || ocularEnabled);
+  const typingPaused = !isMonitoring || isCalibrationOpen;
   const monitoringContextRef = useRef({ enabled: false, userId, modules: moduleSettings });
   const [calibration, setCalibration] = useState<PostureCalibrationDTO | null>(null);
   const [sessionBlinkCount, setSessionBlinkCount] = useState(0);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
-  const [soundAlerts, setSoundAlerts] = useState(true);
   const [ocularMetrics, setOcularMetrics] = useState<OcularMetrics | null>(null);
   const distanceCm = ocularMetrics?.distanceCm ?? null;
   const [classification, setClassification] = useState<PostureClassification | null>(null);
@@ -107,25 +112,34 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
   const hardwareBusyRef = useRef(false);
   // Blink events since the last classification; both callbacks come from the same inference.
   const pendingBlinksRef = useRef(0);
-  // Sessions and snapshots summarize posture, so nothing is recorded without the postural module.
-  const recording = useMetricRecording(isMonitoring && !isCalibrationOpen && !modulesLoading && posturalEnabled, userId, event => {
-    setLogs(previous => [{
-      ...event,
-      scope: "account" as const,
-      userId,
-      id: crypto.randomUUID(),
-      occurredAt: new Date().toISOString(),
-      timestamp: new Date().toLocaleTimeString("pt-BR"),
-    }, ...previous].slice(0, 100));
+  // Posture and typing share the same MonitoringSession whenever at least one of them is active.
+  const recording = useMetricRecording(
+    !modulesLoading && isMonitoring && !isCalibrationOpen && (posturalEnabled || typingEnabled),
+    userId,
+    event => {
+      setLogs(previous => [{
+        ...event,
+        scope: "account" as const,
+        userId,
+        id: crypto.randomUUID(),
+        occurredAt: new Date().toISOString(),
+        timestamp: new Date().toLocaleTimeString("pt-BR"),
+      }, ...previous].slice(0, 100));
+    },
+    posturalEnabled,
+  );
+  const { metrics: typingMetrics } = useTypingMetrics({
+    enabled: !modulesLoading && typingEnabled,
+    isPaused: typingPaused,
   });
   const captureEnabled = isMonitoring && !isCalibrationOpen && cameraModulesEnabled &&
-    (!posturalEnabled || recording.status === "active");
+    (!(posturalEnabled || typingEnabled) || recording.status === RecordingStatus.ACTIVE);
   monitoringContextRef.current = { enabled: captureEnabled, userId, modules: moduleSettings };
 
   const toggleMonitoring = () => {
-    if (transitionRequestedRef.current || recording.status === "starting" || recording.status === "ending") return;
+    if (transitionRequestedRef.current || recording.status === RecordingStatus.STARTING || recording.status === RecordingStatus.ENDING) return;
     transitionRequestedRef.current = true;
-    if (recording.status === "error") { recording.retry(); return; }
+    if (recording.status === RecordingStatus.ERROR) { recording.retry(); return; }
     if (!isMonitoring) {
       lastAnnouncedPresenceRef.current = null;
       setSessionBlinkCount(0);
@@ -137,7 +151,7 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
   };
 
   useEffect(() => {
-    if (recording.status !== "starting" && recording.status !== "ending") transitionRequestedRef.current = false;
+    if (recording.status !== RecordingStatus.STARTING && recording.status !== RecordingStatus.ENDING) transitionRequestedRef.current = false;
   }, [recording.status, isMonitoring]);
 
   const handlePostureUpdate = (metrics: {
@@ -357,6 +371,7 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
   const neckDeviation = neck?.value ?? null;
   const shoulderDeviation = shoulders?.value ?? null;
   const calibratedShoulderBalance = getShoulderBalance(shoulderDeviation);
+  useSyncTopbarMonitoring(isMonitoring, recording.status);
 
   return (
     <div className="w-full h-full flex flex-col gap-6 pb-8">
@@ -365,17 +380,29 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
         subtitle="Supervisão contínua em tempo real da sua postura corporal e atividade no computador"
         action={
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setSoundAlerts(!soundAlerts)}
-              className={`p-2 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors ${soundAlerts
-                ? "bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200"
-                : "bg-slate-100/50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-400"
-                }`}
-              title={soundAlerts ? "Desativar alertas sonoros" : "Ativar alertas sonoros"}
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={toggleMonitoring}
+              disabled={recording.status === RecordingStatus.STARTING || recording.status === RecordingStatus.ENDING}
+              isLoading={recording.status === RecordingStatus.STARTING || recording.status === RecordingStatus.ENDING}
             >
-              {soundAlerts ? <Volume2 size={16} className="text-primary-500" /> : <VolumeX size={16} />}
-              <span className="hidden md:inline">{soundAlerts ? "Som Ativo" : "Som Mudo"}</span>
-            </button>
+              {recording.status === RecordingStatus.STARTING ? (
+                "Iniciando Monitoramento"
+              ) : recording.status === RecordingStatus.ENDING ? (
+                "Encerrando Monitoramento"
+              ) : recording.status === RecordingStatus.ERROR ? (
+                "Tentar Novamente"
+              ) : isMonitoring ? (
+                <>
+                  <Square size={16} /> Encerrar Monitoramento
+                </>
+              ) : (
+                <>
+                  <Play size={16} /> Iniciar Monitoramento
+                </>
+              )}
+            </Button>
           </div>
         }
       />
@@ -396,7 +423,6 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
             classificationConfig={classificationConfig}
             moduleSettings={moduleSettings}
             onClassificationUpdate={handleClassificationUpdate}
-            onToggleMonitoring={toggleMonitoring}
             onCalibrate={() => setIsCalibrationOpen(true)}
             onPostureUpdate={handlePostureUpdate}
             onPresenceChange={handlePresenceChange}
@@ -407,20 +433,9 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
           />
 
           <KeyboardMonitorCard
-            enabled={isModuleEnabled(moduleSettings, Module.TYPING_ANALYSIS)}
-            onPauseRequested={() => {
-              const newLog: LogEvent = {
-                id: crypto.randomUUID(),
-                occurredAt: new Date().toISOString(),
-                timestamp: new Date().toLocaleTimeString("pt-BR"),
-                type: "info",
-                scope: "account",
-                userId,
-                message: "Pausa de digitação registrada",
-                detail: "Contador de uso contínuo do teclado foi reiniciado.",
-              };
-              setLogs((prev) => [newLog, ...prev]);
-            }}
+            enabled={typingEnabled}
+            isPaused={typingPaused}
+            metrics={typingMetrics}
           />
         </div>
 
@@ -442,18 +457,18 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
                   {!posturalEnabled
                     ? "Módulo inativo"
                     : !isMonitoring
-                    ? "Pausado"
-                    : userPresence === "ABSENT"
-                      ? "Ausente (Pausado)"
-                      : userPresence === "PARTIALLY_OCCLUDED"
-                        ? "Ajuste o enquadramento"
-                        : postureStatus === null
-                          ? "Aguardando dados"
-                          : postureStatus === PostureStatus.GOOD
-                            ? "Excelente"
-                            : postureStatus === PostureStatus.WARNING
-                              ? "Atenção"
-                              : "Crítico"}
+                      ? "Pausado"
+                      : userPresence === "ABSENT"
+                        ? "Ausente (Pausado)"
+                        : userPresence === "PARTIALLY_OCCLUDED"
+                          ? "Ajuste o enquadramento"
+                          : postureStatus === null
+                            ? "Aguardando dados"
+                            : postureStatus === PostureStatus.GOOD
+                              ? "Excelente"
+                              : postureStatus === PostureStatus.WARNING
+                                ? "Atenção"
+                                : "Crítico"}
                 </span>
               </div>
             </div>
@@ -462,16 +477,16 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
                 {!posturalEnabled
                   ? "A análise postural está desativada em Configurações → Módulos. Ative-a para acompanhar pescoço, ombros, coluna e distância da tela."
                   : !isMonitoring
-                  ? "O monitoramento está pausado. Inicie o monitoramento para visualizar a análise postural e métricas em tempo real."
-                  : userPresence === "ABSENT"
-                    ? "Nenhum usuário detectado há mais de 5 segundos. O cálculo de métricas e gráficos está pausado até o seu retorno."
-                    : userPresence === "PARTIALLY_OCCLUDED"
-                      ? "Aguardando pontos confiáveis da cabeça e dos ombros. Ajuste o enquadramento para retomar as métricas."
-                      : postureStatus === null
-                        ? "Calibre a postura base e aguarde leituras válidas para classificar sua postura."
-                        : postureStatus === PostureStatus.GOOD
-                          ? "Sua coluna e pescoço estão alinhados dentro das diretrizes ideais."
-                          : "Ajuste sua inclinação do pescoço ou altura da tela para melhorar sua postura."}
+                    ? "O monitoramento está pausado. Inicie o monitoramento para visualizar a análise postural e métricas em tempo real."
+                    : userPresence === "ABSENT"
+                      ? "Nenhum usuário detectado há mais de 5 segundos. O cálculo de métricas e gráficos está pausado até o seu retorno."
+                      : userPresence === "PARTIALLY_OCCLUDED"
+                        ? "Aguardando pontos confiáveis da cabeça e dos ombros. Ajuste o enquadramento para retomar as métricas."
+                        : postureStatus === null
+                          ? "Calibre a postura base e aguarde leituras válidas para classificar sua postura."
+                          : postureStatus === PostureStatus.GOOD
+                            ? "Sua coluna e pescoço estão alinhados dentro das diretrizes ideais."
+                            : "Ajuste sua inclinação do pescoço ou altura da tela para melhorar sua postura."}
               </p>
 
               <div className="flex items-center gap-6 text-xs text-slate-300 shrink-0 border-t sm:border-t-0 sm:border-l border-slate-700/60 pt-3 sm:pt-0 sm:pl-6 w-full sm:w-auto justify-between sm:justify-start">
@@ -490,18 +505,18 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
                     {!posturalEnabled
                       ? "Análise postural inativa"
                       : !isMonitoring
-                      ? "Pausado"
-                      : userPresence === "ABSENT"
-                        ? "Usuário Ausente"
-                        : userPresence === "PARTIALLY_OCCLUDED"
-                          ? "Detecção parcial"
-                          : statusText}
+                        ? "Pausado"
+                        : userPresence === "ABSENT"
+                          ? "Usuário Ausente"
+                          : userPresence === "PARTIALLY_OCCLUDED"
+                            ? "Detecção parcial"
+                            : statusText}
                   </span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-slate-400">Sessão:</span>
                   <span className="font-semibold text-white">
-                    {recording.status === "starting" ? "Iniciando" : recording.status === "ending" ? "Encerrando" : `${Math.floor(recording.elapsedSeconds / 60)} min ${recording.elapsedSeconds % 60} s monitorados`}
+                    {recording.status === RecordingStatus.STARTING ? "Iniciando" : recording.status === RecordingStatus.ENDING ? "Encerrando" : `${Math.floor(recording.elapsedSeconds / 60)} min ${recording.elapsedSeconds % 60} s monitorados`}
                   </span>
                 </div>
               </div>
@@ -605,8 +620,8 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
 
           <PostureHistoryLog logs={logs} onClearLogs={() => setLogs([])} userId={userId}
             recordingStatus={recording.status} isVisible={isVisible} />
-        </div>
-      </div>
+        </div >
+      </div >
 
       <WorkspaceCalibrationModal
         isOpen={isCalibrationOpen && isVisible}

@@ -13,10 +13,23 @@ import { classifyPosture } from "../services/vision/postureClassifier";
 import type { OcularMetrics } from "../services/vision/ocularMetrics";
 import type { KeyboardMonitorCardProps } from "../components/monitoring/KeyboardMonitorCard";
 import { settingsService, type ModuleSettings } from "../services/settingsService";
+import { TYPING_METRICS_UPDATED_EVENT } from "../services/typingMonitorService";
+import type { LiveTypingMetrics } from "../types/typingMetricSnapshot";
 
-// Browser previews have no IPC; one test enables a simulated desktop runtime.
-const ipc = vi.hoisted(() => ({ invoke: vi.fn(), desktop: false }));
+// Browser previews have no IPC; desktop tests enable a simulated Tauri runtime.
+const ipc = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  desktop: false,
+  listeners: new Map<string, (event: { payload: LiveTypingMetrics }) => void>(),
+  unlisten: vi.fn(),
+}));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: ipc.invoke, isTauri: () => ipc.desktop }));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async (eventName: string, handler: (event: { payload: LiveTypingMetrics }) => void) => {
+    ipc.listeners.set(eventName, handler);
+    return ipc.unlisten;
+  }),
+}));
 
 const view = vi.hoisted(() => ({
   feed: null as WebcamFeedProps | null,
@@ -40,9 +53,16 @@ describe("Monitoring classification and temporal alerts", () => {
   let root: Root;
   let container: HTMLDivElement;
 
+  const monitoringButton = () => [...container.querySelectorAll("button")].find(button =>
+    button.textContent?.includes("Monitoramento") || button.textContent?.includes("Tentar Novamente"))!;
+
+  async function toggleMonitoring() {
+    await act(async () => monitoringButton().click());
+  }
+
   async function render(strict = false) {
     await act(async () => root.render(strict ? <StrictMode><Monitoring /></StrictMode> : <Monitoring />));
-    if (view.feed!.recordingStatus === "idle" && !view.feed!.isMonitoring) await act(async () => view.feed!.onToggleMonitoring!());
+    if (view.feed!.recordingStatus === "idle" && !view.feed!.isMonitoring) await toggleMonitoring();
     await act(async () => view.feed!.onPresenceChange!("ACTIVE"));
   }
 
@@ -69,7 +89,7 @@ describe("Monitoring classification and temporal alerts", () => {
   afterEach(async () => {
     await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks();
     vi.useRealTimers();
-    ipc.desktop = false; ipc.invoke.mockReset();
+    ipc.desktop = false; ipc.invoke.mockReset(); ipc.listeners.clear(); ipc.unlisten.mockReset();
   });
 
   it("persists snapshots with real blinks and one alert per episode from the page's hysteresis", async () => {
@@ -111,21 +131,24 @@ describe("Monitoring classification and temporal alerts", () => {
       if (command === "end_monitoring_session") return new Promise<void>(resolve => { finishEnd = resolve; });
       return Promise.resolve();
     });
+    const sessionCommands = () => ipc.invoke.mock.calls
+      .map(([command]) => command)
+      .filter((command): command is string => typeof command === "string" && command.endsWith("_monitoring_session"));
     await act(async () => root.render(<StrictMode><Monitoring /></StrictMode>));
-    expect(ipc.invoke).not.toHaveBeenCalled();
+    expect(sessionCommands()).toEqual([]);
     expect(view.feed!.isMonitoring).toBe(false);
-    await act(async () => { view.feed!.onToggleMonitoring!(); view.feed!.onToggleMonitoring!(); });
+    await act(async () => { monitoringButton().click(); monitoringButton().click(); });
     expect(view.feed!.recordingStatus).toBe("starting");
     expect(view.feed!.isMonitoring).toBe(false);
-    expect(ipc.invoke).toHaveBeenCalledTimes(1);
+    expect(sessionCommands()).toEqual(["start_monitoring_session"]);
     await act(async () => finishStart({ id: "one" }));
     expect(view.feed!.isMonitoring).toBe(true);
-    await act(async () => { view.feed!.onToggleMonitoring!(); view.feed!.onToggleMonitoring!(); });
+    await act(async () => { monitoringButton().click(); monitoringButton().click(); });
     expect(view.feed!.recordingStatus).toBe("ending");
     expect(view.feed!.isMonitoring).toBe(false);
     await act(async () => finishEnd());
     expect(view.feed!.recordingStatus).toBe("idle");
-    expect(ipc.invoke.mock.calls.map(([command]) => command)).toEqual(["start_monitoring_session", "end_monitoring_session"]);
+    expect(sessionCommands()).toEqual(["start_monitoring_session", "end_monitoring_session"]);
   });
 
   it("runs good posture, sustained danger, first alert, cooldown and a repeat through the existing history", async () => {
@@ -169,7 +192,7 @@ describe("Monitoring classification and temporal alerts", () => {
   it("publishes a confirmed initial absence at five seconds without an additional startup delay", async () => {
     vi.useFakeTimers();
     await act(async () => root.render(<Monitoring />));
-    await act(async () => view.feed!.onToggleMonitoring!());
+    await toggleMonitoring();
     await act(async () => { await vi.advanceTimersByTimeAsync(4_999); });
     expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(0);
     await act(async () => { await vi.advanceTimersByTimeAsync(1); view.feed!.onPresenceChange!("ABSENT"); });
@@ -195,10 +218,10 @@ describe("Monitoring classification and temporal alerts", () => {
   it("ignores absence callbacks after stopping and accepts five-second absence on restart", async () => {
     vi.useFakeTimers(); await render();
     await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
-    await act(async () => view.feed!.onToggleMonitoring!());
+    await toggleMonitoring();
     await act(async () => { await vi.advanceTimersByTimeAsync(20_000); view.feed!.onPresenceChange!("ABSENT"); });
     expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(0);
-    await act(async () => view.feed!.onToggleMonitoring!());
+    await toggleMonitoring();
     await act(async () => { await vi.advanceTimersByTimeAsync(4_999); });
     expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(0);
     await act(async () => { await vi.advanceTimersByTimeAsync(1); view.feed!.onPresenceChange!("ABSENT"); });
@@ -220,17 +243,17 @@ describe("Monitoring classification and temporal alerts", () => {
     await act(async () => root.render(<Monitoring />));
     await act(async () => view.feed!.onPresenceChange!("ACTIVE"));
     expect(view.logs.filter(log => log.message === "Usuário presente")).toHaveLength(0);
-    await act(async () => view.feed!.onToggleMonitoring!());
+    await toggleMonitoring();
     await act(async () => view.feed!.onPresenceChange!("ACTIVE"));
     expect(view.logs.filter(log => log.message === "Usuário presente")).toHaveLength(1);
-    await act(async () => view.feed!.onToggleMonitoring!());
+    await toggleMonitoring();
     await act(async () => {
       view.feed!.onPresenceChange!("ABSENT");
       view.feed!.onPresenceChange!("ACTIVE");
     });
     expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(0);
     expect(view.logs.filter(log => log.message === "Usuário presente")).toHaveLength(1);
-    await act(async () => view.feed!.onToggleMonitoring!());
+    await toggleMonitoring();
     await act(async () => view.feed!.onPresenceChange!("ACTIVE"));
     expect(view.logs.filter(log => log.message === "Usuário presente")).toHaveLength(2);
   });
@@ -268,10 +291,10 @@ describe("Monitoring classification and temporal alerts", () => {
   it("does not emit during pause and preserves cooldown on resume", async () => {
     await render(); await publish(0, 20_100, { neckAngle: 35 });
     expect(alerts()).toHaveLength(1);
-    await act(async () => view.feed!.onToggleMonitoring!());
+    await toggleMonitoring();
     await publish(20_200, 50_000, { neckAngle: 35 });
     expect(alerts()).toHaveLength(1);
-    await act(async () => view.feed!.onToggleMonitoring!());
+    await toggleMonitoring();
     await publish(50_100, 80_000, { neckAngle: 35 });
     expect(alerts()).toHaveLength(1);
   });
@@ -333,7 +356,7 @@ describe("Monitoring classification and temporal alerts", () => {
   it("ignores obsolete callback closures after pausing or changing account", async () => {
     await render();
     const obsolete = view.feed!.onClassificationUpdate!;
-    await act(async () => view.feed!.onToggleMonitoring!());
+    await toggleMonitoring();
     await act(async () => {
       for (let timestampMs = 0; timestampMs <= 30_000; timestampMs += 100) {
         obsolete(classifyPosture({
@@ -346,7 +369,7 @@ describe("Monitoring classification and temporal alerts", () => {
     view.userId = 2;
     vi.mocked(postureService.getActiveCalibration).mockResolvedValue({ ...baseline, id: "user-2", userId: 2 });
     await render();
-    await act(async () => view.feed!.onToggleMonitoring!());
+    await toggleMonitoring();
     await act(async () => {
       for (let timestampMs = 30_100; timestampMs <= 60_000; timestampMs += 100) {
         obsolete(classifyPosture({
@@ -465,12 +488,12 @@ describe("Monitoring classification and temporal alerts", () => {
       expect(view.keyboard!.enabled).toBe(true);
     });
 
-    it("does not open an empty session while the postural module is disabled", async () => {
-      modules({ posturalAnalysis: false });
+    it("does not open an empty session while both postural and typing modules are disabled", async () => {
+      modules({ posturalAnalysis: false, typingAnalysis: false });
       await render();
       expect(view.feed!.isMonitoring).toBe(true);
-      await act(async () => view.feed!.onToggleMonitoring!());
-      await act(async () => view.feed!.onToggleMonitoring!());
+      await toggleMonitoring();
+      await toggleMonitoring();
       await act(async () => root.unmount());
       root = createRoot(container);
       expect(persisted("start_monitoring_session")).toEqual([]);
@@ -484,20 +507,32 @@ describe("Monitoring classification and temporal alerts", () => {
       expect(view.feed!.isMonitoring).toBe(false);
       expect(view.feed!.disabledMessage).toBeNull();
       expect(persisted("start_monitoring_session")).toEqual([]);
-      await act(async () => view.feed!.onToggleMonitoring!());
+      await toggleMonitoring();
       expect(view.feed!.isMonitoring).toBe(false);
       await act(async () => resolve(null));
       expect(view.feed!.isMonitoring).toBe(true);
       expect(persisted("start_monitoring_session")).toEqual([["start_monitoring_session", { payload: { userId: 1 } }]]);
     });
 
-    it("turns the camera off when both camera modules are disabled", async () => {
+    it("turns the camera off when both camera modules are disabled while keeping the shared session for typing", async () => {
       modules({ posturalAnalysis: false, ocularAnalysis: false });
       await act(async () => root.render(<Monitoring />));
+      expect(monitoringButton().textContent?.trim()).toBe("Iniciar Monitoramento");
+      expect(view.keyboard!.isPaused).toBe(true);
+
+      await toggleMonitoring();
+      expect(monitoringButton().textContent?.trim()).toBe("Encerrar Monitoramento");
       expect(view.feed!.isMonitoring).toBe(false);
       expect(view.feed!.disabledMessage).toContain("A câmera fica desligada");
-      expect(persisted("start_monitoring_session")).toEqual([]);
+      expect(persisted("start_monitoring_session")).toEqual([["start_monitoring_session", { payload: { userId: 1 } }]]);
+      expect(persisted("record_metric_snapshot")).toEqual([]);
+      expect(persisted("record_posture_alert")).toEqual([]);
       expect(view.keyboard!.enabled).toBe(true);
+      expect(view.keyboard!.isPaused).toBe(false);
+
+      await toggleMonitoring();
+      expect(monitoringButton().textContent?.trim()).toBe("Iniciar Monitoramento");
+      expect(view.keyboard!.isPaused).toBe(true);
     });
 
     it("keeps the camera on for the ocular module alone", async () => {
@@ -539,6 +574,82 @@ describe("Monitoring classification and temporal alerts", () => {
       await render();
       expect(view.keyboard!.enabled).toBe(false);
       expect(inactiveCards()).toEqual([]);
+    });
+  });
+
+  describe("typing monitoring integration", () => {
+    const initialMetrics: LiveTypingMetrics = {
+      sessionId: "session-1",
+      isMonitoringActive: true,
+      isTyping: false,
+      cpm: 110,
+      peakCpm: 160,
+      totalKeystrokes: 320,
+      continuousMinutes: 5,
+      dominantStatus: "good",
+    };
+
+    beforeEach(() => {
+      ipc.desktop = true;
+      vi.spyOn(settingsService, "get").mockResolvedValue({
+        id: "settings-1",
+        userId: 1,
+        posturalAnalysis: true,
+        ocularAnalysis: true,
+        typingAnalysis: true,
+        webCam: null,
+        createdAt: "",
+        updatedAt: "",
+      });
+      ipc.invoke.mockImplementation(async (command: string, args?: { paused?: boolean; payload?: Record<string, unknown> }) => {
+        if (command === "start_monitoring_session") return { id: "session-1" };
+        if (command === "get_live_typing_metrics") return initialMetrics;
+        if (command === "set_typing_monitoring_paused") {
+          return { ...initialMetrics, isMonitoringActive: !args?.paused };
+        }
+        return args?.payload;
+      });
+    });
+
+    it("loads live typing metrics, streams backend events, and syncs manual pause", async () => {
+      await render();
+
+      expect(ipc.invoke).toHaveBeenCalledWith("get_live_typing_metrics");
+      expect(ipc.invoke).toHaveBeenCalledWith("set_typing_monitoring_paused", { paused: false });
+      expect(view.keyboard!.enabled).toBe(true);
+      expect(view.keyboard!.isPaused).toBe(false);
+      expect(view.keyboard!.metrics).toEqual(initialMetrics);
+
+      const listener = ipc.listeners.get(TYPING_METRICS_UPDATED_EVENT);
+      expect(listener).toBeTypeOf("function");
+
+      const streamedMetrics: LiveTypingMetrics = {
+        sessionId: "session-1",
+        isMonitoringActive: true,
+        isTyping: true,
+        cpm: 260,
+        peakCpm: 310,
+        totalKeystrokes: 740,
+        continuousMinutes: 17,
+        dominantStatus: "warning",
+      };
+
+      await act(async () => {
+        listener!({ payload: streamedMetrics });
+      });
+      expect(view.keyboard!.metrics).toEqual(streamedMetrics);
+
+      // Camera occlusion pauses visual posture tracking, but must NOT pause keyboard monitoring.
+      await act(async () => view.feed!.onPresenceChange!("ABSENT"));
+      expect(view.keyboard!.isPaused).toBe(false);
+
+      // Manual pause toggles typing pause in the Rust backend and UI card.
+      await toggleMonitoring();
+      expect(view.keyboard!.isPaused).toBe(true);
+      expect(ipc.invoke).toHaveBeenCalledWith("set_typing_monitoring_paused", { paused: true });
+
+      await toggleMonitoring();
+      expect(view.keyboard!.isPaused).toBe(false);
     });
   });
 });

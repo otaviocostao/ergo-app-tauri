@@ -6,6 +6,7 @@ import { MetricAggregation, frameFromClassification, type PresenceObservation } 
 import { PostureAlertEpisodes, type AlertResolution } from "../services/monitoring/postureAlertEpisodes";
 import type { PostureAlertCondition, PostureClassification, PostureMetric } from "../types/postureClassification";
 import { notifySessionHistoryUpdated } from "../services/monitoring/sessionHistoryEvents";
+import { RecordingStatus } from "../enums/recordingStatus";
 
 export interface RecordingEvent {
   type: "error";
@@ -27,18 +28,22 @@ export function waitForRecordingWrites(): Promise<void> {
   return sessionLifecycle;
 }
 
-export type RecordingStatus = "idle" | "starting" | "active" | "ending" | "error";
-
 /**
- * Persists a monitoring session: 60s aggregate snapshots and one alert per confirmed
- * deviation episode. User-facing alert notifications remain with the page's cooldown.
+ * Persists a monitoring session shared by active analysis modules (posture + typing),
+ * recording 60s posture aggregate snapshots and confirmed posture alert episodes when
+ * `recordPosture` is enabled. Session duration follows the same monotonic clock for
+ * every module; posture scores and percentages still use only valid posture samples.
  */
 export function useMetricRecording(
   enabled: boolean,
   userId: number | null,
   onEvent: (event: RecordingEvent) => void,
+  recordPosture = true,
 ) {
   const recorderRef = useRef<Recorder | null>(null);
+  const recordPostureRef = useRef(recordPosture);
+  recordPostureRef.current = recordPosture;
+  const syncPostureRef = useRef<((enabledPosture: boolean) => void) | null>(null);
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
   const ownerRef = useRef(userId);
@@ -46,7 +51,7 @@ export function useMetricRecording(
   const mountedRef = useRef(false);
   const generationRef = useRef(0);
   const [retryKey, setRetryKey] = useState(0);
-  const [status, setStatus] = useState<RecordingStatus>("idle");
+  const [status, setStatus] = useState<RecordingStatus>(RecordingStatus.IDLE);
   const [error, setError] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
@@ -56,16 +61,29 @@ export function useMetricRecording(
   }, []);
 
   useEffect(() => {
-    if (!enabled) return;
+    syncPostureRef.current?.(recordPosture);
+  }, [recordPosture]);
+
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     const generation = ++generationRef.current;
     let cancelled = false;
     let closed = false;
     let sessionId: string | null = null;
     let recorder: Recorder | null = null;
+    let startedAtMs: number | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let writes = Promise.resolve();
     const openAlertIds = new Map<PostureMetric, string | null>();
     const resolutions = new Map<string, AlertResolution>();
+
+    // The shared session clock does not depend on available posture measurements.
+    const sessionElapsedSeconds = (now: number) => startedAtMs === null
+      ? 0
+      : Math.max(0, Math.floor((now - startedAtMs) / 1000));
 
     const publish = (next: RecordingStatus, message: string | null = null) => {
       if (mountedRef.current && ownerRef.current === userId && generationRef.current === generation) {
@@ -76,15 +94,20 @@ export function useMetricRecording(
 
     const reportError = (message: string, error: unknown) => {
       console.error(message, error);
-      if (mountedRef.current && ownerRef.current === userId && generationRef.current === generation) onEventRef.current({ type: "error", message });
+      if (mountedRef.current && ownerRef.current === userId && generationRef.current === generation) {
+        onEventRef.current({ type: "error", message });
+      }
     };
+
     const enqueue = (write: () => Promise<unknown>, errorMessage: string) => {
       writes = writes.then(write).then(() => {
-        if (sessionId) notifySessionHistoryUpdated({ userId, sessionId });
+        if (sessionId) {
+          notifySessionHistoryUpdated({ userId, sessionId });
+        }
       }).catch(error => reportError(errorMessage, error));
     };
 
-    publish("starting");
+    publish(RecordingStatus.STARTING);
     setElapsedSeconds(0);
     const resolveEpisode = async (id: string, resolution: AlertResolution) => {
       await postureAlertService.resolveAlert({ id, ...resolution });
@@ -92,30 +115,50 @@ export function useMetricRecording(
     };
 
     sessionLifecycle = sessionLifecycle.then(async () => {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
+
       if (unfinishedClose) {
         await unfinishedClose();
         unfinishedClose = null;
       }
-      if (cancelled) return;
+
+      if (cancelled) {
+        return;
+      }
+
       const session = await monitoringSessionService.startSession({ userId });
       sessionId = session?.id ?? null;
-      if (sessionId && session) notifySessionHistoryUpdated({ userId, sessionId, session });
-      // Services return null in browser previews; no fabricated session IDs.
-      if (cancelled) return;
-      if (!sessionId) { publish("active"); return; }
+      if (sessionId && session) {
+        notifySessionHistoryUpdated({ userId, sessionId, session });
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      if (!sessionId) {
+        publish(RecordingStatus.ACTIVE);
+        return;
+      }
+
       const storedStart = Date.parse(session?.startedAt ?? "");
       const startedAtEpochMs = Number.isFinite(storedStart) ? storedStart : Date.now();
-      const startedAtMs = performance.now() - Math.max(0, Date.now() - startedAtEpochMs);
+      startedAtMs = performance.now() - Math.max(0, Date.now() - startedAtEpochMs);
+
       recorder = {
         aggregation: new MetricAggregation({
           sessionId,
           startedAtMs,
           startedAtEpochMs,
-          onSnapshot: payload => enqueue(
-            () => postureMetricSnapshotService.recordSnapshot(payload),
-            "Não foi possível salvar o resumo de métricas deste minuto.",
-          ),
+          onSnapshot: payload => {
+            if (!recordPostureRef.current && payload.samplesCount === 0) return;
+            enqueue(
+              () => postureMetricSnapshotService.recordSnapshot(payload),
+              "Não foi possível salvar o resumo de métricas deste minuto.",
+            );
+          },
         }),
         episodes: new PostureAlertEpisodes({
           sessionId,
@@ -136,32 +179,66 @@ export function useMetricRecording(
           },
         }),
       };
-      recorderRef.current = recorder;
-      publish("active");
+
+      const updateElapsed = (now: number) => {
+        if (cancelled || !recorder) return;
+        setElapsedSeconds(sessionElapsedSeconds(now));
+      };
+
+      const syncPosture = (enabledPosture: boolean) => {
+        if (cancelled || !recorder) return;
+        if (enabledPosture) {
+          recorderRef.current = recorder;
+        } else {
+          if (recorderRef.current === recorder) recorderRef.current = null;
+          recorder.aggregation.pause();
+          recorder.episodes.pause();
+        }
+        updateElapsed(performance.now());
+      };
+
+      syncPostureRef.current = syncPosture;
+      syncPosture(recordPostureRef.current);
+      publish(RecordingStatus.ACTIVE);
+
       const pulse = () => {
-        recorder?.aggregation.tick(performance.now());
-        if (!cancelled) setElapsedSeconds(recorder?.aggregation.sessionSummary().durationSeconds ?? 0);
-        if (!cancelled && recorder) timer = setTimeout(pulse,
-          Math.min(1000, Math.max(1, recorder.aggregation.millisecondsUntilNextWindow(performance.now()))));
+        const now = performance.now();
+        recorder?.aggregation.tick(now);
+        updateElapsed(now);
+        if (!cancelled && recorder) {
+          timer = setTimeout(pulse,
+            Math.min(1000, Math.max(1, recorder.aggregation.millisecondsUntilNextWindow(now))));
+        }
       };
       timer = setTimeout(pulse, Math.min(1000, Math.max(1, recorder.aggregation.millisecondsUntilNextWindow(performance.now()))));
     }).catch(error => {
       const message = unfinishedClose ? "Não foi possível finalizar a sessão anterior. Tente novamente." : "Não foi possível iniciar a sessão de monitoramento.";
-      publish("error", message);
+      publish(RecordingStatus.ERROR, message);
       reportError(message, error);
     });
 
     return () => {
       cancelled = true;
       clearTimeout(timer);
-      if (recorderRef.current === recorder) recorderRef.current = null;
+      syncPostureRef.current = null;
+      if (recorderRef.current === recorder) {
+        recorderRef.current = null;
+      }
+
       recorder?.aggregation.pause();
       recorder?.episodes.pause();
       const endedAt = new Date().toISOString();
-      publish("ending");
+      // Freeze the duration before pending writes or a failed close can delay persistence.
+      const durationSeconds = sessionElapsedSeconds(performance.now());
+      publish(RecordingStatus.ENDING);
+
       const close = async () => {
-        if (closed) return;
+        if (closed) {
+          return;
+        }
+
         await writes;
+
         for (const [id, resolution] of resolutions) await resolveEpisode(id, resolution);
         if (sessionId) {
           // A cancelled start may have created a backend session without a recorder.
@@ -170,35 +247,35 @@ export function useMetricRecording(
             durationSeconds: 0, averageScore: 0, goodPosturePercentage: 0,
             warningPosturePercentage: 0, dangerPosturePercentage: 0,
           };
-          const session = await monitoringSessionService.endSession({ id: sessionId, endedAt, ...summary });
+          const session = await monitoringSessionService.endSession({ id: sessionId, endedAt, ...summary, durationSeconds });
           notifySessionHistoryUpdated({ userId, sessionId, session: session ?? undefined });
         }
         closed = true;
         if (unfinishedClose === close) unfinishedClose = null;
       };
-      sessionLifecycle = sessionLifecycle.then(close).then(() => publish("idle")).catch(error => {
+      sessionLifecycle = sessionLifecycle.then(close).then(() => publish(RecordingStatus.IDLE)).catch(error => {
         unfinishedClose = close;
         const message = "Não foi possível finalizar a sessão de monitoramento. Tente novamente.";
-        publish("error", message);
+        publish(RecordingStatus.ERROR, message);
         reportError(message, error);
       });
     };
   }, [enabled, userId, retryKey]);
 
   const retry = useCallback(() => {
-    if (status !== "error") return;
+    if (status !== RecordingStatus.ERROR) return;
     if (enabled) { setRetryKey(value => value + 1); return; }
-    if (!unfinishedClose) { setStatus("idle"); setError(null); return; }
+    if (!unfinishedClose) { setStatus(RecordingStatus.IDLE); setError(null); return; }
     const owner = userId;
-    setStatus("ending"); setError(null);
+    setStatus(RecordingStatus.ENDING); setError(null);
     sessionLifecycle = sessionLifecycle.then(async () => {
       await unfinishedClose?.();
       unfinishedClose = null;
-      if (mountedRef.current && ownerRef.current === owner) setStatus("idle");
+      if (mountedRef.current && ownerRef.current === owner) setStatus(RecordingStatus.IDLE);
     }).catch(error => {
       console.error("Failed to finalize monitoring session", error);
       if (mountedRef.current && ownerRef.current === owner) {
-        setStatus("error");
+        setStatus(RecordingStatus.ERROR);
         setError("Não foi possível finalizar a sessão de monitoramento. Tente novamente.");
       }
     });

@@ -70,7 +70,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
 
   async function render(monitoring = true, distanceReference?: ScreenDistanceReference) {
     await act(async () => {
-      root.render(<WebcamFeed isMonitoring={monitoring} onToggleMonitoring={vi.fn()} onCalibrate={vi.fn()}
+      root.render(<WebcamFeed isMonitoring={monitoring} onCalibrate={vi.fn()}
         onPostureUpdate={update} onPresenceChange={presence} onHardwareBusyChange={hardware}
         onOcularUpdate={ocularUpdate} onCalibrationFrame={calibrationUpdate} distanceReference={distanceReference}
         calibration={baseline} onClassificationUpdate={classificationUpdate} />);
@@ -114,8 +114,10 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     landmarks = upright();
     faceTransformationMatrix = faceMatrix(0);
     faceLandmarks = null;
-    baseline = { id: "base", baselineNeckAngle: 0, baselineShoulderBalance: 100,
-      baselineDistanceCm: 60, baselineEyeDistancePx: 200, isActive: true };
+    baseline = {
+      id: "base", baselineNeckAngle: 0, baselineShoulderBalance: 100,
+      baselineDistanceCm: 60, baselineEyeDistancePx: 200, isActive: true
+    };
     ocularUpdate.mockReset();
     calibrationUpdate.mockReset();
     classificationUpdate.mockReset();
@@ -129,11 +131,13 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     getUserMedia.mockImplementation(async () => {
       const item = makeStream(); streams.push(item); return item.stream;
     });
-    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: {
-      getUserMedia,
-      enumerateDevices: vi.fn(async () => [{ kind: "videoinput", deviceId: "camera-1", label: "Test camera" }]),
-      addEventListener: vi.fn(), removeEventListener: vi.fn(),
-    } });
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true, value: {
+        getUserMedia,
+        enumerateDevices: vi.fn(async () => [{ kind: "videoinput", deviceId: "camera-1", label: "Test camera" }]),
+        addEventListener: vi.fn(), removeEventListener: vi.fn(),
+      }
+    });
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 16));
     vi.stubGlobal("cancelAnimationFrame", (id: number) => clearTimeout(id));
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
@@ -249,7 +253,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   });
 
   it("keeps calibration unavailable on camera denial", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => { });
     getUserMedia.mockRejectedValue(new DOMException("denied", "NotAllowedError"));
     await renderCalibration(); await reachCalibrationCamera(); await advance(200);
     const dialog = document.querySelector('[role="dialog"]');
@@ -420,8 +424,10 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     faceLandmarks = ocularFace();
     await act(async () => root.render(<WebcamFeed isMonitoring calibration={baseline}
       onClassificationUpdate={classificationUpdate} onOcularUpdate={ocularUpdate}
-      moduleSettings={{ id: "settings-1", userId: 1, posturalAnalysis: false, ocularAnalysis: true,
-        typingAnalysis: true, webCam: null, createdAt: "", updatedAt: "" }} />));
+      moduleSettings={{
+        id: "settings-1", userId: 1, posturalAnalysis: false, ocularAnalysis: true,
+        typingAnalysis: true, webCam: null, createdAt: "", updatedAt: ""
+      }} />));
     mounted = true; await advance(300);
     expect(classificationUpdate.mock.lastCall?.[0]?.metrics.neck.value).toBeNull();
     expect(classificationUpdate.mock.lastCall?.[0]?.metrics.shoulders.value).toBeNull();
@@ -690,7 +696,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   });
 
   it.each(["NotReadableError", "TrackStartError", "AbortError"])("keeps the camera selector usable after a virtual camera fails with %s", async errorName => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => { });
     vi.mocked(navigator.mediaDevices.enumerateDevices).mockResolvedValue([
       { kind: "videoinput", deviceId: "camera-1", label: "USB camera" },
       { kind: "videoinput", deviceId: "obs", label: "OBS Virtual Camera" },
@@ -727,7 +733,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   });
 
   it("lets users choose another camera after the active track ends", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => { });
     vi.mocked(navigator.mediaDevices.enumerateDevices).mockResolvedValue([
       { kind: "videoinput", deviceId: "camera-1", label: "First camera" },
       { kind: "videoinput", deviceId: "camera-2", label: "Second camera" },
@@ -812,7 +818,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   });
 
   it("resets angular history after the hardware ends a previously active stream", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => { });
     faceTransformationMatrix = faceMatrix(40);
     await render(); await advance(200);
     const track = streams[streams.length - 1].track;
@@ -837,7 +843,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   });
 
   it("recovers from busy hardware after an explicit retry", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => { });
     getUserMedia.mockRejectedValue(new DOMException("device in use", "NotReadableError"));
     await render(); await advance(200);
     expect(container.textContent).toContain("Câmera em Uso por Outro Aplicativo");
@@ -851,7 +857,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   });
 
   it("handles permission denial and pauses metric publication", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => { });
     getUserMedia.mockRejectedValue(new DOMException("denied", "NotAllowedError"));
     await render(); await advance(200);
     expect(container.textContent).toContain("Permissão de câmera negada");
@@ -928,7 +934,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   it("invalidates ocular results when inference throws or hardware ends the stream", async () => {
     faceLandmarks = ocularFace();
     await render(); await advance(200);
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => { });
     vi.mocked(poseDetector.detectFrame).mockImplementation(() => { throw new Error("inference failed"); });
     await advance(100);
     expect(ocularUpdate.mock.lastCall?.[0]).toBeNull();
@@ -963,7 +969,6 @@ describe("WebcamFeed and deterministic biomechanics", () => {
       root.render(
         <WebcamFeed
           isMonitoring={true}
-          onToggleMonitoring={vi.fn()}
           onCalibrate={vi.fn()}
           onPostureUpdate={update}
           onOcularUpdate={ocularUpdate}

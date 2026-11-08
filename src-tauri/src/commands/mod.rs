@@ -12,4 +12,5 @@ pub mod monitoring_session;
 pub mod posture_metric_snapshot;
 pub mod posture_alert;
 pub mod posture;
+pub mod typing_metric_snapshot;
 

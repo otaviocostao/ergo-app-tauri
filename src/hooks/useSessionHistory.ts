@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { sessionHistoryService } from "../services/sessionHistoryService";
-import { waitForRecordingWrites, type RecordingStatus } from "./useMetricRecording";
+import { waitForRecordingWrites } from "./useMetricRecording";
+import { RecordingStatus } from "../enums/recordingStatus";
 import type { SessionHistory } from "../types/sessionHistory";
 import type { MonitoringSessionItem } from "../types/monitoringSession";
 import { SESSION_HISTORY_UPDATED_EVENT, type SessionHistoryUpdatedDetail } from "../services/monitoring/sessionHistoryEvents";
@@ -30,8 +31,10 @@ export function useSessionHistory(userId: number | null, recordingStatus: Record
       return;
     }
     if (!isVisible) return;
-    setState(previous => ({ owner: userId, data: previous.owner === userId ? previous.data : null,
-      session: previous.owner === userId ? previous.session : null, loading: true, error: null }));
+    setState(previous => ({
+      owner: userId, data: previous.owner === userId ? previous.data : null,
+      session: previous.owner === userId ? previous.session : null, loading: true, error: null
+    }));
     const load = async () => {
       if (cancelled) return;
       clearTimeout(timer);
@@ -47,14 +50,16 @@ export function useSessionHistory(userId: number | null, recordingStatus: Record
           setState({ owner: userId, data, session: data?.session ?? null, loading: false, error: null });
         }
       } catch (error) {
-        if (!cancelled && requestedRevision === revision) setState(previous => ({ ...previous, loading: false,
-          error: error instanceof Error ? error.message : "Não foi possível carregar o histórico salvo." }));
+        if (!cancelled && requestedRevision === revision) setState(previous => ({
+          ...previous, loading: false,
+          error: error instanceof Error ? error.message : "Não foi possível carregar o histórico salvo."
+        }));
       } finally {
         inFlight = false;
         if (!cancelled) {
           // A save during a read invalidates that response and requests one fresh read.
           if (dirty || requestedRevision !== revision) void load();
-          else if (recordingStatus !== "idle") timer = setTimeout(load, REFRESH_MS);
+          else if (recordingStatus !== RecordingStatus.IDLE) timer = setTimeout(load, REFRESH_MS);
         }
       }
     };

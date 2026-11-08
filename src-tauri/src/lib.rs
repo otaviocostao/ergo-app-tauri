@@ -3,20 +3,22 @@ pub mod db;
 pub mod models;
 pub mod repositories;
 pub mod services;
-#[cfg(desktop)]
+#[cfg(all(desktop, not(test)))]
 mod system_tray;
 
-use services::auth_service::AuthState;
-use tauri::Manager;
-
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+#[cfg(not(test))]
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+#[cfg(not(test))]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    use services::auth_service::AuthState;
+    use tauri::Manager;
+
     tauri::Builder::default()
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
@@ -31,6 +33,8 @@ pub fn run() {
             system_tray::setup(app)?;
             let scheduler = services::reminder_scheduler_service::start(app.handle().clone())?;
             app.manage(scheduler);
+            let typing_monitor = services::typing_monitor_service::start(app.handle().clone())?;
+            app.manage(typing_monitor);
             Ok(())
         })
         .on_window_event(|_window, _event| {
@@ -105,12 +109,23 @@ pub fn run() {
             commands::posture_alert::get_alerts_by_session,
             commands::posture_alert::get_posture_alerts,
             commands::posture_alert::delete_posture_alert,
+
+            // Typing Metric Snapshots & Live Monitor
+            commands::typing_metric_snapshot::record_typing_snapshot,
+            commands::typing_metric_snapshot::record_typing_snapshots_batch,
+            commands::typing_metric_snapshot::get_typing_snapshots_by_session,
+            commands::typing_metric_snapshot::get_typing_history,
+            commands::typing_metric_snapshot::delete_typing_snapshot,
+            commands::typing_metric_snapshot::get_live_typing_metrics,
+            commands::typing_metric_snapshot::set_typing_monitoring_paused,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
                 app.state::<services::reminder_scheduler_service::SchedulerControl>()
+                    .stop();
+                app.state::<services::typing_monitor_service::TypingMonitorControl>()
                     .stop();
             }
         });

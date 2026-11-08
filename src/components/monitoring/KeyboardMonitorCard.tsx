@@ -1,89 +1,28 @@
-import { useState, useEffect, useRef } from "react";
-import { AlertCircle, CheckCircle2, Clock, KeyboardOff, RotateCcw } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock, KeyboardOff } from "lucide-react";
+import type { LiveTypingMetrics } from "../../types/typingMetricSnapshot";
 
 export interface KeyboardMonitorCardProps {
-  onPauseRequested?: () => void;
-  className?: string;
   /** False when the typing analysis module is disabled: no keys are counted. */
   enabled?: boolean;
+  /** True when monitoring is paused by the user or while calibrating. */
+  isPaused?: boolean;
+  /** Real-time typing telemetry streamed from the Rust background service. */
+  metrics?: LiveTypingMetrics | null;
+  className?: string;
 }
 
 export default function KeyboardMonitorCard({
-  onPauseRequested,
-  className = "",
   enabled = true,
+  isPaused = false,
+  metrics = null,
+  className = "",
 }: KeyboardMonitorCardProps) {
-  const [isActive, setIsActive] = useState(false);
-  const [totalKeypresses, setTotalKeypresses] = useState(0);
-  const [cpm, setCpm] = useState(0);
-  const [continuousMinutes, setContinuousMinutes] = useState(14);
-  const keyCountWindow = useRef<number[]>([]);
-
-  useEffect(() => {
-    if (!enabled) {
-      keyCountWindow.current = [];
-      setIsActive(false);
-      setCpm(0);
-      return;
-    }
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) return;
-
-      const now = Date.now();
-      keyCountWindow.current.push(now);
-      setTotalKeypresses((prev) => prev + 1);
-      setIsActive(true);
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [enabled]);
-
-  useEffect(() => {
-    if (!enabled) return;
-    const interval = setInterval(() => {
-      const now = Date.now();
-      keyCountWindow.current = keyCountWindow.current.filter(
-        (timestamp) => now - timestamp <= 60000
-      );
-
-      setCpm(keyCountWindow.current.length);
-
-      if (keyCountWindow.current.length === 0) {
-        setIsActive(false);
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [enabled]);
-
-  useEffect(() => {
-    if (!enabled) return;
-    const minuteInterval = setInterval(() => {
-      if (keyCountWindow.current.length > 5) {
-        setContinuousMinutes((prev) => prev + 1);
-      }
-    }, 60000);
-
-    return () => clearInterval(minuteInterval);
-  }, [enabled]);
-
-  const resetTypingSession = () => {
-    setContinuousMinutes(0);
-    setTotalKeypresses(0);
-    keyCountWindow.current = [];
-    setCpm(0);
-    if (onPauseRequested) onPauseRequested();
-  };
-
-  const isHighRisk = continuousMinutes >= 25;
-  const isModerateRisk = continuousMinutes >= 15 && continuousMinutes < 25;
-
   if (!enabled) {
     return (
-      <div data-module-inactive="true" className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs ${className}`}>
+      <div
+        data-module-inactive="true"
+        className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs ${className}`}
+      >
         <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">
           <div>
             <h3 className="font-semibold text-sm text-slate-800 dark:text-slate-200">
@@ -93,15 +32,38 @@ export default function KeyboardMonitorCard({
               Monitoramento da cadência de teclas digitadas e tempo de uso contínuo.
             </span>
           </div>
-          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Módulo inativo</span>
+          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            Módulo inativo
+          </span>
         </div>
         <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
           <KeyboardOff size={15} className="shrink-0 text-slate-400" />
-          <span>Análise de digitação desativada em Configurações → Módulos. Nenhuma tecla está sendo contabilizada.</span>
+          <span>
+            Análise de digitação desativada em Configurações → Módulos. Nenhuma tecla está sendo
+            contabilizada.
+          </span>
         </div>
       </div>
     );
   }
+
+  const cpm = metrics?.cpm ?? 0;
+  const continuousMinutes = metrics?.continuousMinutes ?? 0;
+  const totalKeystrokes = metrics?.totalKeystrokes ?? 0;
+  const dominantStatus =
+    metrics?.dominantStatus ??
+    (continuousMinutes >= 25 ? "danger" : continuousMinutes >= 15 ? "warning" : "good");
+  const isHighRisk = dominantStatus === "danger" || continuousMinutes >= 25;
+  const isModerateRisk =
+    !isHighRisk &&
+    (dominantStatus === "warning" || (continuousMinutes >= 15 && continuousMinutes < 25));
+  const isTyping = !isPaused && Boolean(metrics?.isTyping);
+
+  const statusBadgeLabel = isPaused
+    ? "Em pausa"
+    : isTyping
+      ? "Digitando"
+      : "Pausa / Inativo";
 
   return (
     <div
@@ -123,29 +85,22 @@ export default function KeyboardMonitorCard({
 
           <div className="flex items-center gap-2">
             <span className="relative flex h-2.5 w-2.5">
-              {isActive && (
+              {isTyping && (
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               )}
               <span
-                className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isActive ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-700"
+                className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isTyping ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-700"
                   }`}
               ></span>
             </span>
             <span
-              className={`text-xs font-medium ${isActive
+              className={`text-xs font-medium ${isTyping
                 ? "text-emerald-600 dark:text-emerald-400 font-semibold"
                 : "text-slate-500 dark:text-slate-400"
                 }`}
             >
-              {isActive ? "Digitando" : "Pausa / Inativo"}
+              {statusBadgeLabel}
             </span>
-            <button
-              onClick={resetTypingSession}
-              title="Resetar métricas de digitação"
-              className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors rounded"
-            >
-              <RotateCcw size={13} />
-            </button>
           </div>
         </div>
 
@@ -182,7 +137,7 @@ export default function KeyboardMonitorCard({
               <span>Teclas</span>
             </div>
             <div className="text-xl font-bold text-slate-800 dark:text-slate-100">
-              {totalKeypresses}
+              {totalKeystrokes}
             </div>
           </div>
         </div>
@@ -193,7 +148,8 @@ export default function KeyboardMonitorCard({
             <div>
               <p className="font-semibold">Recomendado Fazer uma Pausa!</p>
               <p className="mt-0.5 text-rose-600 dark:text-rose-400">
-                Você está digitando há mais de 25 minutos seguidos. Faça uma pausa de 2 minutos para alongar os pulsos.
+                Você está digitando há mais de 25 minutos seguidos. Faça uma pausa de 2 minutos
+                para alongar os pulsos.
               </p>
             </div>
           </div>

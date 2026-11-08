@@ -4,6 +4,7 @@ use crate::db::AppState;
 use crate::models::auth::{AuthError, Session};
 use crate::models::user::{CreateUserPayload, User};
 use crate::services::auth_service::AuthState;
+use crate::services::typing_monitor_service::TypingMonitorControl;
 use crate::services::{auth_service, user_service};
 
 #[tauri::command]
@@ -37,6 +38,14 @@ pub fn continue_offline(auth_state: State<'_, AuthState>) -> Result<Session, Aut
 }
 
 #[tauri::command]
-pub fn logout(auth_state: State<'_, AuthState>) -> Result<(), AuthError> {
+pub fn logout(
+    state: State<'_, AppState>,
+    auth_state: State<'_, AuthState>,
+    typing_monitor: State<'_, TypingMonitorControl>,
+) -> Result<(), AuthError> {
+    let conn = state.db.lock().map_err(|_| AuthError::internal())?;
+    typing_monitor
+        .clear_all(&conn)
+        .map_err(|_| AuthError::internal())?;
     auth_service::logout(&auth_state)
 }

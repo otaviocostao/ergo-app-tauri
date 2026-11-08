@@ -11,3 +11,4 @@ pub mod posture_alert_repository;
 pub mod posture_repository;
 pub mod dashboard_repository;
 pub mod session_history_repository;
+pub mod typing_metric_snapshot_repository;
