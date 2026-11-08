@@ -1,3 +1,4 @@
+use rusqlite::Connection;
 use tauri::State;
 
 use crate::db::AppState;
@@ -6,12 +7,17 @@ use crate::services::auth_service::AuthState;
 use crate::services::settings_service;
 use crate::services::typing_monitor_service::TypingMonitorControl;
 
-fn sync_typing_module_state(monitor: &TypingMonitorControl, typing_enabled: bool) {
+fn sync_typing_module_state(
+    conn: &Connection,
+    monitor: &TypingMonitorControl,
+    typing_enabled: bool,
+) -> Result<(), String> {
     if typing_enabled {
-        let _ = monitor.on_module_enabled();
+        monitor.on_module_enabled()?;
     } else {
-        let _ = monitor.on_module_disabled();
+        monitor.on_module_disabled(conn)?;
     }
+    Ok(())
 }
 
 #[tauri::command]
@@ -32,7 +38,7 @@ pub fn update_settings(
 ) -> Result<Settings, String> {
     let conn = state.db.lock().map_err(|error| error.to_string())?;
     let settings = settings_service::update_settings(&conn, &auth_state, payload)?;
-    sync_typing_module_state(&typing_monitor, settings.typing_analysis);
+    sync_typing_module_state(&conn, &typing_monitor, settings.typing_analysis)?;
     Ok(settings)
 }
 
@@ -45,7 +51,7 @@ pub fn delete_settings(
     let conn = state.db.lock().map_err(|error| error.to_string())?;
     let deleted = settings_service::delete_settings(&conn, &auth_state)?;
     if deleted {
-        sync_typing_module_state(&typing_monitor, true);
+        sync_typing_module_state(&conn, &typing_monitor, true)?;
     }
     Ok(deleted)
 }
@@ -59,6 +65,6 @@ pub fn set_module_enabled(
 ) -> Result<Settings, String> {
     let conn = state.db.lock().map_err(|error| error.to_string())?;
     let settings = settings_service::set_module_enabled(&conn, &auth_state, payload)?;
-    sync_typing_module_state(&typing_monitor, settings.typing_analysis);
+    sync_typing_module_state(&conn, &typing_monitor, settings.typing_analysis)?;
     Ok(settings)
 }
