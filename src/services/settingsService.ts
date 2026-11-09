@@ -10,11 +10,12 @@ export interface ModuleSettings {
   typingAnalysis: boolean;
   /** Device ID of the default webcam used by every visual analysis; null until one is chosen. */
   webCam: string | null;
+  dailyGoalMinutes?: number;
   createdAt: string;
   updatedAt: string;
 }
 
-export type UpdateModuleSettingsPayload = Partial<Pick<ModuleSettings, "posturalAnalysis" | "ocularAnalysis" | "typingAnalysis" | "webCam">>;
+export type UpdateModuleSettingsPayload = Partial<Pick<ModuleSettings, "posturalAnalysis" | "ocularAnalysis" | "typingAnalysis" | "webCam" | "dailyGoalMinutes">>;
 type ModuleField = "posturalAnalysis" | "ocularAnalysis" | "typingAnalysis";
 
 const MODULE_FIELDS: Record<Module, ModuleField> = {
