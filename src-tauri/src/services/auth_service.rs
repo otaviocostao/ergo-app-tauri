@@ -35,14 +35,14 @@ impl AuthState {
 
     pub(crate) fn with_authenticated_user<T>(
         &self,
-        action: impl FnOnce(Option<i64>) -> T,
+        action: impl FnOnce(Option<&str>) -> T,
     ) -> Result<T, String> {
         let session = self
             .session
             .lock()
             .map_err(|_| "Failed to read authentication session".to_string())?;
         let user_id = match &*session {
-            Session::Authenticated { user } => Some(user.id),
+            Session::Authenticated { user } => Some(user.id.as_str()),
             _ => None,
         };
         Ok(action(user_id))
@@ -123,7 +123,7 @@ pub fn login(
 
     match stored_user {
         Some(stored) if verified => {
-            crate::services::reminder_service::ensure_system_reminders(conn, stored.user.id)
+            crate::services::reminder_service::ensure_system_reminders(conn, &stored.user.id)
                 .map_err(|_| AuthError::internal())?;
             let session = Session::Authenticated {
                 user: Box::new(stored.user),
@@ -144,7 +144,7 @@ pub fn get_session(state: &AuthState) -> Result<Session, AuthError> {
         .map_err(|_| AuthError::internal())
 }
 
-pub fn require_authenticated_user_id(state: &AuthState) -> Result<i64, String> {
+pub fn require_authenticated_user_id(state: &AuthState) -> Result<String, String> {
     match get_session(state).map_err(|_| "Failed to read authentication session".to_string())? {
         Session::Authenticated { user } => Ok(user.id),
         Session::Anonymous | Session::Guest => {

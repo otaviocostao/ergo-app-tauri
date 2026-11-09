@@ -4,7 +4,7 @@ use crate::models::user_theme::ThemePreference;
 
 pub fn find_by_user_id(
     conn: &Connection,
-    user_id: i64,
+    user_id: &str,
 ) -> Result<Option<ThemePreference>, rusqlite::Error> {
     conn.query_row(
         "SELECT theme_preference FROM users WHERE id = ?1",
@@ -16,7 +16,7 @@ pub fn find_by_user_id(
 
 pub fn update(
     conn: &Connection,
-    user_id: i64,
+    user_id: &str,
     theme: ThemePreference,
 ) -> Result<usize, rusqlite::Error> {
     conn.execute(

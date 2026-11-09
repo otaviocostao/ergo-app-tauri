@@ -67,14 +67,15 @@ mod tests {
         conn
     }
 
-    fn insert_test_user(conn: &Connection) -> i64 {
+    fn insert_test_user(conn: &Connection) -> String {
+        let user_id = uuid::Uuid::new_v4().to_string();
         conn.execute(
-            "INSERT INTO users (first_name, last_name, birth_date, password_hash, email, phone)
-             VALUES ('Test', 'User', '1995-05-20', 'test-hash', 'test@example.com', '75999999999')",
-            [],
+            "INSERT INTO users (id, first_name, last_name, birth_date, password_hash, email, phone)
+             VALUES (?1, 'Test', 'User', '1995-05-20', 'test-hash', 'test@example.com', '75999999999')",
+            rusqlite::params![user_id],
         )
         .unwrap();
-        conn.last_insert_rowid()
+        user_id
     }
 
     fn snapshot_reminders(conn: &Connection) -> serde_json::Value {
@@ -98,6 +99,22 @@ mod tests {
         let db_path = temp_dir.path().join("ergo.db");
         run_migrations(&db_path).unwrap();
         let conn = open_test_database(&db_path);
+        for (table, column) in [
+            ("users", "id"),
+            ("reminders", "user_id"),
+            ("settings", "user_id"),
+            ("posture_calibrations", "user_id"),
+            ("monitoring_sessions", "user_id"),
+        ] {
+            let column_type: String = conn
+                .query_row(
+                    "SELECT type FROM pragma_table_info(?1) WHERE name = ?2",
+                    params![table, column],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(column_type, "TEXT", "{table}.{column}");
+        }
         let user_id = insert_test_user(&conn);
         let reminder_id = "test-reminder-id";
 
@@ -107,7 +124,7 @@ mod tests {
             params![reminder_id, user_id],
         )
         .unwrap();
-        let owner: i64 = conn
+        let owner: String = conn
             .query_row(
                 "SELECT user_id FROM reminders WHERE id = ?1",
                 params![reminder_id],
@@ -119,7 +136,7 @@ mod tests {
         let invalid_owner = conn
             .execute(
                 "UPDATE reminders SET user_id = ?1 WHERE id = ?2",
-                params![user_id + 1, reminder_id],
+                params![uuid::Uuid::new_v4().to_string(), reminder_id],
             )
             .unwrap_err();
         assert!(matches!(
@@ -171,7 +188,7 @@ mod tests {
 
         let conn = open_test_database(&db_path);
         assert_eq!(snapshot_reminders(&conn), reminders_before);
-        let stored_user_id: i64 = conn
+        let stored_user_id: String = conn
             .query_row(
                 "SELECT id FROM users WHERE email = 'test@example.com'",
                 [],

@@ -45,13 +45,13 @@ mod tests {
         conn.execute_batch(include_str!("../../migrations/0001_initial_migration.sql"))
             .unwrap();
         conn.execute_batch("INSERT INTO users (id, first_name, last_name, birth_date, password_hash, email, phone)
-            VALUES (1, 'One', 'User', '', 'hash', 'one@example.com', ''), (2, 'Two', 'User', '', 'hash', 'two@example.com', '');
-            INSERT INTO monitoring_sessions (id, user_id, started_at) VALUES ('one', 1, '2026-11-03T12:00:00Z'), ('two', 2, '2026-11-03T12:00:00Z');").unwrap();
+            VALUES ('00000000-0000-4000-8000-000000000001', 'One', 'User', '', 'hash', 'one@example.com', ''), ('00000000-0000-4000-8000-000000000002', 'Two', 'User', '', 'hash', 'two@example.com', '');
+            INSERT INTO monitoring_sessions (id, user_id, started_at) VALUES ('one', '00000000-0000-4000-8000-000000000001', '2026-11-03T12:00:00Z'), ('two', '00000000-0000-4000-8000-000000000002', '2026-11-03T12:00:00Z');").unwrap();
         let auth = AuthState::new().unwrap();
         assert!(get_dashboard_data(&conn, &auth, filter()).is_err());
         auth_service::set_session(&auth, Session::Guest).unwrap();
         assert!(get_dashboard_data(&conn, &auth, filter()).is_err());
-        for id in [1, 2] {
+        for id in ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"] {
             let user = user_repository::find_by_id(&conn, id)
                 .unwrap()
                 .unwrap()
@@ -65,7 +65,7 @@ mod tests {
             .unwrap();
             let data = get_dashboard_data(&conn, &auth, filter()).unwrap();
             assert_eq!(data.sessions.len(), 1);
-            assert_eq!(data.sessions[0].user_id, Some(id));
+            assert_eq!(data.sessions[0].user_id, Some(id.to_owned()));
             let mut invalid = filter();
             invalid.start_time = "invalid".into();
             assert!(get_dashboard_data(&conn, &auth, invalid).is_err());

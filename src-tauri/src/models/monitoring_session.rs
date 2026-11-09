@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct MonitoringSession {
     pub id: String,
-    pub user_id: Option<i64>,
+    pub user_id: Option<String>,
     pub started_at: String,
     pub ended_at: Option<String>,
     pub duration_seconds: i64,
@@ -20,7 +20,7 @@ pub struct MonitoringSession {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateSessionPayload {
-    pub user_id: Option<i64>,
+    pub user_id: Option<String>,
     pub started_at: Option<String>,
 }
 

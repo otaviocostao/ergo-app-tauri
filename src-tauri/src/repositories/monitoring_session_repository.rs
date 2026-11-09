@@ -26,7 +26,7 @@ pub fn map_monitoring_session_row(
 
 pub fn find_all(
     conn: &Connection,
-    user_id: Option<i64>,
+    user_id: Option<&str>,
 ) -> Result<Vec<MonitoringSession>, rusqlite::Error> {
     match user_id {
         Some(uid) => {
@@ -72,7 +72,7 @@ pub fn find_by_id(
 
 pub fn find_active(
     conn: &Connection,
-    user_id: Option<i64>,
+    user_id: Option<&str>,
 ) -> Result<Option<MonitoringSession>, rusqlite::Error> {
     match user_id {
         Some(uid) => {

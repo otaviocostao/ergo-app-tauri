@@ -36,7 +36,7 @@ const view = vi.hoisted(() => ({
   modal: null as WorkspaceCalibrationModalProps | null,
   keyboard: null as KeyboardMonitorCardProps | null,
   logs: [] as LogEvent[],
-  userId: 1,
+  userId: "00000000-0000-4000-8000-000000000001",
 }));
 vi.mock("../auth/AuthContext", () => ({ useOptionalAuth: () => ({ session: { kind: "authenticated", user: { id: view.userId } } }) }));
 vi.mock("../components/monitoring/WebcamFeed", () => ({ default: (props: WebcamFeedProps) => { view.feed = props; return null; } }));
@@ -45,7 +45,7 @@ vi.mock("../components/monitoring/KeyboardMonitorCard", () => ({ default: (props
 vi.mock("../components/monitoring/PostureHistoryLog", () => ({ default: ({ logs }: { logs: LogEvent[] }) => { view.logs = logs; return null; } }));
 
 const baseline: PostureCalibrationDTO = {
-  id: "base", userId: 1, isActive: true, baselineNeckAngle: 10,
+  id: "base", userId: "00000000-0000-4000-8000-000000000001", isActive: true, baselineNeckAngle: 10,
   baselineShoulderBalance: 80, baselineDistanceCm: 60, baselineEyeDistancePx: 200,
 };
 
@@ -82,7 +82,7 @@ describe("Monitoring classification and temporal alerts", () => {
   beforeEach(() => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     vi.spyOn(performance, "now").mockReturnValue(0);
-    view.feed = null; view.modal = null; view.keyboard = null; view.logs = []; view.userId = 1;
+    view.feed = null; view.modal = null; view.keyboard = null; view.logs = []; view.userId = "00000000-0000-4000-8000-000000000001";
     vi.spyOn(postureService, "getActiveCalibration").mockResolvedValue(baseline);
     container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   });
@@ -102,7 +102,7 @@ describe("Monitoring classification and temporal alerts", () => {
     const calls = (command: string) => ipc.invoke.mock.calls.filter(([name]) => name === command).map(([, args]) => args.payload);
     const base = 0;
     await render();
-    expect(calls("start_monitoring_session")).toEqual([{ userId: 1 }]);
+    expect(calls("start_monitoring_session")).toEqual([{ userId: "00000000-0000-4000-8000-000000000001" }]);
     const blink = { blinkEvent: "blink", distanceCm: 60, blinkRate: { blinkCount: 1, observedMs: 0, blinksPerMinute: null, isWarmingUp: true } };
     await act(async () => {
       for (let index = 0; index < 3; index++) view.feed!.onOcularUpdate!(blink as unknown as OcularMetrics);
@@ -271,7 +271,7 @@ describe("Monitoring classification and temporal alerts", () => {
     expect(view.logs.filter(log => log.message === "Usuário presente")).toHaveLength(1);
     expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(0);
     expect(view.logs.filter(log => log.message === "Ambiente de trabalho salvo com sucesso")).toEqual([
-      expect.objectContaining({ scope: "account", userId: 1, type: "success" }),
+      expect.objectContaining({ scope: "account", userId: "00000000-0000-4000-8000-000000000001", type: "success" }),
     ]);
   });
 
@@ -332,13 +332,13 @@ describe("Monitoring classification and temporal alerts", () => {
   it("resets delivery history when the authenticated account changes", async () => {
     await render(); await publish(0, 20_100, { neckAngle: 35 });
     expect(alerts()).toHaveLength(1);
-    view.userId = 2;
-    vi.mocked(postureService.getActiveCalibration).mockResolvedValue({ ...baseline, id: "user-2", userId: 2 });
+    view.userId = "00000000-0000-4000-8000-000000000002";
+    vi.mocked(postureService.getActiveCalibration).mockResolvedValue({ ...baseline, id: "user-2", userId: "00000000-0000-4000-8000-000000000002" });
     await render(); await publish(20_200, 40_200, { neckAngle: 35 });
     expect(alerts()).toHaveLength(0);
     await publish(40_300, 40_300, { neckAngle: 35 });
     expect(alerts()).toHaveLength(1);
-    expect(postureService.getActiveCalibration).toHaveBeenLastCalledWith(2);
+    expect(postureService.getActiveCalibration).toHaveBeenLastCalledWith("00000000-0000-4000-8000-000000000002");
   });
 
   it("does not duplicate notifications under StrictMode", async () => {
@@ -366,8 +366,8 @@ describe("Monitoring classification and temporal alerts", () => {
       }
     });
     expect(alerts()).toEqual([]);
-    view.userId = 2;
-    vi.mocked(postureService.getActiveCalibration).mockResolvedValue({ ...baseline, id: "user-2", userId: 2 });
+    view.userId = "00000000-0000-4000-8000-000000000002";
+    vi.mocked(postureService.getActiveCalibration).mockResolvedValue({ ...baseline, id: "user-2", userId: "00000000-0000-4000-8000-000000000002" });
     await render();
     await toggleMonitoring();
     await act(async () => {
@@ -395,7 +395,7 @@ describe("Monitoring classification and temporal alerts", () => {
 
   describe("default webcam", () => {
     const saved = (webCam: string | null): ModuleSettings => ({
-      id: "settings-1", userId: 1, posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true,
+      id: "settings-1", userId: "00000000-0000-4000-8000-000000000001", posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true,
       webCam, createdAt: "", updatedAt: "",
     });
     const updates = () => ipc.invoke.mock.calls.filter(([name]) => name === "update_settings").map(([, args]) => args);
@@ -451,7 +451,7 @@ describe("Monitoring classification and temporal alerts", () => {
 
   describe("with disabled modules", () => {
     const modules = (changes: Partial<ModuleSettings>) => vi.spyOn(settingsService, "get").mockResolvedValue({
-      id: "settings-1", userId: 1, posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true,
+      id: "settings-1", userId: "00000000-0000-4000-8000-000000000001", posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true,
       webCam: null, createdAt: "", updatedAt: "", ...changes,
     });
     const inactiveCards = () => [...container.querySelectorAll("[data-module-inactive] h3")].map(title => title.textContent);
@@ -511,7 +511,7 @@ describe("Monitoring classification and temporal alerts", () => {
       expect(view.feed!.isMonitoring).toBe(false);
       await act(async () => resolve(null));
       expect(view.feed!.isMonitoring).toBe(true);
-      expect(persisted("start_monitoring_session")).toEqual([["start_monitoring_session", { payload: { userId: 1 } }]]);
+      expect(persisted("start_monitoring_session")).toEqual([["start_monitoring_session", { payload: { userId: "00000000-0000-4000-8000-000000000001" } }]]);
     });
 
     it("turns the camera off when both camera modules are disabled while keeping the shared session for typing", async () => {
@@ -524,7 +524,7 @@ describe("Monitoring classification and temporal alerts", () => {
       expect(monitoringButton().textContent?.trim()).toBe("Encerrar Monitoramento");
       expect(view.feed!.isMonitoring).toBe(false);
       expect(view.feed!.disabledMessage).toContain("A câmera fica desligada");
-      expect(persisted("start_monitoring_session")).toEqual([["start_monitoring_session", { payload: { userId: 1 } }]]);
+      expect(persisted("start_monitoring_session")).toEqual([["start_monitoring_session", { payload: { userId: "00000000-0000-4000-8000-000000000001" } }]]);
       expect(persisted("record_metric_snapshot")).toEqual([]);
       expect(persisted("record_posture_alert")).toEqual([]);
       expect(view.keyboard!.enabled).toBe(true);
@@ -593,7 +593,7 @@ describe("Monitoring classification and temporal alerts", () => {
       ipc.desktop = true;
       vi.spyOn(settingsService, "get").mockResolvedValue({
         id: "settings-1",
-        userId: 1,
+        userId: "00000000-0000-4000-8000-000000000001",
         posturalAnalysis: true,
         ocularAnalysis: true,
         typingAnalysis: true,

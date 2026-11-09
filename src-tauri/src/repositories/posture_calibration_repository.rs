@@ -57,7 +57,7 @@ pub fn find_by_id(
 
 pub fn find_active(
     conn: &Connection,
-    user_id: Option<i64>,
+    user_id: Option<&str>,
 ) -> Result<Option<PostureCalibration>, rusqlite::Error> {
     match user_id {
         Some(uid) => {
@@ -98,7 +98,7 @@ pub fn find_active(
 
 pub fn deactivate_all(
     conn: &Connection,
-    user_id: Option<i64>,
+    user_id: Option<&str>,
 ) -> Result<usize, rusqlite::Error> {
     match user_id {
         Some(uid) => conn.execute(

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct PostureCalibration {
     pub id: String,
-    pub user_id: Option<i64>,
+    pub user_id: Option<String>,
     pub baseline_neck_angle: f64,
     pub baseline_shoulder_balance: f64,
     pub baseline_distance_cm: f64,
@@ -17,7 +17,7 @@ pub struct PostureCalibration {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveCalibrationPayload {
-    pub user_id: Option<i64>,
+    pub user_id: Option<String>,
     pub baseline_neck_angle: f64,
     pub baseline_shoulder_balance: f64,
     pub baseline_distance_cm: f64,

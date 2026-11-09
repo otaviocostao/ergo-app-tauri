@@ -7,7 +7,7 @@ import type { ModuleSettings } from "../../services/settingsService";
 
 const ipc = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: ipc.invoke, isTauri: () => true }));
-const auth = vi.hoisted(() => ({ userId: 1 as number | null }));
+const auth = vi.hoisted(() => ({ userId: "00000000-0000-4000-8000-000000000001" as string | null }));
 vi.mock("../../auth/AuthContext", () => ({
   useOptionalAuth: () => ({
     session: auth.userId === null ? { kind: "guest" } : { kind: "authenticated", user: { id: auth.userId } },
@@ -29,9 +29,9 @@ describe("Configurações → Módulos", () => {
 
   beforeEach(() => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-    auth.userId = 1;
+    auth.userId = "00000000-0000-4000-8000-000000000001";
     stored = {
-      id: "settings-1", userId: 1, posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true, webCam: null,
+      id: "settings-1", userId: "00000000-0000-4000-8000-000000000001", posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true, webCam: null,
       createdAt: "2026-10-31T00:00:00Z", updatedAt: "2026-10-31T00:00:00Z",
     };
     ipc.invoke.mockImplementation(async (command: string, args?: { payload: { module: string; enabled: boolean } }) => {

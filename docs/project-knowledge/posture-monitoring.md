@@ -114,7 +114,7 @@ Cada entidade possui structs de domínio e DTOs anotados com `#[serde(rename_all
 
 - **`src-tauri/src/models/monitoring_session.rs`**:
   - `MonitoringSession`: Entidade completa.
-  - `CreateSessionPayload`: `{ userId?: number, startedAt?: string }`.
+  - `CreateSessionPayload`: `{ userId?: string, startedAt?: string }`.
   - `EndSessionPayload`: `{ id, endedAt?, durationSeconds?, averageScore?, goodPosturePercentage?, warningPosturePercentage?, dangerPosturePercentage?, totalAlertsCount? }`.
 - **`src-tauri/src/models/posture_metric_snapshot.rs`**:
   - `PostureMetricSnapshot`: Entidade completa.
@@ -206,7 +206,7 @@ Todos os comandos recebem injeção do `State<'_, AppState>` gerenciado pelo Tau
     - `postureAlertService`
 - **Isolamento Multi-usuário na Sessão Frontend**:
   - A página `Monitoring.tsx` e o modal `WorkspaceCalibrationModal.tsx` consomem o hook `useOptionalAuth()`.
-  - Quando autenticado, o `userId: number` é explicitamente propagado nas consultas de calibração ativa (`postureService.getActiveCalibration(userId)`) e no payload de salvamento (`SaveCalibrationPayload.userId`), garantindo que diferentes perfis de usuário cadastrados na mesma máquina não misturem suas baselines antropométricas nem desativem registros de terceiros.
+  - Quando autenticado, o `userId: string` é explicitamente propagado nas consultas de calibração ativa (`postureService.getActiveCalibration(userId)`) e no payload de salvamento (`SaveCalibrationPayload.userId`), garantindo que diferentes perfis de usuário cadastrados na mesma máquina não misturem suas baselines antropométricas nem desativem registros de terceiros.
 
 ---
 

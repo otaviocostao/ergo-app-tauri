@@ -32,7 +32,7 @@ interface ThemeContextValue {
 }
 
 interface AccountTheme {
-  userId: number;
+  userId: string;
   theme: ThemePreference;
   status: "loading" | "ready" | "error";
   initialized: boolean;
@@ -41,7 +41,7 @@ interface AccountTheme {
 }
 
 interface ThemeRequestScope {
-  userId: number;
+  userId: string;
   active: boolean;
   ready: boolean;
   saving: boolean;

@@ -7,7 +7,7 @@ import { PostureStatus } from "../enums/postureStatus";
 
 const now = new Date(2026, 10, 3, 12);
 const timestamp = (day: number, hour = 10) => new Date(2026, 10, day, hour).toISOString();
-const session = (changes: Partial<MonitoringSessionItem> = {}): MonitoringSessionItem => ({ id: "s", userId: 1,
+const session = (changes: Partial<MonitoringSessionItem> = {}): MonitoringSessionItem => ({ id: "s", userId: "00000000-0000-4000-8000-000000000001",
   startedAt: timestamp(3), endedAt: timestamp(3, 11), durationSeconds: 3600, averageScore: 80,
   goodPosturePercentage: 80, warningPosturePercentage: 20, dangerPosturePercentage: 0, totalAlertsCount: 0, ...changes });
 const snapshot = (changes: Partial<PostureMetricSnapshot> = {}): PostureMetricSnapshot => ({ id: "m", sessionId: "s",

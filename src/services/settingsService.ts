@@ -4,7 +4,7 @@ import type { ReminderItem, SystemReminderType } from "./reminderService";
 
 export interface ModuleSettings {
   id: string;
-  userId: number;
+  userId: string;
   posturalAnalysis: boolean;
   ocularAnalysis: boolean;
   typingAnalysis: boolean;

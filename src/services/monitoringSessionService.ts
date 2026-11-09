@@ -29,7 +29,7 @@ export const monitoringSessionService = {
   },
 
   async getAllSessions(
-    userId?: number | null,
+    userId?: string | null,
   ): Promise<MonitoringSessionItem[]> {
     if (!isTauri()) {
       return [];
@@ -49,7 +49,7 @@ export const monitoringSessionService = {
   },
 
   async getActiveSession(
-    userId?: number | null,
+    userId?: string | null,
   ): Promise<MonitoringSessionItem | null> {
     if (!isTauri()) {
       return null;

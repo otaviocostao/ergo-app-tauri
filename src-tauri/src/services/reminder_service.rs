@@ -14,7 +14,7 @@ use crate::services::settings_service;
 const SYSTEM_START_TIME: &str = "00:00";
 const SYSTEM_END_TIME: &str = "23:59";
 
-fn system_reminder(kind: SystemReminderType, user_id: i64, now: &str) -> Reminder {
+fn system_reminder(kind: SystemReminderType, user_id: &str, now: &str) -> Reminder {
     let (title, message, category, interval) = match kind {
         SystemReminderType::PostureCheck => (
             "Revise sua postura",
@@ -37,7 +37,7 @@ fn system_reminder(kind: SystemReminderType, user_id: i64, now: &str) -> Reminde
     };
     Reminder {
         id: kind.reminder_id(user_id),
-        user_id: Some(user_id),
+        user_id: Some(user_id.to_owned()),
         system_type: Some(kind),
         title: title.into(),
         message: message.into(),
@@ -62,7 +62,7 @@ fn system_reminder(kind: SystemReminderType, user_id: i64, now: &str) -> Reminde
 /// modifying the existing database schema or its migration checksum.
 /// Existing entries are realigned with the catalog, keeping only the user's
 /// status and the last send time.
-pub fn ensure_system_reminders(conn: &Connection, user_id: i64) -> Result<(), String> {
+pub fn ensure_system_reminders(conn: &Connection, user_id: &str) -> Result<(), String> {
     let transaction = conn
         .unchecked_transaction()
         .map_err(|error| error.to_string())?;
@@ -101,7 +101,7 @@ pub fn ensure_system_reminders(conn: &Connection, user_id: i64) -> Result<(), St
 /// Turns off every active reminder linked to the module: system notices and custom categories.
 pub fn deactivate_module_reminders(
     conn: &Connection,
-    user_id: i64,
+    user_id: &str,
     module: Module,
 ) -> Result<(), String> {
     let now = Utc::now().to_rfc3339();
@@ -119,7 +119,7 @@ pub fn deactivate_module_reminders(
 /// Reminders of a disabled module stay off until the module is enabled again.
 fn ensure_module_allows_activation(
     conn: &Connection,
-    user_id: i64,
+    user_id: &str,
     module: Option<Module>,
 ) -> Result<(), String> {
     match module {
@@ -179,7 +179,7 @@ pub fn validate_reminder_times(
 
 pub fn get_reminders(conn: &Connection, auth_state: &AuthState) -> Result<Vec<Reminder>, String> {
     let user_id = require_authenticated_user_id(auth_state)?;
-    let mut reminders = reminder_repository::find_all(conn, user_id).map_err(|e| e.to_string())?;
+    let mut reminders = reminder_repository::find_all(conn, &user_id).map_err(|e| e.to_string())?;
     reminders.sort_by_key(|reminder| match reminder.system_type {
         Some(SystemReminderType::PostureCheck) => 0,
         Some(SystemReminderType::VisualBreak) => 1,
@@ -233,7 +233,7 @@ pub fn get_reminder_by_id(
     id: &str,
 ) -> Result<Reminder, String> {
     let user_id = require_authenticated_user_id(auth_state)?;
-    reminder_repository::find_by_id(conn, user_id, id)
+    reminder_repository::find_by_id(conn, &user_id, id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Reminder with id '{}' not found", id))
 }
@@ -287,7 +287,7 @@ pub fn create_reminder(
 
     let reminder = Reminder {
         id: reminder_id,
-        user_id: Some(user_id),
+        user_id: Some(user_id.to_owned()),
         system_type: None,
         title: payload.title,
         message: payload.message,
@@ -309,7 +309,7 @@ pub fn create_reminder(
 
     validate_schedule(&reminder)?;
     if reminder.status == "ativo" {
-        ensure_module_allows_activation(conn, user_id, reminder.module())?;
+        ensure_module_allows_activation(conn, &user_id, reminder.module())?;
     }
     reminder_repository::insert(conn, &reminder).map_err(|e| e.to_string())?;
 
@@ -322,7 +322,7 @@ pub fn update_reminder(
     payload: UpdateReminderPayload,
 ) -> Result<Reminder, String> {
     let user_id = require_authenticated_user_id(auth_state)?;
-    let existing_reminder = reminder_repository::find_by_id(conn, user_id, &payload.id)
+    let existing_reminder = reminder_repository::find_by_id(conn, &user_id, &payload.id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Reminder with id '{}' not found", payload.id))?;
 
@@ -402,7 +402,7 @@ pub fn update_reminder(
     let updated_reminder = Reminder {
         system_type: existing_reminder.system_type,
         id: payload.id,
-        user_id: Some(user_id),
+        user_id: Some(user_id.to_owned()),
         title: updated_title,
         message: updated_message,
         description: updated_description,
@@ -424,7 +424,7 @@ pub fn update_reminder(
     validate_schedule(&updated_reminder)?;
     // Checked on the final category, so moving an active reminder into a disabled module is refused.
     if updated_reminder.status == "ativo" {
-        ensure_module_allows_activation(conn, user_id, updated_reminder.module())?;
+        ensure_module_allows_activation(conn, &user_id, updated_reminder.module())?;
     }
     reminder_repository::update(conn, &updated_reminder).map_err(|e| e.to_string())?;
 
@@ -437,14 +437,14 @@ pub fn delete_reminder(
     id: &str,
 ) -> Result<bool, String> {
     let user_id = require_authenticated_user_id(auth_state)?;
-    if reminder_repository::find_by_id(conn, user_id, id)
+    if reminder_repository::find_by_id(conn, &user_id, id)
         .map_err(|error| error.to_string())?
         .is_some_and(|reminder| reminder.system_type.is_some())
     {
         return Err("System reminders cannot be deleted; disable the reminder instead".into());
     }
     let rows_affected =
-        reminder_repository::delete(conn, user_id, id).map_err(|e| e.to_string())?;
+        reminder_repository::delete(conn, &user_id, id).map_err(|e| e.to_string())?;
     Ok(rows_affected > 0)
 }
 
@@ -454,7 +454,7 @@ pub fn toggle_reminder_status(
     id: &str,
 ) -> Result<Reminder, String> {
     let user_id = require_authenticated_user_id(auth_state)?;
-    let mut reminder = reminder_repository::find_by_id(conn, user_id, id)
+    let mut reminder = reminder_repository::find_by_id(conn, &user_id, id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Reminder with id '{}' not found", id))?;
 
@@ -464,11 +464,11 @@ pub fn toggle_reminder_status(
         "ativo"
     };
     if new_status == "ativo" {
-        ensure_module_allows_activation(conn, user_id, reminder.module())?;
+        ensure_module_allows_activation(conn, &user_id, reminder.module())?;
     }
 
     let now = Utc::now().to_rfc3339();
-    reminder_repository::update_status(conn, user_id, id, new_status, &now)
+    reminder_repository::update_status(conn, &user_id, id, new_status, &now)
         .map_err(|e| e.to_string())?;
 
     reminder.status = new_status.to_string();
@@ -493,15 +493,15 @@ mod tests {
         conn
     }
 
-    fn authenticate_test_user(conn: &Connection, state: &AuthState, email: &str) -> i64 {
+    fn authenticate_test_user(conn: &Connection, state: &AuthState, email: &str) -> String {
+        let user_id = Uuid::new_v4().to_string();
         conn.execute(
-            "INSERT INTO users (first_name, last_name, birth_date, password_hash, email, phone)
-             VALUES ('Test', 'User', '1995-05-20', 'test-hash', ?1, '75999999999')",
-            [email],
+            "INSERT INTO users (id, first_name, last_name, birth_date, password_hash, email, phone)
+             VALUES (?2, 'Test', 'User', '1995-05-20', 'test-hash', ?1, '75999999999')",
+            rusqlite::params![email, user_id],
         )
         .unwrap();
-        let user_id = conn.last_insert_rowid();
-        let user = user_repository::find_by_id(conn, user_id)
+        let user = user_repository::find_by_id(conn, &user_id)
             .unwrap()
             .unwrap()
             .user;
@@ -534,13 +534,13 @@ mod tests {
         let conn = setup_test_db();
         let state = AuthState::new().unwrap();
         let user_id = authenticate_test_user(&conn, &state, "owner@example.com");
-        ensure_system_reminders(&conn, user_id).unwrap();
+        ensure_system_reminders(&conn, &user_id).unwrap();
         let catalog = get_reminders(&conn, &state).unwrap();
         let mut payload = create_payload();
         payload.status = Some("inativo".into());
         let created = create_reminder(&conn, &state, payload).unwrap();
         assert_eq!(created.system_type, None);
-        assert_eq!(created.user_id, Some(user_id));
+        assert_eq!(created.user_id, Some(user_id.clone()));
         assert_eq!(created.status, "inativo");
         assert!(Uuid::parse_str(&created.id).is_ok());
         assert_eq!(get_reminders(&conn, &state).unwrap().len(), 4);
@@ -595,8 +595,8 @@ mod tests {
         let conn = setup_test_db();
         let state = AuthState::new().unwrap();
         let user_id = authenticate_test_user(&conn, &state, "owner@example.com");
-        ensure_system_reminders(&conn, user_id).unwrap();
-        let system_id = SystemReminderType::PostureCheck.reminder_id(user_id);
+        ensure_system_reminders(&conn, &user_id).unwrap();
+        let system_id = SystemReminderType::PostureCheck.reminder_id(&user_id);
         let original = get_reminder_by_id(&conn, &state, &system_id).unwrap();
         let payload = serde_json::from_value(serde_json::json!({
             "id": system_id, "systemType": "POSTURE_CHECK",
@@ -619,15 +619,15 @@ mod tests {
         let conn = setup_test_db();
         let state = AuthState::new().unwrap();
         let user_id = authenticate_test_user(&conn, &state, "owner@example.com");
-        ensure_system_reminders(&conn, user_id).unwrap();
+        ensure_system_reminders(&conn, &user_id).unwrap();
         let first = get_reminders(&conn, &state).unwrap();
-        ensure_system_reminders(&conn, user_id).unwrap();
+        ensure_system_reminders(&conn, &user_id).unwrap();
         assert_eq!(get_reminders(&conn, &state).unwrap(), first);
         assert_eq!(first.len(), 3);
         for (reminder, kind) in first.iter().zip(SystemReminderType::ALL) {
             assert_eq!(reminder.system_type, Some(kind));
-            assert_eq!(reminder.id, kind.reminder_id(user_id));
-            assert_eq!(reminder.user_id, Some(user_id));
+            assert_eq!(reminder.id, kind.reminder_id(&user_id));
+            assert_eq!(reminder.user_id, Some(user_id.clone()));
             assert_eq!(reminder.status, "inativo");
             assert_eq!(reminder.frequency, ReminderFrequency::Daily);
             assert_eq!(reminder.start_time.as_deref(), Some("00:00"));
@@ -646,7 +646,7 @@ mod tests {
         let conn = setup_test_db();
         let state = AuthState::new().unwrap();
         let user_id = authenticate_test_user(&conn, &state, "owner@example.com");
-        ensure_system_reminders(&conn, user_id).unwrap();
+        ensure_system_reminders(&conn, &user_id).unwrap();
         let original = get_reminders(&conn, &state).unwrap().remove(0);
         let payload = serde_json::from_value(serde_json::json!({
             "id": original.id, "status": "ativo"
@@ -663,9 +663,9 @@ mod tests {
             original
         );
         let sent_at = "2026-10-19T12:00:00Z";
-        reminder_repository::update_last_sent_at(&conn, user_id, &updated.id, sent_at).unwrap();
+        reminder_repository::update_last_sent_at(&conn, &user_id, &updated.id, sent_at).unwrap();
         let stored = get_reminder_by_id(&conn, &state, &updated.id).unwrap();
-        ensure_system_reminders(&conn, user_id).unwrap();
+        ensure_system_reminders(&conn, &user_id).unwrap();
         assert_eq!(
             get_reminder_by_id(&conn, &state, &updated.id).unwrap(),
             stored
@@ -678,7 +678,7 @@ mod tests {
         let conn = setup_test_db();
         let state = AuthState::new().unwrap();
         let user_id = authenticate_test_user(&conn, &state, "owner@example.com");
-        ensure_system_reminders(&conn, user_id).unwrap();
+        ensure_system_reminders(&conn, &user_id).unwrap();
         let original = get_reminders(&conn, &state).unwrap().remove(0);
         for (field, value) in [
             ("title", serde_json::json!("Changed content")),
@@ -726,44 +726,44 @@ mod tests {
         let state = AuthState::new().unwrap();
         let first_user = authenticate_test_user(&conn, &state, "first@example.com");
         let legacy = create_reminder(&conn, &state, create_payload()).unwrap();
-        ensure_system_reminders(&conn, first_user).unwrap();
+        ensure_system_reminders(&conn, &first_user).unwrap();
         assert_eq!(get_reminders(&conn, &state).unwrap().len(), 4);
         assert_eq!(
             get_reminder_by_id(&conn, &state, &legacy.id).unwrap(),
             legacy
         );
-        let first_id = SystemReminderType::PostureCheck.reminder_id(first_user);
+        let first_id = SystemReminderType::PostureCheck.reminder_id(&first_user);
         let second_user = authenticate_test_user(&conn, &state, "second@example.com");
-        ensure_system_reminders(&conn, second_user).unwrap();
+        ensure_system_reminders(&conn, &second_user).unwrap();
         assert!(get_reminder_by_id(&conn, &state, &first_id).is_err());
         assert!(toggle_reminder_status(&conn, &state, &first_id).is_err());
         assert!(!delete_reminder(&conn, &state, &first_id).unwrap());
         assert!(get_reminders(&conn, &state)
             .unwrap()
             .iter()
-            .all(|reminder| reminder.user_id == Some(second_user) && reminder.status == "inativo"));
+            .all(|reminder| reminder.user_id.as_deref() == Some(second_user.as_str()) && reminder.status == "inativo"));
     }
 
     #[test]
     fn catalog_types_are_derived_only_from_matching_server_owned_ids() {
         assert_eq!(
-            SystemReminderType::from_reminder_id("system-reminder:7:POSTURE_CHECK", Some(7)),
+            SystemReminderType::from_reminder_id("system-reminder:00000000-0000-4000-8000-000000000007:POSTURE_CHECK", Some("00000000-0000-4000-8000-000000000007")),
             Some(SystemReminderType::PostureCheck)
         );
         assert_eq!(
-            SystemReminderType::from_reminder_id("system-reminder:7:POSTURE_CHECK", Some(8)),
+            SystemReminderType::from_reminder_id("system-reminder:00000000-0000-4000-8000-000000000007:POSTURE_CHECK", Some("00000000-0000-4000-8000-000000000008")),
             None
         );
         assert_eq!(
-            SystemReminderType::from_reminder_id("system-reminder:7:POSTURE_CHECK", None),
+            SystemReminderType::from_reminder_id("system-reminder:00000000-0000-4000-8000-000000000007:POSTURE_CHECK", None),
             None
         );
         assert_eq!(
-            SystemReminderType::from_reminder_id("system-reminder:7:UNKNOWN", Some(7)),
+            SystemReminderType::from_reminder_id("system-reminder:00000000-0000-4000-8000-000000000007:UNKNOWN", Some("00000000-0000-4000-8000-000000000007")),
             None
         );
         assert_eq!(
-            SystemReminderType::from_reminder_id("legacy-id", Some(7)),
+            SystemReminderType::from_reminder_id("legacy-id", Some("00000000-0000-4000-8000-000000000007")),
             None
         );
     }
@@ -777,8 +777,8 @@ mod tests {
             .unwrap();
         let state = AuthState::new().unwrap();
         let user_id = authenticate_test_user(&conn, &state, "owner@example.com");
-        ensure_system_reminders(&conn, user_id).unwrap();
-        let id = SystemReminderType::VisualBreak.reminder_id(user_id);
+        ensure_system_reminders(&conn, &user_id).unwrap();
+        let id = SystemReminderType::VisualBreak.reminder_id(&user_id);
         let payload = serde_json::from_value(
             serde_json::json!({ "id": id, "status": "ativo" }),
         )
@@ -786,7 +786,7 @@ mod tests {
         let configured = update_reminder(&conn, &state, payload).unwrap();
         drop(conn);
         let conn = Connection::open(&path).unwrap();
-        ensure_system_reminders(&conn, user_id).unwrap();
+        ensure_system_reminders(&conn, &user_id).unwrap();
         assert_eq!(get_reminder_by_id(&conn, &state, &id).unwrap(), configured);
         assert_eq!(get_reminders(&conn, &state).unwrap().len(), 3);
     }
@@ -796,7 +796,7 @@ mod tests {
         let conn = setup_test_db();
         let state = AuthState::new().unwrap();
         let user_id = authenticate_test_user(&conn, &state, "owner@example.com");
-        ensure_system_reminders(&conn, user_id).unwrap();
+        ensure_system_reminders(&conn, &user_id).unwrap();
         let catalog = get_reminders(&conn, &state).unwrap().remove(0);
         let legacy = Reminder {
             interval: 15,
@@ -811,9 +811,9 @@ mod tests {
         };
         reminder_repository::update(&conn, &legacy).unwrap();
         let sent_at = "2026-10-19T12:00:00Z";
-        reminder_repository::update_last_sent_at(&conn, user_id, &legacy.id, sent_at).unwrap();
+        reminder_repository::update_last_sent_at(&conn, &user_id, &legacy.id, sent_at).unwrap();
 
-        ensure_system_reminders(&conn, user_id).unwrap();
+        ensure_system_reminders(&conn, &user_id).unwrap();
         let realigned = get_reminder_by_id(&conn, &state, &legacy.id).unwrap();
         assert_eq!(realigned.status, "ativo");
         assert_eq!(realigned.last_sent_at.as_deref(), Some(sent_at));
@@ -826,7 +826,7 @@ mod tests {
             },
             catalog
         );
-        ensure_system_reminders(&conn, user_id).unwrap();
+        ensure_system_reminders(&conn, &user_id).unwrap();
         assert_eq!(
             get_reminder_by_id(&conn, &state, &legacy.id).unwrap(),
             realigned
@@ -838,7 +838,7 @@ mod tests {
         let conn = setup_test_db();
         let state = AuthState::new().unwrap();
         let user_id = authenticate_test_user(&conn, &state, "owner@example.com");
-        ensure_system_reminders(&conn, user_id).unwrap();
+        ensure_system_reminders(&conn, &user_id).unwrap();
         let original = get_reminders(&conn, &state).unwrap().remove(0);
         for changes in [
             serde_json::json!({"interval": 0}),
@@ -884,7 +884,7 @@ mod tests {
         };
 
         let created = create_reminder(&conn, &auth_state, create_payload).unwrap();
-        assert_eq!(created.user_id, Some(user_id));
+        assert_eq!(created.user_id, Some(user_id.clone()));
         let reminder_id = created.id;
 
         // 2. Read via service
@@ -923,7 +923,7 @@ mod tests {
         };
 
         let updated = update_reminder(&conn, &auth_state, update_payload).unwrap();
-        assert_eq!(updated.user_id, Some(user_id));
+        assert_eq!(updated.user_id, Some(user_id.clone()));
         assert_eq!(updated.title, "Drink More Water");
         assert_eq!(updated.status, "inativo");
         assert_eq!(updated.frequency, ReminderFrequency::Once);
@@ -974,7 +974,7 @@ mod tests {
         );
         assert!(get_reminder_by_id(&conn, &state, "missing").is_err());
 
-        let first_user = user_repository::find_by_id(&conn, first_user_id)
+        let first_user = user_repository::find_by_id(&conn, &first_user_id)
             .unwrap()
             .unwrap()
             .user;
@@ -1031,7 +1031,7 @@ mod tests {
             );
         }
 
-        let owner = user_repository::find_by_id(&conn, reminder.user_id.unwrap())
+        let owner = user_repository::find_by_id(&conn, &reminder.user_id.unwrap())
             .unwrap()
             .unwrap()
             .user;
@@ -1065,30 +1065,30 @@ mod tests {
         }))
         .unwrap();
         let created = create_reminder(&conn, &state, payload).unwrap();
-        assert_eq!(created.user_id, Some(owner_id));
+        assert_eq!(created.user_id, Some(owner_id.clone()));
         assert!(created.last_sent_at.is_none());
         let sent_at = "2026-10-06T12:00:00Z";
-        reminder_repository::update_last_sent_at(&conn, owner_id, &created.id, sent_at).unwrap();
+        reminder_repository::update_last_sent_at(&conn, &owner_id, &created.id, sent_at).unwrap();
         let payload: UpdateReminderPayload = serde_json::from_value(serde_json::json!({
             "id": created.id, "title": "Updated", "userId": other_user_id,
             "lastSentAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let updated = update_reminder(&conn, &state, payload).unwrap();
-        assert_eq!(updated.user_id, Some(owner_id));
+        assert_eq!(updated.user_id, Some(owner_id.clone()));
         assert_eq!(updated.last_sent_at.as_deref(), Some(sent_at));
         let stored = get_reminder_by_id(&conn, &state, &updated.id).unwrap();
         assert_eq!(stored.last_sent_at, updated.last_sent_at);
         let toggled = toggle_reminder_status(&conn, &state, &updated.id).unwrap();
         assert_eq!(toggled.last_sent_at, updated.last_sent_at);
         assert_eq!(
-            reminder_repository::find_by_id(&conn, owner_id, &updated.id)
+            reminder_repository::find_by_id(&conn, &owner_id, &updated.id)
                 .unwrap()
                 .unwrap()
                 .user_id,
-            Some(owner_id)
+            Some(owner_id.clone())
         );
-        assert!(reminder_repository::find_all(&conn, other_user_id)
+        assert!(reminder_repository::find_all(&conn, &other_user_id)
             .unwrap()
             .is_empty());
     }
@@ -1102,15 +1102,15 @@ mod tests {
         let other_id = authenticate_test_user(&conn, &state, "other@example.com");
         let sent_at = "2026-10-06T12:00:00Z";
         assert_eq!(
-            reminder_repository::update_last_sent_at(&conn, other_id, &reminder.id, sent_at)
+            reminder_repository::update_last_sent_at(&conn, &other_id, &reminder.id, sent_at)
                 .unwrap(),
             0
         );
         assert_eq!(
-            reminder_repository::update_last_sent_at(&conn, owner_id, "missing", sent_at).unwrap(),
+            reminder_repository::update_last_sent_at(&conn, &owner_id, "missing", sent_at).unwrap(),
             0
         );
-        let stored = reminder_repository::find_by_id(&conn, owner_id, &reminder.id)
+        let stored = reminder_repository::find_by_id(&conn, &owner_id, &reminder.id)
             .unwrap()
             .unwrap();
         assert_eq!(stored, reminder);
@@ -1128,12 +1128,12 @@ mod tests {
         let owner_id = authenticate_test_user(&conn, &state, "owner@example.com");
         let reminder = create_reminder(&conn, &state, create_payload()).unwrap();
         let sent_at = "2026-10-06T12:00:00Z";
-        reminder_repository::update_last_sent_at(&conn, owner_id, &reminder.id, sent_at).unwrap();
+        reminder_repository::update_last_sent_at(&conn, &owner_id, &reminder.id, sent_at).unwrap();
         drop(conn);
 
         let conn = Connection::open(&db_path).unwrap();
         let restored = get_reminder_by_id(&conn, &state, &reminder.id).unwrap();
-        assert_eq!(restored.user_id, Some(owner_id));
+        assert_eq!(restored.user_id, Some(owner_id.clone()));
         assert_eq!(restored.last_sent_at.as_deref(), Some(sent_at));
         assert_eq!(restored.updated_at, reminder.updated_at);
         assert_eq!(get_reminders(&conn, &state).unwrap().len(), 1);

@@ -37,7 +37,7 @@ pub fn get_posture_calibration_by_id(
 
 pub fn get_active_calibration(
     conn: &Connection,
-    user_id: Option<i64>,
+    user_id: Option<&str>,
 ) -> Result<Option<PostureCalibration>, String> {
     posture_calibration_repository::find_active(conn, user_id).map_err(|e| e.to_string())
 }
@@ -51,7 +51,7 @@ pub fn save_posture_calibration(
     let is_active = payload.is_active.unwrap_or(true);
 
     if is_active {
-        posture_calibration_repository::deactivate_all(conn, payload.user_id)
+        posture_calibration_repository::deactivate_all(conn, payload.user_id.as_deref())
             .map_err(|e| e.to_string())?;
     }
 

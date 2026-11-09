@@ -212,7 +212,7 @@ A persistência deve ocorrer em **3 níveis complementares**, seguindo estritame
 #### Nível 1: Sessão de Monitoramento (`monitoring_sessions`)
 Registra cada período em que o usuário iniciou e pausou/finalizou o monitoramento contínuo:
 - `id` (TEXT PRIMARY KEY - UUIDv4)
-- `user_id` (INTEGER, nullable, FK para `users`)
+- `user_id` (TEXT, nullable, FK para `users`)
 - `started_at` (TEXT ISO8601)
 - `ended_at` (TEXT ISO8601, nullable)
 - `duration_seconds` (INTEGER)
@@ -256,7 +256,7 @@ Registrado apenas quando um desvio sustentado atinge o limiar de notificação:
 #### Nível 4: Calibração de Referência (`posture_calibrations`)
 Registra os parâmetros anatômicos individuais da calibração ativa:
 - `id` (TEXT PRIMARY KEY - UUIDv4)
-- `user_id` (INTEGER, nullable)
+- `user_id` (TEXT, nullable)
 - `baseline_neck_angle` (REAL NOT NULL)
 - `baseline_shoulder_balance` (REAL NOT NULL)
 - `baseline_distance_cm` (REAL NOT NULL)

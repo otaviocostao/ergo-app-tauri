@@ -9,7 +9,7 @@ use crate::models::dashboard::DashboardData;
 /// Read each collection separately so joins never multiply session totals or alerts.
 pub fn find_period(
     conn: &Connection,
-    user_id: i64,
+    user_id: &str,
     start: &str,
     end: &str,
 ) -> Result<DashboardData, rusqlite::Error> {
@@ -73,11 +73,11 @@ mod tests {
         conn.execute_batch(
             "PRAGMA foreign_keys = ON;
             INSERT INTO users (id, first_name, last_name, birth_date, password_hash, email, phone)
-            VALUES (1, 'One', 'User', '', 'hash', 'one@example.com', ''),
-                   (2, 'Two', 'User', '', 'hash', 'two@example.com', '');
+            VALUES ('00000000-0000-4000-8000-000000000001', 'One', 'User', '', 'hash', 'one@example.com', ''),
+                   ('00000000-0000-4000-8000-000000000002', 'Two', 'User', '', 'hash', 'two@example.com', '');
             INSERT INTO monitoring_sessions (id, user_id, started_at) VALUES
-              ('one', 1, '2026-11-03T10:00:00Z'), ('two', 2, '2026-11-03T10:00:00Z'),
-              ('guest', NULL, '2026-11-03T10:00:00Z'), ('old', 1, '2026-11-02T10:00:00Z');",
+              ('one', '00000000-0000-4000-8000-000000000001', '2026-11-03T10:00:00Z'), ('two', '00000000-0000-4000-8000-000000000002', '2026-11-03T10:00:00Z'),
+              ('guest', NULL, '2026-11-03T10:00:00Z'), ('old', '00000000-0000-4000-8000-000000000001', '2026-11-02T10:00:00Z');",
         )
         .unwrap();
         conn
@@ -99,7 +99,7 @@ mod tests {
         }
         let data = find_period(
             &conn,
-            1,
+            "00000000-0000-4000-8000-000000000001",
             "2026-11-03T00:00:00-03:00",
             "2026-11-04T00:00:00-03:00",
         )
@@ -113,10 +113,10 @@ mod tests {
             .snapshots
             .iter()
             .all(|item| item.avg_neck_angle.is_none() && item.avg_distance_cm.is_none()));
-        let empty = find_period(&conn, 1, "2026-11-03T13:00:00Z", "2026-11-03T14:00:00Z").unwrap();
+        let empty = find_period(&conn, "00000000-0000-4000-8000-000000000001", "2026-11-03T13:00:00Z", "2026-11-03T14:00:00Z").unwrap();
         assert!(empty.sessions.is_empty() && empty.snapshots.is_empty() && empty.alerts.is_empty());
         let boundary =
-            find_period(&conn, 1, "2026-11-03T11:00:00Z", "2026-11-03T12:00:00Z").unwrap();
+            find_period(&conn, "00000000-0000-4000-8000-000000000001", "2026-11-03T11:00:00Z", "2026-11-03T12:00:00Z").unwrap();
         assert!(boundary.snapshots.is_empty() && boundary.alerts.is_empty());
     }
 }

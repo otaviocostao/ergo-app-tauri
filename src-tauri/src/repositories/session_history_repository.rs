@@ -11,7 +11,7 @@ use crate::models::{
 
 pub fn find_latest_session(
     conn: &Connection,
-    user_id: i64,
+    user_id: &str,
 ) -> rusqlite::Result<Option<MonitoringSession>> {
     let sql = format!(
         "SELECT {} FROM monitoring_sessions WHERE user_id = ?1

@@ -580,7 +580,7 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
           isOpen={true}
           onClose={onClose}
           onCalibrateSubmit={onCalibrateSubmit}
-          userId={42}
+          userId={"00000000-0000-4000-8000-000000000042"}
         />
       );
     });
@@ -596,7 +596,7 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
 
     expect(postureService.saveCalibration).toHaveBeenCalledWith(
       expect.objectContaining({
-        userId: 42,
+        userId: "00000000-0000-4000-8000-000000000042",
         baselineNeckAngle: 0,
         baselineShoulderBalance: 100,
         baselineDistanceCm: 60,

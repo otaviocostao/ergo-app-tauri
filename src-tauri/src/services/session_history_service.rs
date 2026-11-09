@@ -199,16 +199,16 @@ mod tests {
             .unwrap();
         conn.execute_batch("PRAGMA foreign_keys = ON;
             INSERT INTO users (id, first_name, last_name, birth_date, password_hash, email, phone)
-            VALUES (1, 'One', 'User', '', 'hash', 'one@example.com', ''), (2, 'Two', 'User', '', 'hash', 'two@example.com', '');
+            VALUES ('00000000-0000-4000-8000-000000000001', 'One', 'User', '', 'hash', 'one@example.com', ''), ('00000000-0000-4000-8000-000000000002', 'Two', 'User', '', 'hash', 'two@example.com', '');
             INSERT INTO monitoring_sessions (id, user_id, started_at) VALUES
-            ('old', 1, '2026-11-04T10:00:00Z'), ('current', 1, '2026-11-05T12:00:00Z'),
-            ('other', 2, '2026-11-05T12:01:00Z'), ('guest', NULL, '2026-11-05T12:02:00Z');").unwrap();
+            ('old', '00000000-0000-4000-8000-000000000001', '2026-11-04T10:00:00Z'), ('current', '00000000-0000-4000-8000-000000000001', '2026-11-05T12:00:00Z'),
+            ('other', '00000000-0000-4000-8000-000000000002', '2026-11-05T12:01:00Z'), ('guest', NULL, '2026-11-05T12:02:00Z');").unwrap();
         let auth = AuthState::new().unwrap();
-        authenticate(&conn, &auth, 1);
+        authenticate(&conn, &auth, "00000000-0000-4000-8000-000000000001");
         (conn, auth)
     }
 
-    fn authenticate(conn: &Connection, auth: &AuthState, id: i64) {
+    fn authenticate(conn: &Connection, auth: &AuthState, id: &str) {
         let user = user_repository::find_by_id(conn, id).unwrap().unwrap().user;
         auth_service::set_session(
             auth,
@@ -258,11 +258,11 @@ mod tests {
         );
         assert_eq!(data.alerts.len(), 1);
         assert_eq!(data.alerts[0].id, "current");
-        authenticate(&conn, &auth, 2);
+        authenticate(&conn, &auth, "00000000-0000-4000-8000-000000000002");
         let data = history(&conn, &auth);
         assert_eq!(data.session.unwrap().id, "other");
         assert_eq!(data.alerts[0].id, "other");
-        conn.execute("DELETE FROM monitoring_sessions WHERE user_id = 2", [])
+        conn.execute("DELETE FROM monitoring_sessions WHERE user_id = '00000000-0000-4000-8000-000000000002'", [])
             .unwrap();
         let data = history(&conn, &auth);
         assert!(data.session.is_none());

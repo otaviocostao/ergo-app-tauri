@@ -137,14 +137,14 @@ mod tests {
         // Seed user and session
         conn.execute(
             "INSERT INTO users (id, first_name, last_name, birth_date, password_hash, email, phone)
-             VALUES (1, 'Test', 'User', '1990-01-01', 'hash', 'test@test.com', '1234')",
+             VALUES ('00000000-0000-4000-8000-000000000001', 'Test', 'User', '1990-01-01', 'hash', 'test@test.com', '1234')",
             [],
         )
         .unwrap();
 
         let session = MonitoringSession {
             id: "test-session-1".to_string(),
-            user_id: Some(1),
+            user_id: Some("00000000-0000-4000-8000-000000000001".into()),
             started_at: "2026-10-10T10:00:00Z".to_string(),
             ended_at: None,
             duration_seconds: 0,

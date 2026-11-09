@@ -1,6 +1,6 @@
 export interface MonitoringSessionItem {
   id: string;
-  userId?: number | null;
+  userId?: string | null;
   startedAt: string;
   endedAt?: string | null;
   durationSeconds: number;
@@ -14,7 +14,7 @@ export interface MonitoringSessionItem {
 }
 
 export interface CreateSessionPayload {
-  userId?: number | null;
+  userId?: string | null;
   startedAt?: string | null;
 }
 

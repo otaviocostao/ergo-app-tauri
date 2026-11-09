@@ -1,5 +1,6 @@
 use chrono::{Datelike, Local, Months, NaiveDate};
 use rusqlite::Connection;
+use uuid::Uuid;
 
 use crate::models::auth::AuthError;
 use crate::models::user::{CreateUserPayload, NewUser, UpdateUserPayload, User};
@@ -94,7 +95,7 @@ fn normalize_optional(
     }
 }
 
-pub fn is_local_user(conn: &Connection, id: i64) -> Result<bool, String> {
+pub fn is_local_user(conn: &Connection, id: &str) -> Result<bool, String> {
     let stored = user_repository::find_by_id(conn, id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("User with id '{}' not found", id))?;
@@ -109,7 +110,7 @@ pub fn is_local_user(conn: &Connection, id: i64) -> Result<bool, String> {
     Ok(!has_external_id)
 }
 
-pub fn validate_is_local_user(conn: &Connection, id: i64) -> Result<(), String> {
+pub fn validate_is_local_user(conn: &Connection, id: &str) -> Result<(), String> {
     let is_local = is_local_user(conn, id)?;
     if !is_local {
         return Err("Online platform users cannot have their data updated locally.".to_string());
@@ -118,7 +119,7 @@ pub fn validate_is_local_user(conn: &Connection, id: i64) -> Result<(), String> 
 }
 
 pub fn update_user(conn: &Connection, payload: UpdateUserPayload) -> Result<User, String> {
-    validate_is_local_user(conn, payload.id)?;
+    validate_is_local_user(conn, &payload.id)?;
 
     let first_name = payload
         .first_name
@@ -167,7 +168,7 @@ pub fn update_user(conn: &Connection, payload: UpdateUserPayload) -> Result<User
 
     let rows_affected = user_repository::update(
         conn,
-        payload.id,
+        &payload.id,
         &first_name,
         &last_name,
         &birth_date,
@@ -181,7 +182,7 @@ pub fn update_user(conn: &Connection, payload: UpdateUserPayload) -> Result<User
         return Err(format!("User with id '{}' not found", payload.id));
     }
 
-    user_repository::find_by_id(conn, payload.id)
+    user_repository::find_by_id(conn, &payload.id)
         .map_err(|e| e.to_string())?
         .map(|stored| stored.user)
         .ok_or_else(|| format!("User with id '{}' not found after update", payload.id))
@@ -263,6 +264,7 @@ pub fn create_user(conn: &Connection, payload: CreateUserPayload) -> Result<User
     }
 
     let new_user = NewUser {
+        id: Uuid::new_v4().to_string(),
         external_id: normalize_optional(payload.external_id, 255)?,
         first_name,
         last_name,
@@ -273,7 +275,7 @@ pub fn create_user(conn: &Connection, payload: CreateUserPayload) -> Result<User
         photo: normalize_optional(payload.photo, 2048)?,
     };
 
-    let id = user_repository::insert(conn, &new_user).map_err(|error| match error {
+    user_repository::insert(conn, &new_user).map_err(|error| match error {
         rusqlite::Error::SqliteFailure(code, _)
             if code.code == rusqlite::ErrorCode::ConstraintViolation =>
         {
@@ -285,7 +287,7 @@ pub fn create_user(conn: &Connection, payload: CreateUserPayload) -> Result<User
         _ => AuthError::internal(),
     })?;
 
-    user_repository::find_by_id(conn, id)
+    user_repository::find_by_id(conn, &new_user.id)
         .map_err(|_| AuthError::internal())?
         .map(|stored| stored.user)
         .ok_or_else(AuthError::internal)
@@ -375,7 +377,7 @@ mod tests {
         let result = update_user(
             &conn,
             UpdateUserPayload {
-                id: user.id,
+                id: user.id.clone(),
                 first_name: user.first_name,
                 last_name: user.last_name,
                 birth_date: user.birth_date,
@@ -386,7 +388,7 @@ mod tests {
         );
         assert!(result.is_err());
         assert_eq!(
-            user_repository::find_by_id(&conn, user.id)
+            user_repository::find_by_id(&conn, &user.id)
                 .unwrap()
                 .unwrap()
                 .user
@@ -462,7 +464,7 @@ mod tests {
         let updated = update_user(
             &conn,
             UpdateUserPayload {
-                id: user.id,
+                id: user.id.clone(),
                 first_name: "Ana Maria".into(),
                 last_name: user.last_name,
                 birth_date: "   ".into(),
@@ -500,7 +502,7 @@ mod tests {
         assert!(!user.birth_date.is_empty());
         assert!(!user.phone.is_empty());
         let payload = UpdateUserPayload {
-            id: user.id,
+            id: user.id.clone(),
             first_name: user.first_name,
             last_name: user.last_name,
             birth_date: String::new(),
@@ -519,7 +521,7 @@ mod tests {
             "Informe uma data de nascimento válida."
         );
         assert_eq!(
-            user_repository::find_by_id(&conn, user.id)
+            user_repository::find_by_id(&conn, &user.id)
                 .unwrap()
                 .unwrap()
                 .user
@@ -541,13 +543,27 @@ mod tests {
         assert_eq!(user.email, "ana@example.com");
         assert_eq!(user.external_id, None);
         assert_eq!(user.photo, None);
+        assert_eq!(Uuid::parse_str(&user.id).unwrap().get_version_num(), 4);
+        assert_eq!(serde_json::to_value(&user).unwrap()["id"], user.id);
         assert!(!serde_json::to_string(&user).unwrap().contains("password"));
 
-        let stored = user_repository::find_by_id(&conn, user.id)
+        let stored = user_repository::find_by_id(&conn, &user.id)
             .unwrap()
             .unwrap();
+        assert_eq!(stored.user.id, user.id);
+        let storage_type: String = conn
+            .query_row("SELECT typeof(id) FROM users WHERE id = ?1", [&user.id], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(storage_type, "text");
         assert!(stored.password_hash.starts_with("$argon2id$"));
         assert!(!stored.password_hash.contains("Senha-segura-123!"));
+
+        let mut payload = serde_json::to_value(&user).unwrap();
+        payload["id"] = serde_json::json!(1);
+        assert!(serde_json::from_value::<User>(payload.clone()).is_err());
+        assert!(serde_json::from_value::<UpdateUserPayload>(payload).is_err());
     }
 
     #[test]
@@ -664,8 +680,8 @@ mod tests {
         )
         .unwrap();
 
-        assert!(is_local_user(&conn, local_user.id).unwrap());
-        assert!(validate_is_local_user(&conn, local_user.id).is_ok());
+        assert!(is_local_user(&conn, &local_user.id).unwrap());
+        assert!(validate_is_local_user(&conn, &local_user.id).is_ok());
 
         // Cria usuário simulado como vindo da plataforma online (com external_id)
         let mut online_payload =
@@ -673,8 +689,8 @@ mod tests {
         online_payload.external_id = Some("ext-platform-999".into());
         let online_user = create_user(&conn, online_payload).unwrap();
 
-        assert!(!is_local_user(&conn, online_user.id).unwrap());
-        let validation_err = validate_is_local_user(&conn, online_user.id).unwrap_err();
+        assert!(!is_local_user(&conn, &online_user.id).unwrap());
+        let validation_err = validate_is_local_user(&conn, &online_user.id).unwrap_err();
         assert!(
             validation_err.contains("Online platform users cannot have their data updated locally")
         );
@@ -690,7 +706,7 @@ mod tests {
         .unwrap();
 
         let update_payload = UpdateUserPayload {
-            id: user.id,
+            id: user.id.clone(),
             first_name: "Lucas Gabriel".into(),
             last_name: "Ferreira".into(),
             birth_date: "1992-08-15".into(),
@@ -719,7 +735,7 @@ mod tests {
         let online_user = create_user(&conn, online_payload).unwrap();
 
         let update_payload = UpdateUserPayload {
-            id: online_user.id,
+            id: online_user.id.clone(),
             first_name: "Mariana Atualizada".into(),
             last_name: "Silva".into(),
             birth_date: "1995-05-20".into(),
@@ -732,7 +748,7 @@ mod tests {
         assert!(err.contains("Online platform users cannot have their data updated locally"));
 
         // Garante que os dados originais não foram alterados
-        let stored = user_repository::find_by_id(&conn, online_user.id)
+        let stored = user_repository::find_by_id(&conn, &online_user.id)
             .unwrap()
             .unwrap();
         assert_eq!(stored.user.first_name, "Mariana");

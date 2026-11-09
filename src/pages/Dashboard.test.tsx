@@ -8,7 +8,7 @@ import { dashboardService } from "../services/dashboardService";
 import type { DashboardData } from "../types/dashboard";
 import * as recording from "../hooks/useMetricRecording";
 
-const auth = vi.hoisted(() => ({ userId: 1 }));
+const auth = vi.hoisted(() => ({ userId: "00000000-0000-4000-8000-000000000001" }));
 vi.mock("../auth/AuthContext", () => ({ useAuth: () => ({ session: { kind: "authenticated", user: { id: auth.userId } } }) }));
 const empty: DashboardData = { sessions: [], snapshots: [], alerts: [] };
 
@@ -19,7 +19,7 @@ describe("persisted dashboard UI", () => {
 
   beforeEach(() => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-    auth.userId = 1;
+    auth.userId = "00000000-0000-4000-8000-000000000001";
     container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); });
@@ -48,10 +48,10 @@ describe("persisted dashboard UI", () => {
     let resolveOld!: (value: DashboardData) => void;
     vi.spyOn(dashboardService, "getData").mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; })).mockResolvedValue(empty);
     await render();
-    auth.userId = 2;
+    auth.userId = "00000000-0000-4000-8000-000000000002";
     await render();
     const now = new Date().toISOString();
-    await act(async () => resolveOld({ ...empty, sessions: [{ id: "old-owner", userId: 1, startedAt: now, endedAt: now,
+    await act(async () => resolveOld({ ...empty, sessions: [{ id: "old-owner", userId: "00000000-0000-4000-8000-000000000001", startedAt: now, endedAt: now,
       durationSeconds: 3600, averageScore: 100, goodPosturePercentage: 99, warningPosturePercentage: 1, dangerPosturePercentage: 0, totalAlertsCount: 0 }] }));
     expect(container.textContent).toContain("Nenhuma sessão registrada hoje");
     expect(container.textContent).not.toContain("99%");
@@ -59,7 +59,7 @@ describe("persisted dashboard UI", () => {
 
   it("renders saved session totals and identifies the separate demonstrative reports", async () => {
     const now = new Date().toISOString();
-    vi.spyOn(dashboardService, "getData").mockResolvedValue({ ...empty, sessions: [{ id: "saved", userId: 1,
+    vi.spyOn(dashboardService, "getData").mockResolvedValue({ ...empty, sessions: [{ id: "saved", userId: "00000000-0000-4000-8000-000000000001",
       startedAt: now, endedAt: now, durationSeconds: 3600, averageScore: 85, goodPosturePercentage: 75,
       warningPosturePercentage: 25, dangerPosturePercentage: 0, totalAlertsCount: 0 }] });
     await render();

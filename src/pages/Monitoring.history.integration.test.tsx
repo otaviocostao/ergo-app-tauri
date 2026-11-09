@@ -17,7 +17,7 @@ import { PostureStatus } from "../enums/postureStatus";
 const ipc = vi.hoisted(() => ({ invoke: vi.fn() }));
 const view = vi.hoisted(() => ({ keyboard: null as KeyboardMonitorCardProps | null }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: ipc.invoke, isTauri: () => true }));
-vi.mock("../auth/AuthContext", () => ({ useOptionalAuth: () => ({ session: { kind: "authenticated", user: { id: 1 } } }) }));
+vi.mock("../auth/AuthContext", () => ({ useOptionalAuth: () => ({ session: { kind: "authenticated", user: { id: "00000000-0000-4000-8000-000000000001" } } }) }));
 vi.mock("../components/monitoring/KeyboardMonitorCard", () => ({ default: (props: KeyboardMonitorCardProps) => { view.keyboard = props; return null; } }));
 vi.mock("../components/monitoring/WorkspaceCalibrationModal", () => ({
   default: (props: WorkspaceCalibrationModalProps) => props.isOpen
@@ -25,7 +25,7 @@ vi.mock("../components/monitoring/WorkspaceCalibrationModal", () => ({
 }));
 
 const baseline: PostureCalibrationDTO = {
-  id: "base", userId: 1, isActive: true, baselineNeckAngle: 0,
+  id: "base", userId: "00000000-0000-4000-8000-000000000001", isActive: true, baselineNeckAngle: 0,
   baselineShoulderBalance: 100, baselineDistanceCm: 60, baselineEyeDistancePx: 200
 };
 const ABSENCE = "Usuário ausente do posto de trabalho";
@@ -103,12 +103,12 @@ describe("monitoring messages from real detection callbacks through recording an
       if (command === failNextCommand) { failNextCommand = null; throw new Error("Test write failure"); }
       const now = new Date().toISOString();
       if (command === "get_settings" || command === "update_settings") return {
-        id: "settings", userId: 1, posturalAnalysis: posturalEnabled,
+        id: "settings", userId: "00000000-0000-4000-8000-000000000001", posturalAnalysis: posturalEnabled,
       ocularAnalysis: true, typingAnalysis: posturalEnabled, webCam: "camera-1", ...(command === "update_settings" ? args?.payload as object : {}) };
   if (command === "get_active_calibration") return activeCalibration;
   if (command === "start_monitoring_session") {
     const session: MonitoringSessionItem = {
-      id: `session-${sessions.length + 1}`, userId: 1,
+      id: `session-${sessions.length + 1}`, userId: "00000000-0000-4000-8000-000000000001",
       startedAt: now, endedAt: null, durationSeconds: 0, averageScore: 100,
       goodPosturePercentage: 100, warningPosturePercentage: 0, dangerPosturePercentage: 0, totalAlertsCount: 0
     };
@@ -269,7 +269,7 @@ it("shows camera preference failures even after the recorded session has ended",
 it("does not hide live presence messages behind an old session when only ocular analysis is enabled", async () => {
   posturalEnabled = false;
   sessions.push({
-    id: "old-posture", userId: 1, startedAt: new Date(Date.now() - 60_000).toISOString(),
+    id: "old-posture", userId: "00000000-0000-4000-8000-000000000001", startedAt: new Date(Date.now() - 60_000).toISOString(),
     endedAt: new Date(Date.now() - 20_000).toISOString(), durationSeconds: 40, averageScore: 0,
     goodPosturePercentage: 0, warningPosturePercentage: 0, dangerPosturePercentage: 0, totalAlertsCount: 0
   });

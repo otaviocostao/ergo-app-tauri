@@ -7,9 +7,9 @@ use crate::services::auth_service::{self, AuthState};
 use crate::services::user_service;
 
 #[tauri::command]
-pub fn is_local_user(state: State<'_, AppState>, id: i64) -> Result<bool, String> {
+pub fn is_local_user(state: State<'_, AppState>, id: String) -> Result<bool, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    user_service::is_local_user(&conn, id)
+    user_service::is_local_user(&conn, &id)
 }
 
 #[tauri::command]

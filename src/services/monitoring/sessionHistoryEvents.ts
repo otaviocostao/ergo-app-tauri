@@ -3,7 +3,7 @@ import type { MonitoringSessionItem } from "../../types/monitoringSession";
 export const SESSION_HISTORY_UPDATED_EVENT = "ergo:session-history-updated";
 
 export interface SessionHistoryUpdatedDetail {
-  userId: number | null;
+  userId: string | null;
   sessionId: string;
   session?: MonitoringSessionItem;
 }

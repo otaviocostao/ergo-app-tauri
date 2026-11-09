@@ -77,7 +77,7 @@ pub fn save_posture_calibration(
 
 pub fn get_active_calibration(
     conn: &Connection,
-    user_id: Option<i64>,
+    user_id: Option<&str>,
 ) -> Result<Option<PostureCalibration>, String> {
     posture_calibration_service::get_active_calibration(conn, user_id)
 }
@@ -94,7 +94,7 @@ mod tests {
 
         conn.execute(
             "INSERT INTO users (id, first_name, last_name, birth_date, password_hash, email, phone)
-             VALUES (1, 'Test', 'User', '1990-01-01', 'hash', 'test@test.com', '1234')",
+             VALUES ('00000000-0000-4000-8000-000000000001', 'Test', 'User', '1990-01-01', 'hash', 'test@test.com', '1234')",
             [],
         )
         .unwrap();
@@ -110,7 +110,7 @@ mod tests {
         let cal = save_posture_calibration(
             &conn,
             SaveCalibrationPayload {
-                user_id: Some(1),
+                user_id: Some("00000000-0000-4000-8000-000000000001".into()),
                 baseline_neck_angle: 15.0,
                 baseline_shoulder_balance: 0.98,
                 baseline_distance_cm: 60.0,
@@ -125,7 +125,7 @@ mod tests {
         let session = start_monitoring_session(
             &conn,
             Some(CreateSessionPayload {
-                user_id: Some(1),
+                user_id: Some("00000000-0000-4000-8000-000000000001".into()),
                 started_at: Some("2026-10-10T10:00:00Z".to_string()),
             }),
         )

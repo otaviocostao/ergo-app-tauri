@@ -50,7 +50,7 @@ vi.mock("../components/monitoring/WorkspaceCalibrationModal", () => ({
 vi.mock("../components/monitoring/KeyboardMonitorCard", () => ({ default: () => null }));
 
 const baseline: PostureCalibrationDTO = {
-  id: "base", userId: 1, isActive: true, baselineNeckAngle: 10,
+  id: "base", userId: "00000000-0000-4000-8000-000000000001", isActive: true, baselineNeckAngle: 10,
   baselineShoulderBalance: 80, baselineDistanceCm: 60, baselineEyeDistancePx: 200,
 };
 
@@ -60,7 +60,7 @@ describe("monitoring across authenticated routes", () => {
 
   const calls = (command: string) => ipc.invoke.mock.calls.filter(([name]) => name === command);
   const camera = () => container.querySelector('[data-testid="monitoring-camera"]');
-  const authenticate = (id: number) => {
+  const authenticate = (id: string) => {
     view.session = { kind: "authenticated", user: { id } } as Session;
   };
   async function render(initialEntry = "/") {
@@ -94,7 +94,7 @@ describe("monitoring across authenticated routes", () => {
   beforeEach(() => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     vi.spyOn(performance, "now").mockReturnValue(0);
-    authenticate(1);
+    authenticate("00000000-0000-4000-8000-000000000001");
     view.feed = null;
     ipc.invoke.mockImplementation(async (command: string, args?: { payload?: Record<string, unknown> }) => {
       if (command === "start_monitoring_session") return { id: `session-${calls(command).length}` };
@@ -151,7 +151,7 @@ describe("monitoring across authenticated routes", () => {
 
   it("applies module and webcam changes from Settings without remounting or restarting unchanged monitoring", async () => {
     let settings: ModuleSettings = {
-      id: "settings-1", userId: 1, posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true,
+      id: "settings-1", userId: "00000000-0000-4000-8000-000000000001", posturalAnalysis: true, ocularAnalysis: true, typingAnalysis: true,
       webCam: "camera-1", createdAt: "", updatedAt: "",
     };
     ipc.invoke.mockImplementation(async (command: string, args?: { payload?: Record<string, unknown> }) => {
@@ -241,12 +241,12 @@ describe("monitoring across authenticated routes", () => {
   it("closes the previous account's session on account change and releases monitoring on logout", async () => {
     await render(); await navigate("Monitorar"); await toggle();
     const previousCamera = camera();
-    authenticate(2); await render();
+    authenticate("00000000-0000-4000-8000-000000000002"); await render();
     expect(camera()).not.toBe(previousCamera);
     expect(view.feed!.isMonitoring).toBe(false);
     expect(calls("end_monitoring_session")).toHaveLength(1);
     await toggle();
-    expect(calls("start_monitoring_session")[1][1].payload).toMatchObject({ userId: 2 });
+    expect(calls("start_monitoring_session")[1][1].payload).toMatchObject({ userId: "00000000-0000-4000-8000-000000000002" });
     view.session = { kind: "anonymous" }; await render();
     expect(camera()).toBeNull();
     expect(calls("end_monitoring_session")).toHaveLength(2);

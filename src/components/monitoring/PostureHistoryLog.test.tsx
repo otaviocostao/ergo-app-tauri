@@ -17,7 +17,7 @@ function history(): SessionHistory {
   const end = Date.parse("2026-11-05T12:15:00Z");
   return {
     session: {
-      id: "session-1", userId: 1, startedAt: "2026-11-05T12:00:00Z", endedAt: null,
+      id: "session-1", userId: "00000000-0000-4000-8000-000000000001", startedAt: "2026-11-05T12:00:00Z", endedAt: null,
       durationSeconds: 0, averageScore: 100, goodPosturePercentage: 100,
       warningPosturePercentage: 0, dangerPosturePercentage: 0, totalAlertsCount: 1
     },
@@ -42,7 +42,7 @@ describe("database-backed session history", () => {
   let root: Root;
   let container: HTMLDivElement;
   async function render(props: Partial<PostureHistoryLogProps> = {}) {
-    await act(async () => root.render(<PostureHistoryLog logs={[]} userId={1} recordingStatus={RecordingStatus.ACTIVE} {...props} />));
+    await act(async () => root.render(<PostureHistoryLog logs={[]} userId={"00000000-0000-4000-8000-000000000001"} recordingStatus={RecordingStatus.ACTIVE} {...props} />));
   }
   async function tick(milliseconds = 5_000) {
     await act(async () => { await vi.advanceTimersByTimeAsync(milliseconds); });
@@ -128,10 +128,10 @@ describe("database-backed session history", () => {
     await render();
     read.mockReturnValueOnce(new Promise(resolve => { finishOld = resolve; }));
     await tick();
-    const next = history(); next.session!.id = "session-2"; next.session!.userId = 2;
+    const next = history(); next.session!.id = "session-2"; next.session!.userId = "00000000-0000-4000-8000-000000000002";
     next.alerts = []; next.adequateSummaryPercentage = 0;
     read.mockResolvedValue(next);
-    await render({ userId: 2 });
+    await render({ userId: "00000000-0000-4000-8000-000000000002" });
     expect(container.textContent).not.toContain("Desvio do pescoço salvo no banco");
     await act(async () => finishOld(history()));
     expect(container.textContent).not.toContain("Desvio do pescoço salvo no banco");
@@ -155,7 +155,7 @@ describe("database-backed session history", () => {
     read.mockResolvedValue(previous);
     const notice: LogEvent = {
       id: "calibration-saved", occurredAt: "2026-11-05T12:15:01Z", timestamp: "12:15:01",
-      message: "Ambiente de trabalho salvo com sucesso", type: "success", scope: "account", userId: 1,
+      message: "Ambiente de trabalho salvo com sucesso", type: "success", scope: "account", userId: "00000000-0000-4000-8000-000000000001",
     };
     const presence: LogEvent = {
       id: "old-presence", occurredAt: "2026-11-05T12:15:01Z",
@@ -176,7 +176,7 @@ describe("database-backed session history", () => {
     await render({
       logs: [{
         id: "other-calibration", occurredAt: "2026-11-05T12:10:00Z", timestamp: "12:10:00",
-        message: "Another account saved its calibration", type: "success", scope: "account", userId: 2
+        message: "Another account saved its calibration", type: "success", scope: "account", userId: "00000000-0000-4000-8000-000000000002"
       }]
     });
     expect(container.textContent).not.toContain("Another account saved its calibration");
@@ -185,12 +185,12 @@ describe("database-backed session history", () => {
   it("shows a saved alert and its resolution immediately without waiting for the five-second poll", async () => {
     const initial = history(); initial.alerts = []; read.mockResolvedValue(initial); await render();
     read.mockResolvedValue(history());
-    await act(async () => notifySessionHistoryUpdated({ userId: 1, sessionId: "session-1" }));
+    await act(async () => notifySessionHistoryUpdated({ userId: "00000000-0000-4000-8000-000000000001", sessionId: "session-1" }));
     expect(container.textContent).toContain("Desvio do pescoço salvo no banco");
     expect(read).toHaveBeenCalledTimes(2);
     const resolved = history(); resolved.alerts[0].durationSeconds = 73;
     read.mockResolvedValue(resolved);
-    await act(async () => notifySessionHistoryUpdated({ userId: 1, sessionId: "session-1" }));
+    await act(async () => notifySessionHistoryUpdated({ userId: "00000000-0000-4000-8000-000000000001", sessionId: "session-1" }));
     expect(container.textContent).toContain("Duração registrada: 73 s");
     expect(container.textContent?.match(/Desvio do pescoço salvo no banco/g)).toHaveLength(1);
   });
@@ -201,7 +201,7 @@ describe("database-backed session history", () => {
     await render(); const fresh = history(); fresh.alerts[0].message = "Latest saved alert";
     read.mockResolvedValue(fresh);
     await act(async () => {
-      for (let index = 0; index < 3; index++) notifySessionHistoryUpdated({ userId: 1, sessionId: "session-1" });
+      for (let index = 0; index < 3; index++) notifySessionHistoryUpdated({ userId: "00000000-0000-4000-8000-000000000001", sessionId: "session-1" });
     });
     expect(read).toHaveBeenCalledTimes(1);
     await act(async () => finish(history()));
@@ -220,7 +220,7 @@ describe("database-backed session history", () => {
     let finish!: (value: SessionHistory) => void;
     read.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
     const next = history(); next.session!.id = "session-2"; next.session!.startedAt = "2026-11-05T12:16:00Z";
-    await act(async () => notifySessionHistoryUpdated({ userId: 1, sessionId: "session-2", session: next.session! }));
+    await act(async () => notifySessionHistoryUpdated({ userId: "00000000-0000-4000-8000-000000000001", sessionId: "session-2", session: next.session! }));
     expect(container.textContent).toContain("Monitoramento iniciado");
     expect(container.textContent).toContain(live.message);
     expect(container.textContent).not.toContain("Desvio do pescoço salvo no banco");
@@ -230,10 +230,10 @@ describe("database-backed session history", () => {
 
   it("ignores save notifications of another user and stops listening while hidden", async () => {
     await render(); const calls = read.mock.calls.length;
-    await act(async () => notifySessionHistoryUpdated({ userId: 2, sessionId: "other" }));
+    await act(async () => notifySessionHistoryUpdated({ userId: "00000000-0000-4000-8000-000000000002", sessionId: "other" }));
     expect(read).toHaveBeenCalledTimes(calls);
     await render({ isVisible: false });
-    await act(async () => notifySessionHistoryUpdated({ userId: 1, sessionId: "session-1" }));
+    await act(async () => notifySessionHistoryUpdated({ userId: "00000000-0000-4000-8000-000000000001", sessionId: "session-1" }));
     expect(read).toHaveBeenCalledTimes(calls);
     await render(); expect(read).toHaveBeenCalledTimes(calls + 1);
   });

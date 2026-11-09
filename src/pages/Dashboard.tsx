@@ -11,7 +11,7 @@ import { buildDashboard, dashboardPeriod } from "../services/dashboardMetrics";
 import type { DashboardData } from "../types/dashboard";
 import { waitForRecordingWrites } from "../hooks/useMetricRecording";
 
-type LoadState = { owner: number | null; day: string } & (
+type LoadState = { owner: string | null; day: string } & (
   | { kind: "loading" }
   | { kind: "ready"; data: DashboardData }
   | { kind: "error"; message: string }
