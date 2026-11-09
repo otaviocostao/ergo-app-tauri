@@ -284,7 +284,7 @@ Struct pura em Rust (100% testável sem banco ou janelas do SO) que recebe `tick
   - `capture_enabled: Arc<AtomicBool>`
   - `pending_keystrokes: Arc<AtomicU32>`
   - `stop_signal: Arc<AtomicBool>`
-- `Mutex<TypingMonitorSessionState>` leve (acessado apenas 1x/segundo pelo worker e por comandos Tauri — **nunca** pela thread de teclado!) guardando `session_id: Option<String>`, `user_id: Option<i64>`, `is_paused: bool`, `aggregator: TypingCadenceAggregator` e `last_emitted: Option<LiveTypingMetrics>`.
+- `Mutex<TypingMonitorSessionState>` leve (acessado apenas 1x/segundo pelo worker e por comandos Tauri — **nunca** pela thread de teclado!) guardando `session_id: Option<String>`, `user_id: Option<String>`, `is_paused: bool`, `aggregator: TypingCadenceAggregator` e `last_emitted: Option<LiveTypingMetrics>`.
 - **Thread 1 (`typing-input-listener`)**:
   - No Windows: cria janela invisível `CreateWindowExW` com parent `HWND_MESSAGE`, registra `RAWINPUTDEVICE { usUsagePage: 0x01, usUsage: 0x06, dwFlags: RIDEV_INPUTSINK, hwndTarget: hwnd }` e roda `GetMessageW`.
   - No handler de `WM_INPUT`: lê `RAWKEYBOARD`, atualiza bitmask `[u64; 4]` com base em `RI_KEY_BREAK` (KeyUp vs KeyDown) para barrar auto-repetição, ignora modificadores (`VK_SHIFT`, `VK_CONTROL`, `VK_MENU`, `VK_LWIN`, `VK_RWIN`, `VK_CAPITAL`) e, se `capture_enabled.load(Ordering::Relaxed)`, executa `pending_keystrokes.fetch_add(1, Ordering::Relaxed)`.
