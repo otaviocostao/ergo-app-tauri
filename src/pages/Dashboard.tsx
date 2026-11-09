@@ -3,13 +3,15 @@ import { DashboardPage, MetricCard, Panel } from "../components/dashboard/Dashbo
 import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import Button from "../components/Button";
-import { dailyGoalMinutes, dateKey, formatMinutes, formatPercent } from "../data/reports";
+import { dateKey, formatMinutes, formatPercent } from "../data/reports";
 import { ReportChart } from "../components/reports/ReportWidgets";
 import { useAuth } from "../auth/AuthContext";
 import { dashboardService } from "../services/dashboardService";
 import { buildDashboard, dashboardPeriod } from "../services/dashboardMetrics";
 import type { DashboardData } from "../types/dashboard";
 import { waitForRecordingWrites } from "../hooks/useMetricRecording";
+
+const dailyGoalMinutes = 360;
 
 type LoadState = { owner: string | null; day: string } & (
   | { kind: "loading" }
@@ -58,7 +60,7 @@ export default function Dashboard() {
   const indexChange = view.posturePercent !== null && view.previousPosturePercent !== null ? Math.round(view.posturePercent - view.previousPosturePercent) : null;
   const dailyProgress = view.goodMinutes / dailyGoalMinutes * 100;
   return <DashboardPage title="Início" subtitle="Visão geral do seu bem-estar ergonômico hoje.">
-    <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-xs text-slate-500 dark:text-slate-400">Dados salvos do seu monitoramento</span><Link to="/reports" viewTransition className="inline-flex items-center gap-2 text-sm font-medium text-primary-700 hover:underline dark:text-primary-400">Ver relatórios demonstrativos<ArrowRight size={16} /></Link></div>
+    <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-xs text-slate-500 dark:text-slate-400">Dados salvos do seu monitoramento</span><Link to="/reports" viewTransition className="inline-flex items-center gap-2 text-sm font-medium text-primary-700 hover:underline dark:text-primary-400">Ver relatórios<ArrowRight size={16} /></Link></div>
     {!view.hasData && <Panel title="Nenhuma sessão registrada hoje" subtitle="Inicie o monitoramento para registrar suas primeiras leituras."><Link to="/monitoring" className="text-sm font-medium text-primary-700 hover:underline dark:text-primary-400">Abrir Monitoramento</Link></Panel>}
     <div className="grid grid-cols-1 gap-5 @min-[800px]:grid-cols-3 xl:gap-4">
       <MetricCard title="Índice ergonômico" value={formatPercent(view.posturePercent)} description="Percentual de boa postura nas sessões encerradas." badge={indexChange === null ? undefined : `${indexChange > 0 ? "+" : ""}${indexChange} p.p.`} progress={view.posturePercent ?? undefined} progressLabel="Tempo em boa postura" />
