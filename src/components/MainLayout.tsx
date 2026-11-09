@@ -11,7 +11,7 @@ export default function MainLayout() {
 
   return (
     <TopbarMonitoringProvider key={sessionKey}>
-      <div className="flex h-screen w-screen overflow-hidden bg-slate-50 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100">
+      <div className="flex h-screen w-full overflow-hidden bg-slate-50 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100">
         <Sidebar />
         <div className="flex min-w-0 flex-col flex-1 h-screen overflow-hidden bg-slate-50 dark:bg-slate-950">
           <Topbar />
