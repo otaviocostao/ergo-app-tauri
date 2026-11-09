@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     monitoring_session::MonitoringSession, posture_alert::PostureAlert,
-    posture_metric_snapshot::PostureMetricSnapshot,
+    posture_metric_snapshot::PostureMetricSnapshot, typing_metric_snapshot::TypingMetricSnapshot,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,4 +18,6 @@ pub struct DashboardData {
     pub sessions: Vec<MonitoringSession>,
     pub snapshots: Vec<PostureMetricSnapshot>,
     pub alerts: Vec<PostureAlert>,
+    pub typing_snapshots: Vec<TypingMetricSnapshot>,
+    pub daily_goal_minutes: i64,
 }
