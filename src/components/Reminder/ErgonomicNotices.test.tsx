@@ -9,21 +9,21 @@ import { settingsService } from "../../services/settingsService";
 
 const ipc = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: ipc.invoke, isTauri: () => false }));
-const auth = vi.hoisted(() => ({ userId: null as number | null }));
+const auth = vi.hoisted(() => ({ userId: null as string | null }));
 vi.mock("../../auth/AuthContext", () => ({
   useOptionalAuth: () => auth.userId === null ? null : { session: { kind: "authenticated", user: { id: auth.userId } } },
 }));
 
 function notice(systemType: SystemReminderType, title: string, interval: number): ReminderItem {
   return {
-    id: `system-reminder:1:${systemType}`, userId: 1, systemType, title, message: `${title}.`,
+    id: `system-reminder:00000000-0000-4000-8000-000000000001:${systemType}`, userId: "00000000-0000-4000-8000-000000000001", systemType, title, message: `${title}.`,
     category: "Postura", interval, period: "00:00 - 23:59", frequency: ReminderFrequency.DAILY,
     notificationTone: true, status: "inativo", startTime: "00:00", endTime: "23:59",
   };
 }
 
 const custom: ReminderItem = {
-  id: "custom-reminder", userId: 1, title: "Beber água", message: "Beba 250ml", category: "Hidratação",
+  id: "custom-reminder", userId: "00000000-0000-4000-8000-000000000001", title: "Beber água", message: "Beba 250ml", category: "Hidratação",
   interval: 60, period: "08:00 - 18:00", frequency: ReminderFrequency.BUSINESS_DAYS,
   notificationTone: true, status: "ativo", startTime: "08:00", endTime: "18:00",
 };
@@ -71,9 +71,9 @@ describe("Avisos de ergonomia em Configurações", () => {
   });
 
   it("bloqueia a ativação dos avisos de um módulo inativo", async () => {
-    auth.userId = 1;
+    auth.userId = "00000000-0000-4000-8000-000000000001";
     vi.spyOn(settingsService, "get").mockResolvedValue({
-      id: "settings-1", userId: 1, posturalAnalysis: false, ocularAnalysis: true, typingAnalysis: true, webCam: null, createdAt: "", updatedAt: "",
+      id: "settings-1", userId: "00000000-0000-4000-8000-000000000001", posturalAnalysis: false, ocularAnalysis: true, typingAnalysis: true, webCam: null, createdAt: "", updatedAt: "",
     });
     await render();
     for (const title of ["Revise sua postura", "Mude de posição"]) {
@@ -86,7 +86,7 @@ describe("Avisos de ergonomia em Configurações", () => {
     await toggle("Revise sua postura");
     expect(switchOf("Revise sua postura").checked).toBe(false);
     await toggle("Faça uma pausa visual");
-    expect(updates()).toEqual([{ id: "system-reminder:1:VISUAL_BREAK", status: "ativo" }]);
+    expect(updates()).toEqual([{ id: "system-reminder:00000000-0000-4000-8000-000000000001:VISUAL_BREAK", status: "ativo" }]);
   });
 
   it("mostra os três avisos com frequência diária e o dia inteiro, sem opção de configurar", async () => {
@@ -118,8 +118,8 @@ describe("Avisos de ergonomia em Configurações", () => {
     await toggle("Revise sua postura");
     expect(switchOf("Revise sua postura").checked).toBe(false);
     expect(updates()).toEqual([
-      { id: "system-reminder:1:POSTURE_CHECK", status: "ativo" },
-      { id: "system-reminder:1:POSTURE_CHECK", status: "inativo" },
+      { id: "system-reminder:00000000-0000-4000-8000-000000000001:POSTURE_CHECK", status: "ativo" },
+      { id: "system-reminder:00000000-0000-4000-8000-000000000001:POSTURE_CHECK", status: "inativo" },
     ]);
   });
 
@@ -134,9 +134,9 @@ describe("Avisos de ergonomia em Configurações", () => {
   });
 
   it("salva como inativo um lembrete personalizado cuja categoria pertence a um módulo inativo", async () => {
-    auth.userId = 1;
+    auth.userId = "00000000-0000-4000-8000-000000000001";
     vi.spyOn(settingsService, "get").mockResolvedValue({
-      id: "settings-1", userId: 1, posturalAnalysis: false, ocularAnalysis: true, typingAnalysis: true, webCam: null, createdAt: "", updatedAt: "",
+      id: "settings-1", userId: "00000000-0000-4000-8000-000000000001", posturalAnalysis: false, ocularAnalysis: true, typingAnalysis: true, webCam: null, createdAt: "", updatedAt: "",
     });
     reminders.push({ ...custom, id: "posture-reminder", title: "Alongar costas", category: "Postura", status: "inativo" });
     await render("custom");
