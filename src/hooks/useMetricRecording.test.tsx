@@ -12,7 +12,7 @@ const ipc = vi.hoisted(() => ({ invoke: vi.fn(), desktop: true }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: ipc.invoke, isTauri: () => ipc.desktop }));
 
 const baseline: PostureCalibrationDTO = {
-  id: "base", userId: 7, isActive: true, baselineNeckAngle: 10,
+  id: "base", userId: "00000000-0000-4000-8000-000000000007", isActive: true, baselineNeckAngle: 10,
   baselineShoulderBalance: 80, baselineDistanceCm: 60, baselineEyeDistancePx: 200,
 };
 // Neck angle for each status against the 10° baseline (deviation 0°, 15° and 25°).
@@ -27,12 +27,12 @@ describe("useMetricRecording IPC lifecycle", () => {
   const onHistoryUpdated = vi.fn<(event: Event) => void>();
   let sessionNumber: number;
 
-  function Harness({ enabled, userId, recordPosture = true }: { enabled: boolean; userId: number | null; recordPosture?: boolean }) {
+  function Harness({ enabled, userId, recordPosture = true }: { enabled: boolean; userId: string | null; recordPosture?: boolean }) {
     recorder = useMetricRecording(enabled, userId, onEvent, recordPosture);
     return null;
   }
 
-  async function render(enabled = true, strict = false, userId: number | null = 7, recordPosture = true) {
+  async function render(enabled = true, strict = false, userId: string | null = "00000000-0000-4000-8000-000000000007", recordPosture = true) {
     await act(async () => root.render(strict
       ? <StrictMode><Harness enabled={enabled} userId={userId} recordPosture={recordPosture} /></StrictMode>
       : <Harness enabled={enabled} userId={userId} recordPosture={recordPosture} />));
@@ -91,7 +91,7 @@ describe("useMetricRecording IPC lifecycle", () => {
 
   it("creates an owned session and dispatches aggregate-only snapshots and persistent alerts", async () => {
     await render();
-    expect(ipc.invoke).toHaveBeenCalledWith("start_monitoring_session", { payload: { userId: 7 } });
+    expect(ipc.invoke).toHaveBeenCalledWith("start_monitoring_session", { payload: { userId: "00000000-0000-4000-8000-000000000007" } });
     feed("danger", 1);
     await advance(20_000);
     expect(commands()).not.toContain("record_posture_alert");
@@ -128,11 +128,11 @@ describe("useMetricRecording IPC lifecycle", () => {
   });
 
   it("starts a new session owned by the new user when the account changes", async () => {
-    await render(true, false, 7);
-    await render(true, false, 9);
-    await render(false, false, 9);
+    await render(true, false, "00000000-0000-4000-8000-000000000007");
+    await render(true, false, "00000000-0000-4000-8000-000000000009");
+    await render(false, false, "00000000-0000-4000-8000-000000000009");
     const starts = ipc.invoke.mock.calls.filter(([command]) => command === "start_monitoring_session");
-    expect(starts.map(([, args]) => args.payload.userId)).toEqual([7, 9]);
+    expect(starts.map(([, args]) => args.payload.userId)).toEqual(["00000000-0000-4000-8000-000000000007", "00000000-0000-4000-8000-000000000009"]);
     expect(commands().filter(command => command === "end_monitoring_session")).toHaveLength(2);
   });
 
@@ -327,7 +327,7 @@ describe("useMetricRecording IPC lifecycle", () => {
     expect(onHistoryUpdated).toHaveBeenCalledTimes(4);
     await render(false); expect(onHistoryUpdated).toHaveBeenCalledTimes(5);
     const notifications = onHistoryUpdated.mock.calls.map(([event]) => (event as CustomEvent<SessionHistoryUpdatedDetail>).detail);
-    expect(notifications.every(item => item.userId === 7 && item.sessionId === "session-1")).toBe(true);
+    expect(notifications.every(item => item.userId === "00000000-0000-4000-8000-000000000007" && item.sessionId === "session-1")).toBe(true);
     expect(notifications[0].session?.id).toBe("session-1");
     expect(notifications[notifications.length - 1].session?.endedAt).toBeDefined();
   });
@@ -368,7 +368,7 @@ describe("useMetricRecording IPC lifecycle", () => {
   });
 
   it("publishes active and updates elapsedSeconds without posture snapshots when recordPosture is false", async () => {
-    await render(true, false, 7, false);
+    await render(true, false, "00000000-0000-4000-8000-000000000007", false);
     expect(recorder.status).toBe("active");
     expect(recorder.elapsedSeconds).toBe(0);
     feed("danger");
@@ -377,7 +377,7 @@ describe("useMetricRecording IPC lifecycle", () => {
     expect(commands()).not.toContain("record_metric_snapshot");
     expect(commands()).not.toContain("record_posture_alert");
     clearInterval(frameTimer);
-    await render(false, false, 7, false);
+    await render(false, false, "00000000-0000-4000-8000-000000000007", false);
     expect(recorder.status).toBe("idle");
     expect(ipc.invoke).toHaveBeenCalledWith("end_monitoring_session", {
       payload: expect.objectContaining({
@@ -389,15 +389,15 @@ describe("useMetricRecording IPC lifecycle", () => {
   });
 
   it("keeps the elapsed session clock when posture is enabled after typing-only monitoring", async () => {
-    await render(true, false, 7, false);
+    await render(true, false, "00000000-0000-4000-8000-000000000007", false);
     await advance(65_000);
     expect(recorder.elapsedSeconds).toBe(65);
-    await render(true, false, 7, true);
+    await render(true, false, "00000000-0000-4000-8000-000000000007", true);
     expect(recorder.elapsedSeconds).toBe(65);
     await advance(5_000);
     expect(recorder.elapsedSeconds).toBe(70);
     expect(commands().filter(command => command === "start_monitoring_session")).toHaveLength(1);
-    await render(false, false, 7, true);
+    await render(false, false, "00000000-0000-4000-8000-000000000007", true);
     expect(ipc.invoke).toHaveBeenCalledWith("end_monitoring_session", {
       payload: expect.objectContaining({ id: "session-1", durationSeconds: 70 }),
     });
@@ -432,14 +432,14 @@ describe("useMetricRecording IPC lifecycle", () => {
   });
 
   it("toggles posture recording on and off without ending or recreating the shared session", async () => {
-    await render(true, false, 7, true);
+    await render(true, false, "00000000-0000-4000-8000-000000000007", true);
     feed("danger");
     await advance(21_000);
     expect(recorder.elapsedSeconds).toBe(21);
     expect(commands().filter(command => command === "record_posture_alert")).toHaveLength(1);
 
     // Turning posture off resolves the open alert episode and keeps the same session open.
-    await render(true, false, 7, false);
+    await render(true, false, "00000000-0000-4000-8000-000000000007", false);
     expect(recorder.elapsedSeconds).toBe(21);
     expect(commands().filter(command => command === "resolve_posture_alert")).toHaveLength(1);
     expect(commands().filter(command => command === "end_monitoring_session")).toHaveLength(0);
@@ -456,7 +456,7 @@ describe("useMetricRecording IPC lifecycle", () => {
     expect(commands().filter(command => command === "record_metric_snapshot")).toHaveLength(1);
 
     // Turning posture back on resumes recording into the same session-1.
-    await render(true, false, 7, true);
+    await render(true, false, "00000000-0000-4000-8000-000000000007", true);
     expect(recorder.elapsedSeconds).toBe(120);
     await advance(60_000);
     expect(recorder.elapsedSeconds).toBe(180);
@@ -465,7 +465,7 @@ describe("useMetricRecording IPC lifecycle", () => {
     expect(snapshots[1][1].payload).toMatchObject({ sessionId: "session-1" });
     expect(commands().filter(command => command === "start_monitoring_session")).toHaveLength(1);
     expect(commands().filter(command => command === "end_monitoring_session")).toHaveLength(0);
-    await render(false, false, 7, true);
+    await render(false, false, "00000000-0000-4000-8000-000000000007", true);
     expect(ipc.invoke).toHaveBeenCalledWith("end_monitoring_session", {
       payload: expect.objectContaining({
         id: "session-1", durationSeconds: 180, averageScore: 67.5, dangerPosturePercentage: 100,
