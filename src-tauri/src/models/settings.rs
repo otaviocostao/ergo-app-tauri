@@ -2,6 +2,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 /// Longest accepted webcam identifier; browser device IDs are much shorter.
 pub const WEB_CAM_MAX_LENGTH: usize = 512;
+pub const DEFAULT_DAILY_GOAL_MINUTES: i64 = 360;
 
 /// Analysis modules a user can turn on or off; values match the `settings` columns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,6 +39,7 @@ pub struct Settings {
     pub typing_analysis: bool,
     /// Device ID of the user's default webcam; none until one is chosen.
     pub web_cam: Option<String>,
+    pub daily_goal_minutes: i64,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -63,6 +65,7 @@ impl Settings {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UpdateSettingsPayload {
+    pub daily_goal_minutes: Option<i64>,
     pub postural_analysis: Option<bool>,
     pub ocular_analysis: Option<bool>,
     pub typing_analysis: Option<bool>,
