@@ -105,7 +105,7 @@ struct ScheduledReminder<Tz: TimeZone> {
 }
 
 pub struct ReminderScheduler<Tz: TimeZone> {
-    user_id: Option<i64>,
+    user_id: Option<String>,
     entries: HashMap<String, ScheduledReminder<Tz>>,
 }
 
@@ -121,13 +121,13 @@ impl<Tz: TimeZone> Default for ReminderScheduler<Tz> {
 impl<Tz: TimeZone> ReminderScheduler<Tz> {
     pub fn poll(
         &mut self,
-        user_id: Option<i64>,
+        user_id: Option<&str>,
         reminders: &[Reminder],
         now: DateTime<Tz>,
     ) -> Vec<ReminderAlarm> {
-        if self.user_id != user_id {
+        if self.user_id.as_deref() != user_id {
             self.entries.clear();
-            self.user_id = user_id;
+            self.user_id = user_id.map(str::to_owned);
         }
         let Some(user_id) = user_id else {
             self.entries.clear();
@@ -136,12 +136,12 @@ impl<Tz: TimeZone> ReminderScheduler<Tz> {
         self.entries.retain(|id, _| {
             reminders
                 .iter()
-                .any(|r| r.id == *id && r.user_id == Some(user_id) && r.status == "ativo")
+                .any(|r| r.id == *id && r.user_id.as_deref() == Some(user_id) && r.status == "ativo")
         });
         let mut alarms = Vec::new();
         for reminder in reminders
             .iter()
-            .filter(|r| r.user_id == Some(user_id) && r.status == "ativo")
+            .filter(|r| r.user_id.as_deref() == Some(user_id) && r.status == "ativo")
         {
             let entry =
                 self.entries
@@ -174,7 +174,7 @@ impl<Tz: TimeZone> ReminderScheduler<Tz> {
             if now.clone().signed_duration_since(&due).num_seconds() <= MAX_DELAY_SECONDS {
                 alarms.push(ReminderAlarm {
                     id: reminder.id.clone(),
-                    user_id,
+                    user_id: user_id.to_owned(),
                     title: reminder.title.clone(),
                     message: reminder.message.clone(),
                     notification_tone: reminder.notification_tone,
@@ -216,7 +216,7 @@ pub fn start(app: AppHandle) -> std::io::Result<SchedulerControl> {
 
 pub fn inactivate_completed_once_reminders<Tz: TimeZone>(
     conn: &rusqlite::Connection,
-    user_id: i64,
+    user_id: &str,
     reminders: &[Reminder],
     now: &DateTime<Tz>,
 ) -> Result<(), String> {
@@ -241,7 +241,7 @@ fn send_notification(
     notify()?;
     let sent_at = Utc::now().to_rfc3339();
     let rows_affected =
-        reminder_repository::update_last_sent_at(conn, alarm.user_id, &alarm.id, &sent_at)
+        reminder_repository::update_last_sent_at(conn, &alarm.user_id, &alarm.id, &sent_at)
             .map_err(|error| format!("Failed to record reminder notification: {error}"))?;
     if rows_affected == 0 {
         return Err(format!("Reminder with id '{}' not found", alarm.id));
@@ -302,7 +302,7 @@ mod tests {
 
     fn reminder() -> Reminder {
         serde_json::from_value(serde_json::json!({
-            "id": "water", "userId": 1, "title": "Drink water", "message": "Drink 250ml",
+            "id": "water", "userId": "00000000-0000-4000-8000-000000000001", "title": "Drink water", "message": "Drink 250ml",
             "category": "Hidratação", "interval": 60, "period": "08:00 - 18:00",
             "frequency": "DAILY", "notificationTone": true, "status": "ativo",
             "startTime": "08:00", "endTime": "18:00"
@@ -317,7 +317,7 @@ mod tests {
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
         conn.execute(
             "INSERT INTO users (id, first_name, last_name, birth_date, password_hash, email, phone)
-             VALUES (1, 'Test', 'User', '1995-05-20', 'test-hash', 'test@example.com', '75999999999')",
+             VALUES ('00000000-0000-4000-8000-000000000001', 'Test', 'User', '1995-05-20', 'test-hash', 'test@example.com', '75999999999')",
             [],
         )
         .unwrap();
@@ -327,7 +327,7 @@ mod tests {
         reminder_repository::insert(&conn, &r).unwrap();
         let alarm = ReminderAlarm {
             id: r.id.clone(),
-            user_id: 1,
+            user_id: "00000000-0000-4000-8000-000000000001".into(),
             title: r.title.clone(),
             message: r.message.clone(),
             notification_tone: r.notification_tone,
@@ -341,7 +341,7 @@ mod tests {
         let (conn, mut expected, alarm) = notification_test_data();
         let before = Utc::now();
         send_notification(&conn, &alarm, || {
-            let stored = reminder_repository::find_by_id(&conn, 1, &alarm.id)
+            let stored = reminder_repository::find_by_id(&conn, "00000000-0000-4000-8000-000000000001", &alarm.id)
                 .unwrap()
                 .unwrap();
             assert!(stored.last_sent_at.is_none());
@@ -349,7 +349,7 @@ mod tests {
         })
         .unwrap();
         let after = Utc::now();
-        let stored = reminder_repository::find_by_id(&conn, 1, &alarm.id)
+        let stored = reminder_repository::find_by_id(&conn, "00000000-0000-4000-8000-000000000001", &alarm.id)
             .unwrap()
             .unwrap();
         let sent_at = DateTime::parse_from_rfc3339(stored.last_sent_at.as_deref().unwrap())
@@ -359,10 +359,10 @@ mod tests {
         expected.last_sent_at = stored.last_sent_at.clone();
         assert_eq!(stored, expected);
 
-        reminder_repository::update_last_sent_at(&conn, 1, &alarm.id, "2026-01-02T00:00:00Z")
+        reminder_repository::update_last_sent_at(&conn, "00000000-0000-4000-8000-000000000001", &alarm.id, "2026-01-02T00:00:00Z")
             .unwrap();
         send_notification(&conn, &alarm, || Ok(())).unwrap();
-        let latest = reminder_repository::find_by_id(&conn, 1, &alarm.id)
+        let latest = reminder_repository::find_by_id(&conn, "00000000-0000-4000-8000-000000000001", &alarm.id)
             .unwrap()
             .unwrap();
         let latest_time = DateTime::parse_from_rfc3339(latest.last_sent_at.as_deref().unwrap())
@@ -378,14 +378,14 @@ mod tests {
         let (conn, mut expected, alarm) = notification_test_data();
         for previous in [None, Some("2026-01-02T00:00:00Z")] {
             if let Some(sent_at) = previous {
-                reminder_repository::update_last_sent_at(&conn, 1, &alarm.id, sent_at).unwrap();
+                reminder_repository::update_last_sent_at(&conn, "00000000-0000-4000-8000-000000000001", &alarm.id, sent_at).unwrap();
             }
             expected.last_sent_at = previous.map(str::to_string);
             assert_eq!(
                 send_notification(&conn, &alarm, || Err("Notification failed".into())).unwrap_err(),
                 "Notification failed"
             );
-            let stored = reminder_repository::find_by_id(&conn, 1, &alarm.id)
+            let stored = reminder_repository::find_by_id(&conn, "00000000-0000-4000-8000-000000000001", &alarm.id)
                 .unwrap()
                 .unwrap();
             assert_eq!(stored, expected);
@@ -398,7 +398,7 @@ mod tests {
         conn.execute_batch("PRAGMA query_only = ON;").unwrap();
         let error = send_notification(&conn, &alarm, || Ok(())).unwrap_err();
         assert!(error.contains("Failed to record reminder notification"));
-        let stored = reminder_repository::find_by_id(&conn, 1, &alarm.id)
+        let stored = reminder_repository::find_by_id(&conn, "00000000-0000-4000-8000-000000000001", &alarm.id)
             .unwrap()
             .unwrap();
         assert_eq!(stored, expected);
@@ -408,13 +408,13 @@ mod tests {
     fn recording_send_time_does_not_skip_the_next_due_alarm() {
         let mut r = reminder();
         let mut scheduler = ReminderScheduler::default();
-        scheduler.poll(Some(1), &[r.clone()], at(6, 8, 59, 59));
+        scheduler.poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 8, 59, 59));
         assert_eq!(
-            scheduler.poll(Some(1), &[r.clone()], at(6, 9, 0, 0)).len(),
+            scheduler.poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 9, 0, 0)).len(),
             1
         );
         r.last_sent_at = Some(at(6, 9, 0, 1).to_rfc3339());
-        assert_eq!(scheduler.poll(Some(1), &[r], at(6, 10, 0, 0)).len(), 1);
+        assert_eq!(scheduler.poll(Some("00000000-0000-4000-8000-000000000001"), &[r], at(6, 10, 0, 0)).len(), 1);
     }
 
     #[test]
@@ -458,17 +458,17 @@ mod tests {
         assert_eq!(next_occurrence(&r, &at(6, 8, 0, 0)), None);
         let mut scheduler = ReminderScheduler::default();
         assert!(scheduler
-            .poll(Some(1), &[r.clone()], at(6, 7, 59, 59))
+            .poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 7, 59, 59))
             .is_empty());
         assert_eq!(
-            scheduler.poll(Some(1), &[r.clone()], at(6, 8, 0, 0)).len(),
+            scheduler.poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 8, 0, 0)).len(),
             1
         );
         assert!(scheduler
-            .poll(Some(1), &[r.clone()], at(6, 9, 0, 0))
+            .poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 9, 0, 0))
             .is_empty());
         let mut restarted = ReminderScheduler::default();
-        assert!(restarted.poll(Some(1), &[r], at(6, 8, 0, 1)).is_empty());
+        assert!(restarted.poll(Some("00000000-0000-4000-8000-000000000001"), &[r], at(6, 8, 0, 1)).is_empty());
     }
 
     #[test]
@@ -476,61 +476,61 @@ mod tests {
         let r = reminder();
         let mut scheduler = ReminderScheduler::default();
         assert!(scheduler
-            .poll(Some(1), &[r.clone()], at(6, 8, 59, 58))
+            .poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 8, 59, 58))
             .is_empty());
-        let alarms = scheduler.poll(Some(1), &[r.clone()], at(6, 9, 0, 1));
+        let alarms = scheduler.poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 9, 0, 1));
         assert_eq!(alarms.len(), 1);
         assert_eq!(alarms[0].scheduled_at, at(6, 9, 0, 0).to_rfc3339());
         assert!(alarms[0].notification_tone);
         assert!(scheduler
-            .poll(Some(1), &[r.clone()], at(6, 9, 0, 2))
+            .poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 9, 0, 2))
             .is_empty());
-        assert_eq!(scheduler.poll(Some(1), &[r], at(6, 10, 0, 0)).len(), 1);
+        assert_eq!(scheduler.poll(Some("00000000-0000-4000-8000-000000000001"), &[r], at(6, 10, 0, 0)).len(), 1);
     }
 
     #[test]
     fn suspension_and_restart_skip_missed_slots() {
         let r = reminder();
         let mut scheduler = ReminderScheduler::default();
-        scheduler.poll(Some(1), &[r.clone()], at(6, 8, 59, 0));
+        scheduler.poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 8, 59, 0));
         assert!(scheduler
-            .poll(Some(1), &[r.clone()], at(6, 11, 30, 0))
+            .poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 11, 30, 0))
             .is_empty());
         assert_eq!(
-            scheduler.poll(Some(1), &[r.clone()], at(6, 12, 0, 0)).len(),
+            scheduler.poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 12, 0, 0)).len(),
             1
         );
         let mut restarted = ReminderScheduler::default();
         assert!(restarted
-            .poll(Some(1), &[r.clone()], at(6, 12, 0, 1))
+            .poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 12, 0, 1))
             .is_empty());
-        assert_eq!(restarted.poll(Some(1), &[r], at(6, 13, 0, 0)).len(), 1);
+        assert_eq!(restarted.poll(Some("00000000-0000-4000-8000-000000000001"), &[r], at(6, 13, 0, 0)).len(), 1);
     }
 
     #[test]
     fn editing_disabling_deleting_and_logout_cancel_old_schedules() {
         let mut r = reminder();
         let mut scheduler = ReminderScheduler::default();
-        scheduler.poll(Some(1), &[r.clone()], at(6, 8, 59, 0));
+        scheduler.poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 8, 59, 0));
         r.interval = 120;
         assert!(scheduler
-            .poll(Some(1), &[r.clone()], at(6, 8, 59, 30))
+            .poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 8, 59, 30))
             .is_empty());
         assert!(scheduler
-            .poll(Some(1), &[r.clone()], at(6, 9, 0, 0))
+            .poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 9, 0, 0))
             .is_empty());
         assert_eq!(
-            scheduler.poll(Some(1), &[r.clone()], at(6, 10, 0, 0)).len(),
+            scheduler.poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 10, 0, 0)).len(),
             1
         );
         r.status = "inativo".into();
         assert!(scheduler
-            .poll(Some(1), &[r.clone()], at(6, 12, 0, 0))
+            .poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 12, 0, 0))
             .is_empty());
         r.status = "ativo".into();
-        scheduler.poll(Some(1), &[r.clone()], at(6, 12, 1, 0));
-        assert!(scheduler.poll(Some(1), &[], at(6, 14, 0, 0)).is_empty());
-        scheduler.poll(Some(1), &[r.clone()], at(6, 14, 1, 0));
+        scheduler.poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 12, 1, 0));
+        assert!(scheduler.poll(Some("00000000-0000-4000-8000-000000000001"), &[], at(6, 14, 0, 0)).is_empty());
+        scheduler.poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 14, 1, 0));
         assert!(scheduler.poll(None, &[r], at(6, 16, 0, 0)).is_empty());
     }
 
@@ -539,15 +539,15 @@ mod tests {
         let first = reminder();
         let mut second = first.clone();
         second.id = "other".into();
-        second.user_id = Some(2);
+        second.user_id = Some("00000000-0000-4000-8000-000000000002".into());
         let mut scheduler = ReminderScheduler::default();
-        scheduler.poll(Some(1), &[first.clone(), second.clone()], at(6, 8, 59, 0));
+        scheduler.poll(Some("00000000-0000-4000-8000-000000000001"), &[first.clone(), second.clone()], at(6, 8, 59, 0));
         assert!(scheduler
-            .poll(Some(2), &[first.clone(), second.clone()], at(6, 8, 59, 30))
+            .poll(Some("00000000-0000-4000-8000-000000000002"), &[first.clone(), second.clone()], at(6, 8, 59, 30))
             .is_empty());
-        let alarms = scheduler.poll(Some(2), &[first, second], at(6, 9, 0, 0));
+        let alarms = scheduler.poll(Some("00000000-0000-4000-8000-000000000002"), &[first, second], at(6, 9, 0, 0));
         assert_eq!(alarms.len(), 1);
-        assert_eq!(alarms[0].user_id, 2);
+        assert_eq!(alarms[0].user_id, "00000000-0000-4000-8000-000000000002");
     }
 
     #[test]
@@ -568,19 +568,19 @@ mod tests {
         let mut r = reminder();
         r.notification_tone = false;
         let mut scheduler = ReminderScheduler::default();
-        scheduler.poll(Some(1), &[r.clone()], at(6, 8, 59, 0));
-        let alarms = scheduler.poll(Some(1), &[r.clone()], at(6, 9, 0, 0));
+        scheduler.poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 8, 59, 0));
+        let alarms = scheduler.poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 9, 0, 0));
         assert_eq!(alarms.len(), 1);
         assert!(!alarms[0].notification_tone);
         assert!(scheduler
-            .poll(Some(1), &[r.clone()], at(6, 8, 59, 0))
+            .poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 8, 59, 0))
             .is_empty());
         r.title = "Edited after clock change".into();
-        scheduler.poll(Some(1), &[r.clone()], at(6, 8, 59, 30));
+        scheduler.poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 8, 59, 30));
         assert!(scheduler
-            .poll(Some(1), &[r.clone()], at(6, 9, 0, 0))
+            .poll(Some("00000000-0000-4000-8000-000000000001"), &[r.clone()], at(6, 9, 0, 0))
             .is_empty());
-        assert_eq!(scheduler.poll(Some(1), &[r], at(6, 10, 0, 0)).len(), 1);
+        assert_eq!(scheduler.poll(Some("00000000-0000-4000-8000-000000000001"), &[r], at(6, 10, 0, 0)).len(), 1);
     }
 
     #[test]
@@ -590,7 +590,7 @@ mod tests {
             .unwrap();
         conn.execute(
             "INSERT INTO users (id, first_name, last_name, birth_date, password_hash, email, phone)
-             VALUES (1, 'Test', 'User', '1995-05-20', 'test-hash', 'test@example.com', '75999999999')",
+             VALUES ('00000000-0000-4000-8000-000000000001', 'Test', 'User', '1995-05-20', 'test-hash', 'test@example.com', '75999999999')",
             [],
         )
         .unwrap();
@@ -605,15 +605,15 @@ mod tests {
         crate::repositories::reminder_repository::insert(&conn, &r).unwrap();
 
         // Before occurrence: should remain active
-        inactivate_completed_once_reminders(&conn, 1, &[r.clone()], &at(6, 7, 59, 59)).unwrap();
-        let fetched = crate::repositories::reminder_repository::find_by_id(&conn, 1, &r.id)
+        inactivate_completed_once_reminders(&conn, "00000000-0000-4000-8000-000000000001", &[r.clone()], &at(6, 7, 59, 59)).unwrap();
+        let fetched = crate::repositories::reminder_repository::find_by_id(&conn, "00000000-0000-4000-8000-000000000001", &r.id)
             .unwrap()
             .unwrap();
         assert_eq!(fetched.status, "ativo");
 
         // At or after occurrence: should be marked inactive
-        inactivate_completed_once_reminders(&conn, 1, &[r.clone()], &at(6, 8, 0, 0)).unwrap();
-        let fetched = crate::repositories::reminder_repository::find_by_id(&conn, 1, &r.id)
+        inactivate_completed_once_reminders(&conn, "00000000-0000-4000-8000-000000000001", &[r.clone()], &at(6, 8, 0, 0)).unwrap();
+        let fetched = crate::repositories::reminder_repository::find_by_id(&conn, "00000000-0000-4000-8000-000000000001", &r.id)
             .unwrap()
             .unwrap();
         assert_eq!(fetched.status, "inativo");
