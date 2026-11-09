@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT PRIMARY KEY NOT NULL,
     external_id TEXT UNIQUE,
     first_name TEXT NOT NULL,
     last_name TEXT NOT NULL,
@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS reminders (
     id TEXT PRIMARY KEY NOT NULL,
-    user_id INTEGER REFERENCES users(id) ON DELETE RESTRICT,
+    user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
     title TEXT NOT NULL,
     message TEXT NOT NULL,
     description TEXT,
@@ -39,7 +39,7 @@ CREATE INDEX IF NOT EXISTS idx_reminders_user_id ON reminders(user_id);
 
 CREATE TABLE IF NOT EXISTS settings (
     id TEXT PRIMARY KEY NOT NULL,
-    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
     postural_analysis INTEGER NOT NULL DEFAULT 1 CHECK (postural_analysis IN (0, 1)),
     ocular_analysis INTEGER NOT NULL DEFAULT 1 CHECK (ocular_analysis IN (0, 1)),
     typing_analysis INTEGER NOT NULL DEFAULT 1 CHECK (typing_analysis IN (0, 1)),
@@ -87,7 +87,7 @@ CREATE VIEW IF NOT EXISTS workspace AS SELECT * FROM workspaces;
 
 CREATE TABLE IF NOT EXISTS posture_calibrations (
     id TEXT PRIMARY KEY NOT NULL,
-    user_id INTEGER,
+    user_id TEXT,
     baseline_neck_angle REAL NOT NULL,
     baseline_shoulder_balance REAL NOT NULL,
     baseline_distance_cm REAL NOT NULL,
@@ -103,7 +103,7 @@ CREATE INDEX IF NOT EXISTS idx_posture_calibrations_user_id ON posture_calibrati
 
 CREATE TABLE IF NOT EXISTS monitoring_sessions (
     id TEXT PRIMARY KEY NOT NULL,
-    user_id INTEGER,
+    user_id TEXT,
     started_at TEXT NOT NULL,
     ended_at TEXT,
     duration_seconds INTEGER NOT NULL DEFAULT 0,
