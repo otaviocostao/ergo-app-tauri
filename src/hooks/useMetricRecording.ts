@@ -36,7 +36,7 @@ export function waitForRecordingWrites(): Promise<void> {
  */
 export function useMetricRecording(
   enabled: boolean,
-  userId: number | null,
+  userId: string | null,
   onEvent: (event: RecordingEvent) => void,
   recordPosture = true,
 ) {
