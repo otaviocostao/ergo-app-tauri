@@ -9,7 +9,7 @@ export interface LogEvent {
   timestamp: string;
   occurredAt?: string;
   scope?: "session" | "account";
-  userId?: number | null;
+  userId?: string | null;
   type: "success" | "warning" | "error" | "info";
   message: string;
   detail?: string;
@@ -19,7 +19,7 @@ export interface PostureHistoryLogProps {
   logs: LogEvent[];
   onClearLogs?: () => void;
   className?: string;
-  userId?: number | null;
+  userId?: string | null;
   recordingStatus?: RecordingStatus;
   isVisible?: boolean;
 }
