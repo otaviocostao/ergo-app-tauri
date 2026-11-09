@@ -51,7 +51,7 @@ describe("registration fields and birth date input", () => {
     vi.setSystemTime(new Date(2026, 9, 20, 12));
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     vi.mocked(authService.register).mockReset().mockResolvedValue({
-      id: 1, externalId: null, firstName: "Ana", lastName: "Silva", email: "ana@example.com",
+      id: "00000000-0000-4000-8000-000000000001", externalId: null, firstName: "Ana", lastName: "Silva", email: "ana@example.com",
       birthDate: "", phone: "", photo: null, createdAt: "", updatedAt: "",
     });
     container = document.createElement("div");
