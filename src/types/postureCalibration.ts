@@ -1,6 +1,6 @@
 export interface PostureCalibrationDTO {
   id: string;
-  userId?: number | null;
+  userId?: string | null;
   baselineNeckAngle: number;
   baselineShoulderBalance: number;
   baselineDistanceCm: number;
@@ -11,7 +11,7 @@ export interface PostureCalibrationDTO {
 }
 
 export interface SaveCalibrationPayload {
-  userId?: number | null;
+  userId?: string | null;
   baselineNeckAngle: number;
   baselineShoulderBalance: number;
   baselineDistanceCm: number;
