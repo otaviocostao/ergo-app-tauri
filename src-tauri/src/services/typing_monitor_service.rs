@@ -319,7 +319,7 @@ impl KeystrokeFilter {
 #[derive(Default)]
 struct TypingMonitorSessionState {
     session_id: Option<String>,
-    user_id: Option<i64>,
+    user_id: Option<String>,
     is_paused: bool,
     module_enabled: bool,
     aggregator: TypingCadenceAggregator,
@@ -359,7 +359,7 @@ pub struct TypingMonitorControl {
 pub fn resolve_typing_access(
     conn: &Connection,
     auth_state: &AuthState,
-) -> Result<(bool, Option<i64>, bool), String> {
+) -> Result<(bool, Option<String>, bool), String> {
     let session = auth_service::get_session(auth_state)
         .map_err(|_| "Failed to read authentication session".to_string())?;
 
@@ -368,7 +368,7 @@ pub fn resolve_typing_access(
         Session::Guest => Ok((true, None, true)),
         Session::Authenticated { user } => {
             let enabled =
-                settings_service::is_module_enabled(conn, user.id, Module::TypingAnalysis)?;
+                settings_service::is_module_enabled(conn, &user.id, Module::TypingAnalysis)?;
             Ok((true, Some(user.id), enabled))
         }
     }
@@ -444,7 +444,7 @@ impl TypingMonitorControl {
 
     pub fn attach_session(
         &self,
-        user_id: Option<i64>,
+        user_id: Option<String>,
         session_id: String,
         module_enabled: bool,
     ) -> Result<LiveTypingMetrics, String> {
@@ -980,7 +980,7 @@ mod tests {
             .unwrap()
     }
 
-    fn setup_test_env() -> (Connection, AuthState, i64) {
+    fn setup_test_env() -> (Connection, AuthState, String) {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
         conn.execute_batch(include_str!("../../migrations/0001_initial_migration.sql"))
@@ -1012,7 +1012,7 @@ mod tests {
 
         let session = MonitoringSession {
             id: "session-1".to_string(),
-            user_id: Some(user.id),
+            user_id: Some(user.id.clone()),
             started_at: "2026-11-04T14:00:00Z".to_string(),
             ended_at: None,
             duration_seconds: 0,
@@ -1166,7 +1166,7 @@ mod tests {
         let control = TypingMonitorControl::new_for_tests();
 
         control
-            .attach_session(Some(user_id), "session-1".to_string(), true)
+            .attach_session(Some(user_id.clone()), "session-1".to_string(), true)
             .unwrap();
         assert!(control.is_capture_enabled());
 
@@ -1246,7 +1246,7 @@ mod tests {
         let (conn, auth_state, user_id) = setup_test_env();
         let control = TypingMonitorControl::new_for_tests();
         control
-            .attach_session(Some(user_id), "session-1".to_string(), true)
+            .attach_session(Some(user_id.clone()), "session-1".to_string(), true)
             .unwrap();
         for sec in 0..20 {
             control.add_simulated_keystrokes(if sec < 15 { 3 } else { 0 });
@@ -1289,7 +1289,7 @@ mod tests {
         let (conn, auth_state, user_id) = setup_test_env();
         let control = TypingMonitorControl::new_for_tests();
         control
-            .attach_session(Some(user_id), "session-1".to_string(), true)
+            .attach_session(Some(user_id.clone()), "session-1".to_string(), true)
             .unwrap();
         for sec in 0..20 {
             control.add_simulated_keystrokes(if sec < 15 { 3 } else { 0 });
@@ -1324,7 +1324,7 @@ mod tests {
             let (conn, auth_state, user_id) = setup_test_env();
             let control = TypingMonitorControl::new_for_tests();
             control
-                .attach_session(Some(user_id), "session-1".to_string(), true)
+                .attach_session(Some(user_id.clone()), "session-1".to_string(), true)
                 .unwrap();
             control.add_simulated_keystrokes(45);
             control.poll_tick(&conn, &auth_state, utc_at(0, 0)).unwrap();
@@ -1358,7 +1358,7 @@ mod tests {
         let (conn, auth_state, user_id) = setup_test_env();
         let control = TypingMonitorControl::new_for_tests();
         control
-            .attach_session(Some(user_id), "session-1".to_string(), true)
+            .attach_session(Some(user_id.clone()), "session-1".to_string(), true)
             .unwrap();
         control.add_simulated_keystrokes(45);
         control.poll_tick(&conn, &auth_state, utc_at(0, 0)).unwrap();
@@ -1402,7 +1402,7 @@ mod tests {
         let (conn, auth_state, user_id) = setup_test_env();
         let control = TypingMonitorControl::new_for_tests();
         control
-            .attach_session(Some(user_id), "session-1".to_string(), true)
+            .attach_session(Some(user_id.clone()), "session-1".to_string(), true)
             .unwrap();
         control.add_simulated_keystrokes(45);
         control.poll_tick(&conn, &auth_state, utc_at(0, 0)).unwrap();
@@ -1438,7 +1438,7 @@ mod tests {
         let (conn, auth_state, user_id) = setup_test_env();
         let control = TypingMonitorControl::new_for_tests();
         control
-            .attach_session(Some(user_id), "session-1".to_string(), true)
+            .attach_session(Some(user_id.clone()), "session-1".to_string(), true)
             .unwrap();
         control.poll_tick(&conn, &auth_state, utc_at(0, 0)).unwrap();
         control.on_module_disabled(&conn).unwrap();
@@ -1455,7 +1455,7 @@ mod tests {
         let control = TypingMonitorControl::new_for_tests();
 
         control
-            .attach_session(Some(user_id), "session-1".to_string(), true)
+            .attach_session(Some(user_id.clone()), "session-1".to_string(), true)
             .unwrap();
         for sec in 0..20 {
             let keys = if sec < 15 { 3 } else { 0 };
@@ -1484,7 +1484,7 @@ mod tests {
 
         let session_2 = MonitoringSession {
             id: "session-2".to_string(),
-            user_id: Some(user_id),
+            user_id: Some(user_id.clone()),
             started_at: "2026-11-04T14:05:00Z".to_string(),
             ended_at: None,
             duration_seconds: 0,
@@ -1499,7 +1499,7 @@ mod tests {
         monitoring_session_repository::insert(&conn, &session_2).unwrap();
 
         control
-            .attach_session(Some(user_id), "session-2".to_string(), true)
+            .attach_session(Some(user_id.clone()), "session-2".to_string(), true)
             .unwrap();
         for sec in 0..60 {
             control.add_simulated_keystrokes(2);
