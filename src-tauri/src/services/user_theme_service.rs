@@ -54,10 +54,12 @@ mod tests {
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
     }
 
-    fn create_user(conn: &Connection, email: &str) -> i64 {
+    fn create_user(conn: &Connection, email: &str) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
         user_repository::insert(
             conn,
             &NewUser {
+                id: id.clone(),
                 external_id: None,
                 first_name: "Test".into(),
                 last_name: "User".into(),
@@ -68,10 +70,11 @@ mod tests {
                 photo: None,
             },
         )
-        .unwrap()
+        .unwrap();
+        id
     }
 
-    fn authenticate(conn: &Connection, state: &AuthState, user_id: i64) {
+    fn authenticate(conn: &Connection, state: &AuthState, user_id: &str) {
         let user = user_repository::find_by_id(conn, user_id)
             .unwrap()
             .unwrap()
@@ -96,13 +99,13 @@ mod tests {
     fn database_defaults_to_system_when_a_preference_is_omitted() {
         let conn = setup_database();
         conn.execute(
-            "INSERT INTO users (first_name, last_name, birth_date, password_hash, email, phone)
-             VALUES ('Test', 'User', '1995-05-20', 'hash', 'default@example.com', '75999999999')",
+            "INSERT INTO users (id, first_name, last_name, birth_date, password_hash, email, phone)
+             VALUES ('00000000-0000-4000-8000-000000000001', 'Test', 'User', '1995-05-20', 'hash', 'default@example.com', '75999999999')",
             [],
         )
         .unwrap();
         assert_eq!(
-            user_theme_repository::find_by_user_id(&conn, conn.last_insert_rowid()).unwrap(),
+            user_theme_repository::find_by_user_id(&conn, "00000000-0000-4000-8000-000000000001").unwrap(),
             Some(ThemePreference::System)
         );
     }
@@ -111,13 +114,13 @@ mod tests {
     fn creating_an_automatic_account_preserves_existing_explicit_preferences() {
         let conn = setup_database();
         conn.execute_batch(
-            "INSERT INTO users (first_name, last_name, birth_date, password_hash, email, phone, theme_preference)
-             VALUES ('Legacy', 'Light', '1995-05-20', 'hash', 'light@example.com', '75999999999', 'light'),
-                    ('Legacy', 'Dark', '1995-05-20', 'hash', 'dark@example.com', '75999999999', 'dark');",
+            "INSERT INTO users (id, first_name, last_name, birth_date, password_hash, email, phone, theme_preference)
+             VALUES ('00000000-0000-4000-8000-000000000001', 'Legacy', 'Light', '1995-05-20', 'hash', 'light@example.com', '75999999999', 'light'),
+                    ('00000000-0000-4000-8000-000000000002', 'Legacy', 'Dark', '1995-05-20', 'hash', 'dark@example.com', '75999999999', 'dark');",
         ).unwrap();
         let automatic_id = create_user(&conn, "automatic@example.com");
         assert_eq!(
-            user_theme_repository::find_by_user_id(&conn, automatic_id).unwrap(),
+            user_theme_repository::find_by_user_id(&conn, &automatic_id).unwrap(),
             Some(ThemePreference::System)
         );
         for (email, expected) in [
@@ -130,7 +133,7 @@ mod tests {
                 .user
                 .id;
             assert_eq!(
-                user_theme_repository::find_by_user_id(&conn, id).unwrap(),
+                user_theme_repository::find_by_user_id(&conn, &id).unwrap(),
                 Some(expected)
             );
         }
@@ -155,7 +158,7 @@ mod tests {
         )
         .unwrap()
         .id;
-        authenticate(&conn, &state, user_id);
+        authenticate(&conn, &state, &user_id);
         assert_eq!(
             get_user_theme_preference(&conn, &state).unwrap(),
             ThemePreference::System
@@ -177,21 +180,21 @@ mod tests {
         let state = AuthState::new().unwrap();
         let first_id = create_user(&conn, "first@example.com");
         let second_id = create_user(&conn, "second@example.com");
-        authenticate(&conn, &state, first_id);
+        authenticate(&conn, &state, &first_id);
         update_theme(&conn, &state, ThemePreference::Dark);
         auth_service::logout(&state).unwrap();
-        authenticate(&conn, &state, second_id);
+        authenticate(&conn, &state, &second_id);
         assert_eq!(
             get_user_theme_preference(&conn, &state).unwrap(),
             ThemePreference::System
         );
         update_theme(&conn, &state, ThemePreference::System);
-        authenticate(&conn, &state, first_id);
+        authenticate(&conn, &state, &first_id);
         assert_eq!(
             get_user_theme_preference(&conn, &state).unwrap(),
             ThemePreference::Dark
         );
-        authenticate(&conn, &state, second_id);
+        authenticate(&conn, &state, &second_id);
         assert_eq!(
             get_user_theme_preference(&conn, &state).unwrap(),
             ThemePreference::System
@@ -203,12 +206,12 @@ mod tests {
         let conn = setup_database();
         let state = AuthState::new().unwrap();
         let user_id = create_user(&conn, "first@example.com");
-        authenticate(&conn, &state, user_id);
-        let before = user_repository::find_by_id(&conn, user_id)
+        authenticate(&conn, &state, &user_id);
+        let before = user_repository::find_by_id(&conn, &user_id)
             .unwrap()
             .unwrap();
         update_theme(&conn, &state, ThemePreference::Dark);
-        let after = user_repository::find_by_id(&conn, user_id)
+        let after = user_repository::find_by_id(&conn, &user_id)
             .unwrap()
             .unwrap();
         let mut expected = serde_json::to_value(&before.user).unwrap();
@@ -219,7 +222,7 @@ mod tests {
         user_service::update_user(
             &conn,
             UpdateUserPayload {
-                id: user.id,
+                id: user.id.clone(),
                 first_name: "Updated".into(),
                 last_name: user.last_name,
                 birth_date: user.birth_date,
@@ -244,9 +247,9 @@ mod tests {
         let state = AuthState::new().unwrap();
         let first_id = create_user(&conn, "first@example.com");
         let second_id = create_user(&conn, "second@example.com");
-        authenticate(&conn, &state, first_id);
+        authenticate(&conn, &state, &first_id);
         update_theme(&conn, &state, ThemePreference::Dark);
-        authenticate(&conn, &state, second_id);
+        authenticate(&conn, &state, &second_id);
         update_theme(&conn, &state, ThemePreference::System);
         drop(conn);
         drop(state);
@@ -256,7 +259,7 @@ mod tests {
             (first_id, ThemePreference::Dark),
             (second_id, ThemePreference::System),
         ] {
-            authenticate(&conn, &state, id);
+            authenticate(&conn, &state, &id);
             assert_eq!(get_user_theme_preference(&conn, &state).unwrap(), expected);
         }
     }
@@ -278,7 +281,7 @@ mod tests {
             )
             .is_err());
         }
-        authenticate(&conn, &state, user_id);
+        authenticate(&conn, &state, &user_id);
         assert_eq!(
             get_user_theme_preference(&conn, &state).unwrap(),
             ThemePreference::System
@@ -306,7 +309,7 @@ mod tests {
         assert!(conn
             .execute(
                 "UPDATE users SET theme_preference = NULL WHERE id = ?1",
-                [user_id]
+                [&user_id]
             )
             .is_err());
         assert!(
@@ -316,7 +319,7 @@ mod tests {
             .is_err()
         );
         assert_eq!(
-            user_theme_repository::find_by_user_id(&conn, user_id).unwrap(),
+            user_theme_repository::find_by_user_id(&conn, &user_id).unwrap(),
             Some(ThemePreference::System)
         );
     }
@@ -326,8 +329,8 @@ mod tests {
         let conn = setup_database();
         let state = AuthState::new().unwrap();
         let user_id = create_user(&conn, "first@example.com");
-        authenticate(&conn, &state, user_id);
-        conn.execute("DELETE FROM users WHERE id = ?1", [user_id])
+        authenticate(&conn, &state, &user_id);
+        conn.execute("DELETE FROM users WHERE id = ?1", [&user_id])
             .unwrap();
         assert!(get_user_theme_preference(&conn, &state).is_err());
         assert!(update_user_theme_preference(
