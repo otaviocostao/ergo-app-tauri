@@ -48,6 +48,12 @@ pub fn update_settings(
     auth_state: &AuthState,
     payload: UpdateSettingsPayload,
 ) -> Result<Settings, String> {
+    if payload
+        .daily_goal_minutes
+        .is_some_and(|minutes| !(1..=1440).contains(&minutes))
+    {
+        return Err("Daily posture goal must be between 1 and 1440 minutes".to_string());
+    }
     if let Some(web_cam) = &payload.web_cam {
         validate_web_cam(web_cam)?;
     }
@@ -57,6 +63,9 @@ pub fn update_settings(
             .unchecked_transaction()
             .map_err(|error| error.to_string())?;
         let mut settings = find_or_create(&transaction, user_id)?;
+        if let Some(minutes) = payload.daily_goal_minutes {
+            settings.daily_goal_minutes = minutes;
+        }
         if let Some(web_cam) = payload.web_cam.clone() {
             settings.web_cam = web_cam;
         }
