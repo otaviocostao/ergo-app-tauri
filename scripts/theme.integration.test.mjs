@@ -47,7 +47,7 @@ async function invoke(command, payload) {
   calls.push({ command, payload });
   switch (command) {
     case "get_session": return session;
-    case "login_local": session = authenticated(Number(payload.email.split("@")[0])); return session;
+    case "login_local": session = authenticated(payload.email.split("@")[0]); return session;
     case "logout": session = { kind: "anonymous" }; return;
     case "get_user_theme_preference": return readPreference();
     case "update_user_theme_preference": return savePreference(payload.payload.theme);
@@ -129,13 +129,13 @@ beforeEach(() => {
   calls = [];
   reminders = [
     {
-      id: "system-reminder:1:VISUAL_BREAK", systemType: "VISUAL_BREAK", userId: 1,
+      id: "system-reminder:00000000-0000-4000-8000-000000000001:VISUAL_BREAK", systemType: "VISUAL_BREAK", userId: "00000000-0000-4000-8000-000000000001",
       title: "Faça uma pausa visual", message: "Descanse os olhos", category: "Pausa Visual",
       interval: 20, period: "00:00 - 23:59", frequency: "DAILY", notificationTone: true,
       status: "inativo", startTime: "00:00", endTime: "23:59",
     },
     {
-      id: "custom-reminder", userId: 1, title: "Meu lembrete personalizado", message: "Beba água",
+      id: "custom-reminder", userId: "00000000-0000-4000-8000-000000000001", title: "Meu lembrete personalizado", message: "Beba água",
       category: "Hidratação", interval: 60, period: "08:00 - 18:00", frequency: "DAILY",
       notificationTone: true, status: "ativo", startTime: "08:00", endTime: "18:00",
     },
@@ -189,7 +189,7 @@ function assertAppearance(expected) {
 test("initial account theme blocks protected pages until the read finishes", async () => {
   const pending = deferred();
   readPreference = () => pending.promise;
-  await mount(1);
+  await mount("00000000-0000-4000-8000-000000000001");
   assert.equal(theme.isInitializing, true);
   assert.equal(document.querySelector("main input"), null);
   assertAppearance("light");
@@ -203,7 +203,7 @@ test("initial account theme blocks protected pages until the read finishes", asy
 for (const outcome of ["resolve", "reject"]) {
   test(`theme retry ${outcome} preserves the Settings form and its queries`, async () => {
     readPreference = () => Promise.reject(new Error("Read failed"));
-    await mount(1);
+    await mount("00000000-0000-4000-8000-000000000001");
     assert.ok(theme.error);
     const input = document.querySelector('main input[type="text"]');
     await act(async () => {
@@ -236,7 +236,7 @@ for (const outcome of ["resolve", "reject"]) {
 
 test("failed saves restore the saved preference and reject overlapping writes", async () => {
   readPreference = () => Promise.resolve("dark");
-  await mount(1);
+  await mount("00000000-0000-4000-8000-000000000001");
   const pending = deferred();
   savePreference = () => pending.promise;
   let saving;
@@ -253,7 +253,7 @@ test("failed saves restore the saved preference and reject overlapping writes", 
 });
 
 test("automatic reacts to system changes while explicit preferences stay fixed", async () => {
-  await mount(1);
+  await mount("00000000-0000-4000-8000-000000000001");
   assert.equal(theme.theme, "system");
   await changeSystem(true);
   assertAppearance("dark");
@@ -270,7 +270,7 @@ test("automatic reacts to system changes while explicit preferences stay fixed",
 test("logout restores the computer theme and ignores an old account read", async () => {
   const pending = deferred();
   readPreference = () => pending.promise;
-  await mount(1);
+  await mount("00000000-0000-4000-8000-000000000001");
   await act(async () => auth.logout());
   assert.equal(theme.isLoading, false);
   assert.equal(theme.theme, "system");
@@ -286,20 +286,20 @@ test("logout restores the computer theme and ignores an old account read", async
 for (const outcome of ["resolve", "reject"]) {
   test(`late save ${outcome} from another account cannot change the current theme`, async () => {
     readPreference = () => Promise.resolve("dark");
-    await mount(1);
+    await mount("00000000-0000-4000-8000-000000000001");
     const pending = deferred();
     savePreference = () => pending.promise;
     let saving;
     await act(async () => { saving = theme.setTheme("system"); });
     await act(async () => auth.logout());
     readPreference = () => Promise.resolve("light");
-    await act(async () => auth.login("2@example.com", "password"));
+    await act(async () => auth.login("00000000-0000-4000-8000-000000000002@example.com", "password"));
     await act(async () => {
       if (outcome === "resolve") pending.resolve("system");
       else pending.reject(new Error("Old account failure"));
       await saving;
     });
-    assert.equal(auth.session.user.id, 2);
+    assert.equal(auth.session.user.id, "00000000-0000-4000-8000-000000000002");
     assert.equal(theme.theme, "light");
     assert.equal(theme.isReady, true);
     assert.equal(theme.isSaving, false);
@@ -312,14 +312,14 @@ for (const outcome of ["resolve", "reject"]) {
   test(`switching accounts ignores an older read ${outcome}`, async () => {
     const firstRead = deferred();
     readPreference = () => firstRead.promise;
-    await mount(1);
+    await mount("00000000-0000-4000-8000-000000000001");
     readPreference = () => Promise.resolve("dark");
-    await act(async () => auth.login("2@example.com", "password"));
+    await act(async () => auth.login("00000000-0000-4000-8000-000000000002@example.com", "password"));
     await act(async () => {
       if (outcome === "resolve") firstRead.resolve("light");
       else firstRead.reject(new Error("Old read failed"));
     });
-    assert.equal(auth.session.user.id, 2);
+    assert.equal(auth.session.user.id, "00000000-0000-4000-8000-000000000002");
     assert.equal(theme.theme, "dark");
     assert.equal(theme.error, "");
     assertAppearance("dark");
@@ -328,7 +328,7 @@ for (const outcome of ["resolve", "reject"]) {
 
 test("refreshing the same account profile preserves theme without another read", async () => {
   readPreference = () => Promise.resolve("dark");
-  await mount(1);
+  await mount("00000000-0000-4000-8000-000000000001");
   const readCount = calls.filter(({ command }) => command === "get_user_theme_preference").length;
   session = { ...session, user: { ...session.user, firstName: "Updated" } };
   await act(async () => auth.refreshSession());
@@ -340,7 +340,7 @@ test("refreshing the same account profile preserves theme without another read",
 for (const initialEntry of ["/settings?tab=notices", "/ergonomic-notices"]) {
   test(`theme and ergonomic notices work together when entering ${initialEntry}`, async () => {
     readPreference = () => Promise.resolve("dark");
-    await mount(1, initialEntry);
+    await mount("00000000-0000-4000-8000-000000000001", initialEntry);
     assertAppearance("dark");
     assert.equal(document.querySelector('main button[aria-current="page"]').textContent, "Avisos de ergonomia");
     assert.match(document.querySelector("main").textContent, /Faça uma pausa visual/);
