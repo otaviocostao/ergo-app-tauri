@@ -46,7 +46,7 @@ export interface WorkspaceCalibrationModalProps {
   isNotebookUser?: boolean;
   onPostureUpdate?: WebcamFeedProps["onPostureUpdate"];
   onPresenceChange?: WebcamFeedProps["onPresenceChange"];
-  userId?: number | null;
+  userId?: string | null;
   /** The user's default webcam, so calibration uses the same camera as monitoring. */
   preferredDeviceId?: WebcamFeedProps["preferredDeviceId"];
   onDeviceSelect?: WebcamFeedProps["onDeviceSelect"];
