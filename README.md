@@ -100,7 +100,7 @@ Para autenticação, use `src/auth/authService.ts`, que chama os comandos `regis
 
 As permissões de SQL genérico foram removidas de `src-tauri/capabilities/default.json` para impedir leitura/alteração da tabela de credenciais pelo WebView. O helper antigo `src/db.ts` não é usado nesse fluxo. Novas operações de dados devem ser implementadas como comandos Rust específicos, validando a sessão no backend quando precisarem de autenticação.
 
-As contas, os lembretes e as métricas de monitoramento são persistidos no SQLite local. As rotas internas exigem uma conta autenticada. A tela inicial consulta o histórico da conta conectada; os relatórios detalhados ainda usam dados demonstrativos.
+As contas, os lembretes e as métricas de monitoramento são persistidos no SQLite local. As rotas internas exigem uma conta autenticada. A tela inicial e os relatórios detalhados consultam o histórico da conta conectada, sem gerar dados de exemplo.
 
 ### Preferência de tema por usuário
 
@@ -160,7 +160,7 @@ Em **Configurações → Módulos** (`/settings?tab=modules`), cada conta escolh
 - Commands: `get_settings`, `update_settings` (altera um ou mais módulos), `delete_settings` (volta aos padrões) e `set_module_enabled` (`{ module, enabled }`, usado pelos cards). No backend, `Settings::is_module_enabled` e `settings_service::is_module_enabled` consultam o estado de um módulo; no frontend, `isModuleEnabled` em `settingsService`.
 - Desativar um módulo desativa, na mesma transação, os avisos de ergonomia e os lembretes personalizados vinculados: postural → “Revise sua postura”, “Mude de posição” e lembretes das categorias Postura e Exercício; ocular → “Faça uma pausa visual” e lembretes de Pausa Visual. Hidratação não pertence a nenhum módulo. Enquanto o módulo estiver inativo, esses lembretes não podem ser ativados, criados como ativos ou movidos ativos para uma dessas categorias; o formulário fixa o status em **Inativo**. Ao reativar o módulo, eles continuam desligados até o usuário ligá-los.
 - No Monitoramento, `restrictClassificationToModules` remove as métricas dos módulos inativos antes dos cards, alertas e snapshots. Os cards correspondentes exibem **Módulo inativo**. A distância da tela depende dos módulos postural e ocular.
-- Sessões de monitoramento só são abertas com a análise postural ativa, porque resumem a postura; assim não ficam sessões vazias nos relatórios. Com as análises postural e ocular inativas, a câmera não é ligada. A página aguarda os módulos carregarem antes de ligar a câmera ou abrir uma sessão.
+- As análises postural e de digitação compartilham a sessão de monitoramento. Uma sessão somente com digitação pode ter resumos de teclado sem score postural. Com as análises postural e ocular inativas, a câmera não é ligada. A página aguarda os módulos carregarem antes de ligar a câmera ou abrir uma sessão.
 
 A mesma tabela guarda em `web_cam` a webcam padrão da conta (o `deviceId` do navegador). Escolher uma câmera no seletor do Monitoramento, ou da etapa de câmera da calibração, salva a escolha com `update_settings` (`{ webCam }`; `null` remove). Todas as análises visuais abrem a webcam salva quando ela está conectada e, caso contrário, a primeira câmera disponível, sem apagar a preferência.
 
@@ -172,14 +172,16 @@ Para conferir manualmente: recrie o banco, entre na conta, ative os avisos em **
 
 ### Relatórios de postura
 
-A opção **Relatórios** no menu abre `/reports`. O link da tela inicial identifica esses relatórios como demonstrativos. Os endereços antigos em `/dashboard/` redirecionam para as seções correspondentes de índice ergonômico, boa postura e alertas.
+A opção **Relatórios** no menu abre `/reports`. Os endereços antigos em `/dashboard/` continuam redirecionando para as seções correspondentes. A leitura usa o comando `get_report_data`, cujo proprietário é definido pela sessão autenticada no Rust.
 
 - Filtros de dia, semana (domingo a sábado) e mês, com seleção de data e navegação entre períodos. Filtros e seção ficam na URL para preservar a navegação de voltar/avançar.
-- Visão geral com evolução em pontos percentuais, tempo em boa postura, alertas por hora, tempo em monitoramento, meta demonstrativa de 6h e histórico diário. A seção de alertas inclui a contagem de alertas críticos.
-- Detalhes com distribuição do tempo dentro/fora da faixa, mapa de intervalos de 10 minutos, melhores horários e registro de alertas por tipo.
-- O índice é ponderado pelo tempo monitorado; dias sem leituras não recebem pontuação. Períodos em andamento comparam os dias decorridos com o mesmo trecho do período anterior (limitado ao tamanho do mês anterior).
+- Visão geral com score postural médio, proporção de resumos adequados, alertas, duração de sessões encerradas, cobertura das leituras e histórico diário.
+- Score ponderado pelas amostras válidas; resumos adequados são contados pela classificação predominante, sem convertê-los em minutos exatos de boa postura. Ausência e medição indisponível não recebem score.
+- Detalhes de pescoço, ombros, distância e piscadas disponíveis; mapa de resumos por horário local, incluindo horários noturnos; alertas de pescoço, ombros, distância da tela e frequência de piscadas.
+- Digitação com teclas registradas, cadência média ponderada pela duração das janelas, pico, segundos com atividade, micropausas e maior sequência contínua registrada.
+- Comparação com o trecho já decorrido do período anterior, respeitando o horário local atual e meses de tamanhos diferentes. Sessões que atravessam a meia-noite têm sua duração distribuída entre os dias.
 
-O **histórico demonstrativo dos relatórios** é gerado em `src/data/reports.ts` para os últimos 120 dias, com leituras em dias úteis. Os relatórios ainda não consultam as medições persistidas pelo backend nem o monitoramento ao vivo; a evolução exibida é ilustrativa.
+Os relatórios usam exclusivamente sessões, resumos e alertas persistidos. A meta fixa de 6h, pausas ergonômicas presumidas, alertas fictícios de tronco e estimativas de tempo exato em boa postura foram removidos dessas telas. Há estados próprios de carregamento, vazio, erro com nova tentativa, troca de conta e consulta fora do desktop. As leituras são atualizadas após gravações, ao voltar à janela e a cada 30 segundos. Consulte os critérios de cálculo em [Relatórios com dados reais](docs/relatorios-dados-reais.md).
 
 ### Monitoramento e Dashboard reais (Task 4.5)
 

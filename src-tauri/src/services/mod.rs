@@ -1,4 +1,5 @@
 pub mod auth_service;
+pub mod report_service;
 pub mod company_service;
 pub mod reminder_scheduler_service;
 pub mod reminder_service;

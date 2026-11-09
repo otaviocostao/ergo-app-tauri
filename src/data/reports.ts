@@ -1,39 +1,60 @@
-// Preview fixtures only. Replace this source with persisted measurements when
-// posture history is available; all report calculations consume the same model.
+import type { MonitoringSessionItem } from "../types/monitoringSession";
+import type { PostureAlert } from "../types/postureAlert";
+import type { PostureMetricSnapshot } from "../types/postureMetricSnapshot";
+import type { ReportData } from "../types/report";
+import type { TypingMetricSnapshot } from "../types/typingMetricSnapshot";
+
 export type ReportPeriod = "day" | "week" | "month";
 
-export interface PostureInterval {
-  minute: number;
-  monitoredMinutes: number;
-  goodMinutes: number;
+export interface PostureSummary {
+  averageScore: number | null;
+  samplesCount: number;
+  validSummaries: number;
+  goodSummaries: number;
+  warningSummaries: number;
+  dangerSummaries: number;
+  absentSummaries: number;
+  unavailableSummaries: number;
+  adequateSummaryPercentage: number | null;
+  averageNeckDeviation: number | null;
+  maximumNeckDeviation: number | null;
+  averageShoulderBalance: number | null;
+  minimumShoulderBalance: number | null;
+  averageDistanceCm: number | null;
+  blinkCount: number;
 }
 
-export interface PostureAlert {
-  date: string;
-  time: string;
-  kind: "neck" | "shoulders" | "trunk";
-  severity: "warning" | "danger";
-  title: string;
-  detail: string;
+export interface TypingSummary {
+  summaries: number;
+  warningSummaries: number;
+  dangerSummaries: number;
+  windowSeconds: number;
+  keystrokes: number;
+  averageCpm: number | null;
+  peakCpm: number | null;
+  activeSeconds: number;
+  microPauses: number;
+  longestContinuousMinutes: number | null;
 }
 
-export interface PostureDay {
+export interface ReportDay {
   date: string;
-  intervals: PostureInterval[];
+  sessions: MonitoringSessionItem[];
+  sessionSeconds: number;
+  postureSnapshots: PostureMetricSnapshot[];
+  typingSnapshots: TypingMetricSnapshot[];
   alerts: PostureAlert[];
-  breaks: number;
 }
 
-export interface ReportSummary {
+export interface ReportSummary extends PostureSummary {
+  hasData: boolean;
   days: number;
-  monitoredMinutes: number;
-  goodMinutes: number;
-  posturePercent: number | null;
+  sessionCount: number;
+  openSessions: number;
+  sessionSeconds: number;
   alerts: number;
   criticalAlerts: number;
-  alertsPerHour: number | null;
-  breaks: number;
-  goalDays: number;
+  typing: TypingSummary;
 }
 
 export interface PostureReport {
@@ -43,16 +64,18 @@ export interface PostureReport {
   previousStart: string;
   previousEnd: string;
   partial: boolean;
-  days: PostureDay[];
+  days: ReportDay[];
   summary: ReportSummary;
   previous: ReportSummary;
   points: { label: string; value: number | null }[];
-  hours: { hour: number; monitoredMinutes: number; goodMinutes: number; percent: number | null }[];
+  hours: {
+    hour: number;
+    averageScore: number | null;
+    summaries: number;
+    cells: { minute: number; percent: number | null; summaries: number }[];
+  }[];
 }
 
-export const dailyGoalMinutes = 360;
-
-// Construct local dates explicitly, avoiding UTC date shifts in date inputs.
 export function dateKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
@@ -77,17 +100,32 @@ export function formatDate(value: string, options: Intl.DateTimeFormatOptions = 
 }
 
 export function formatMinutes(value: number): string {
-  const minutes = Math.round(value);
+  if (!Number.isFinite(value)) return "—";
+  const minutes = Math.max(0, Math.round(value));
   const hours = Math.floor(minutes / 60);
   return hours ? `${hours}h${minutes % 60 ? String(minutes % 60).padStart(2, "0") : ""}` : `${minutes} min`;
+}
+
+export function formatDuration(seconds: number): string {
+  return seconds > 0 && seconds < 60 ? `${Math.round(seconds)} s` : formatMinutes(seconds / 60);
 }
 
 export function formatPercent(value: number | null): string {
   return value === null ? "—" : `${Math.round(value)}%`;
 }
 
+export function formatScore(value: number | null): string {
+  return value === null ? "—" : `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}/100`;
+}
+
 export function formatTime(minutes: number): string {
   return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+/** SQLite default timestamps are UTC, including values without an explicit offset. */
+export function storedTime(value: string): number {
+  return Date.parse(/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(value)
+    ? `${value.replace(" ", "T")}Z` : value);
 }
 
 export function periodBounds(period: ReportPeriod, anchor: string) {
@@ -107,94 +145,165 @@ export function shiftPeriod(period: ReportPeriod, anchor: string, direction: num
   return dateKey(start);
 }
 
-const alertKinds: Omit<PostureAlert, "date" | "time" | "severity">[] = [
-  { kind: "neck", title: "Pescoço projetado à frente", detail: "O alinhamento cervical saiu da faixa de referência." },
-  { kind: "shoulders", title: "Desnível dos ombros", detail: "Foi registrada uma diferença no alinhamento dos ombros." },
-  { kind: "trunk", title: "Inclinação do tronco", detail: "O tronco permaneceu fora da posição de referência." },
-];
-
-export function createReportPreview(today = new Date()): PostureDay[] {
-  return Array.from({ length: 120 }, (_, index): PostureDay | null => {
-    const date = addDays(today, index - 119);
-    if (date.getDay() === 0 || date.getDay() === 6) return null;
-    const key = dateKey(date);
-    const seed = date.getDate() + date.getMonth() * 3;
-    const baseline = 61 + index * 0.19 + (seed % 7 - 3);
-    const hours = [8, 9, 10, 11, 13, 14, 15, 16];
-    const hourEffects = [-5, -2, 10, 7, -12, -3, 8, -1];
-    const intervals = hours.flatMap((hour, hourIndex) =>
-      Array.from({ length: 6 }, (_, slot) => {
-        const percent = Math.min(99, Math.max(30, baseline + hourEffects[hourIndex] + ((seed + slot * 3) % 9 - 4)));
-        return { minute: hour * 60 + slot * 10, monitoredMinutes: 10, goodMinutes: Math.round(percent) / 10 };
-      }),
-    ).slice(0, 42 + seed % 7);
-    const alertCount = Math.max(1, Math.round((100 - baseline) / 5) + seed % 3 - 1);
-    const alerts = Array.from({ length: alertCount }, (_, alertIndex): PostureAlert => ({
-      ...alertKinds[(seed + alertIndex) % alertKinds.length],
-      severity: (seed + alertIndex) % 4 === 0 ? "danger" : "warning",
-      date: key,
-      time: formatTime(intervals[Math.floor((alertIndex + 1) * intervals.length / (alertCount + 1))].minute),
-    }));
-    return { date: key, intervals, alerts, breaks: 3 + seed % 4 };
-  }).filter((day): day is PostureDay => day !== null);
+function midnight(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-function totals(day: PostureDay) {
-  return day.intervals.reduce((sum, interval) => ({
-    monitoredMinutes: sum.monitoredMinutes + interval.monitoredMinutes,
-    goodMinutes: sum.goodMinutes + interval.goodMinutes,
-  }), { monitoredMinutes: 0, goodMinutes: 0 });
-}
-
-export function summarize(days: PostureDay[]): ReportSummary {
-  const measured = days.filter(day => totals(day).monitoredMinutes > 0);
-  const result = measured.reduce((summary, day) => {
-    const total = totals(day);
-    summary.monitoredMinutes += total.monitoredMinutes;
-    summary.goodMinutes += total.goodMinutes;
-    summary.alerts += day.alerts.length;
-    summary.criticalAlerts += day.alerts.filter(alert => alert.severity === "danger").length;
-    summary.breaks += day.breaks;
-    if (total.goodMinutes >= dailyGoalMinutes) summary.goalDays++;
-    return summary;
-  }, { days: measured.length, monitoredMinutes: 0, goodMinutes: 0, alerts: 0, criticalAlerts: 0, breaks: 0, goalDays: 0 });
+export function reportRange(period: ReportPeriod, anchor: string, now = new Date()) {
+  const { start, end: fullEnd } = periodBounds(period, anchor);
+  const currentStart = midnight(start);
+  const fullEndExclusive = midnight(addDays(fullEnd, 1));
+  const currentEnd = new Date(Math.max(currentStart.getTime(), Math.min(fullEndExclusive.getTime(), now.getTime())));
+  const end = currentEnd < fullEndExclusive ? midnight(now) : midnight(fullEnd);
+  const partial = currentEnd < fullEndExclusive;
+  const previousStart = midnight(parseDate(shiftPeriod(period, dateKey(start), -1)));
+  const previousFullEnd = periodBounds(period, dateKey(previousStart)).end;
+  const elapsedDays = Math.round((Date.UTC(end.getFullYear(), end.getMonth(), end.getDate())
+    - Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())) / 86400000);
+  const candidate = addDays(previousStart, elapsedDays);
+  const previousEnd = partial && candidate <= previousFullEnd ? candidate : midnight(previousFullEnd);
+  const previousEndExclusive = partial && candidate <= previousFullEnd
+    ? new Date(previousEnd.getFullYear(), previousEnd.getMonth(), previousEnd.getDate(), now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds())
+    : midnight(addDays(previousFullEnd, 1));
   return {
-    ...result,
-    posturePercent: result.monitoredMinutes ? result.goodMinutes / result.monitoredMinutes * 100 : null,
-    alertsPerHour: result.monitoredMinutes ? result.alerts / (result.monitoredMinutes / 60) : null,
+    currentStart, currentEnd, previousStart, previousEndExclusive,
+    start: dateKey(start), end: dateKey(end), previousStartKey: dateKey(previousStart),
+    previousEnd: dateKey(previousEnd), partial,
+    // Fetch both periods together, then exclude future and non-comparable dates below.
+    filter: { startTime: previousStart.toISOString(), endTime: midnight(addDays(end, 1)).toISOString() },
   };
 }
 
-export function buildReport(source: PostureDay[], period: ReportPeriod, anchor: string, today = new Date()): PostureReport {
-  const { start, end: fullEnd } = periodBounds(period, anchor);
-  const todayKey = dateKey(today);
-  const startKey = dateKey(start);
-  const endKey = dateKey(fullEnd) > todayKey && startKey <= todayKey ? todayKey : dateKey(fullEnd);
-  const end = parseDate(endKey);
-  const previousStart = parseDate(shiftPeriod(period, startKey, -1));
-  const previousFullEnd = periodBounds(period, dateKey(previousStart)).end;
-  const elapsedDays = Math.round((Date.UTC(end.getFullYear(), end.getMonth(), end.getDate()) - Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())) / 86400000);
-  const partial = endKey !== dateKey(fullEnd);
-  const previousEnd = !partial || dateKey(addDays(previousStart, elapsedDays)) > dateKey(previousFullEnd) ? previousFullEnd : addDays(previousStart, elapsedDays);
-  const select = (from: string, to: string) => source.filter(day => day.date >= from && day.date <= to);
-  const days = select(startKey, endKey);
-  const hours = [8, 9, 10, 11, 13, 14, 15, 16].map(hour => {
-    const intervals = days.flatMap(day => day.intervals).filter(interval => Math.floor(interval.minute / 60) === hour);
-    const monitoredMinutes = intervals.reduce((sum, interval) => sum + interval.monitoredMinutes, 0);
-    const goodMinutes = intervals.reduce((sum, interval) => sum + interval.goodMinutes, 0);
-    return { hour, monitoredMinutes, goodMinutes, percent: monitoredMinutes ? goodMinutes / monitoredMinutes * 100 : null };
-  });
-  const points = period === "day"
-    ? hours.map(hour => ({ label: `${hour.hour}h`, value: hour.percent }))
-    : Array.from({ length: elapsedDays + 1 }, (_, index) => {
-      const key = dateKey(addDays(start, index));
-      return { label: formatDate(key, { day: "2-digit", month: "2-digit" }), value: summarize(days.filter(day => day.date === key)).posturePercent };
-    });
+const finite = (value: number | null): value is number => value !== null && Number.isFinite(value);
+const mean = (values: (number | null)[]) => {
+  const measured = values.filter(finite);
+  return measured.length ? measured.reduce((sum, value) => sum + value, 0) / measured.length : null;
+};
+const extreme = (values: (number | null)[], choose: (...values: number[]) => number) => {
+  const measured = values.filter(finite);
+  return measured.length ? measured.reduce((result, value) => choose(result, value)) : null;
+};
+
+export function summarizePosture(snapshots: PostureMetricSnapshot[]): PostureSummary {
+  const valid = snapshots.filter(item => item.samplesCount > 0 && ["good", "warning", "danger"].includes(item.dominantStatus));
+  const validSet = new Set(valid);
+  const scored = valid.filter(item => Number.isFinite(item.score) && item.score >= 0 && item.score <= 100);
+  const samplesCount = scored.reduce((sum, item) => sum + item.samplesCount, 0);
+  const goodSummaries = valid.filter(item => item.dominantStatus === "good").length;
   return {
-    period, start: startKey, end: endKey,
-    previousStart: dateKey(previousStart), previousEnd: dateKey(previousEnd),
-    partial, days,
-    summary: summarize(days), previous: summarize(select(dateKey(previousStart), dateKey(previousEnd))),
-    points, hours,
+    averageScore: samplesCount ? scored.reduce((sum, item) => sum + item.score * item.samplesCount, 0) / samplesCount : null,
+    samplesCount, validSummaries: valid.length, goodSummaries,
+    warningSummaries: valid.filter(item => item.dominantStatus === "warning").length,
+    dangerSummaries: valid.filter(item => item.dominantStatus === "danger").length,
+    absentSummaries: snapshots.filter(item => item.dominantStatus === "absent").length,
+    unavailableSummaries: snapshots.filter(item => item.dominantStatus !== "absent" && !validSet.has(item)).length,
+    adequateSummaryPercentage: valid.length ? goodSummaries / valid.length * 100 : null,
+    // Anatomical sample counts are not stored per metric: average the saved means.
+    averageNeckDeviation: mean(valid.map(item => item.avgNeckAngle)),
+    maximumNeckDeviation: extreme(valid.map(item => item.maxNeckAngle), Math.max),
+    averageShoulderBalance: mean(valid.map(item => item.avgShoulderBalance)),
+    minimumShoulderBalance: extreme(valid.map(item => item.minShoulderBalance), Math.min),
+    averageDistanceCm: mean(valid.map(item => item.avgDistanceCm)),
+    blinkCount: valid.reduce((sum, item) => sum + item.blinkCount, 0),
+  };
+}
+
+function summarizeTyping(snapshots: TypingMetricSnapshot[]): TypingSummary {
+  const valid = snapshots.filter(item => item.windowDurationSeconds > 0);
+  const windowSeconds = valid.reduce((sum, item) => sum + item.windowDurationSeconds, 0);
+  return {
+    summaries: valid.length, windowSeconds,
+    warningSummaries: valid.filter(item => item.dominantStatus === "warning").length,
+    dangerSummaries: valid.filter(item => item.dominantStatus === "danger").length,
+    keystrokes: valid.reduce((sum, item) => sum + item.keystrokesCount, 0),
+    averageCpm: windowSeconds ? valid.reduce((sum, item) => sum + item.cadenceCpm * item.windowDurationSeconds, 0) / windowSeconds : null,
+    peakCpm: extreme(valid.map(item => item.peakCpm), Math.max),
+    activeSeconds: valid.reduce((sum, item) => sum + item.activeTypingSeconds, 0),
+    microPauses: valid.reduce((sum, item) => sum + item.microPausesCount, 0),
+    longestContinuousMinutes: extreme(valid.map(item => item.continuousTypingMinutes), Math.max),
+  };
+}
+
+export function hasDayData(day: ReportDay): boolean {
+  return day.sessions.length + day.postureSnapshots.length + day.typingSnapshots.length + day.alerts.length > 0;
+}
+
+export function summarize(days: ReportDay[]): ReportSummary {
+  const sessions = new Map(days.flatMap(day => day.sessions).map(item => [item.id, item]));
+  const alerts = days.flatMap(day => day.alerts);
+  return {
+    ...summarizePosture(days.flatMap(day => day.postureSnapshots)),
+    hasData: days.some(hasDayData), days: days.filter(hasDayData).length,
+    sessionCount: sessions.size,
+    openSessions: [...sessions.values()].filter(item => !item.endedAt).length,
+    sessionSeconds: days.reduce((sum, day) => sum + day.sessionSeconds, 0),
+    alerts: alerts.length,
+    criticalAlerts: alerts.filter(item => item.severity.toLowerCase() === "danger").length,
+    typing: summarizeTyping(days.flatMap(day => day.typingSnapshots)),
+  };
+}
+
+function periodDays(data: ReportData, from: Date, to: Date, lastDay: string): ReportDay[] {
+  const days: ReportDay[] = [];
+  for (let date = midnight(from); dateKey(date) <= lastDay; date = addDays(date, 1)) {
+    days.push({ date: dateKey(date), sessions: [], sessionSeconds: 0, postureSnapshots: [], typingSnapshots: [], alerts: [] });
+  }
+  const byDate = new Map(days.map(day => [day.date, day]));
+  const belongs = (timestamp: string) => {
+    const time = storedTime(timestamp);
+    return time >= from.getTime() && time < to.getTime() ? byDate.get(dateKey(new Date(time))) : undefined;
+  };
+  data.postureSnapshots.forEach(item => belongs(item.timestamp)?.postureSnapshots.push(item));
+  data.typingSnapshots.forEach(item => belongs(item.timestamp)?.typingSnapshots.push(item));
+  data.alerts.forEach(item => belongs(item.timestamp)?.alerts.push(item));
+  const recordedSessions = new Map(days.map(day => [day.date, new Set([
+    ...day.postureSnapshots.map(item => item.sessionId),
+    ...day.typingSnapshots.map(item => item.sessionId),
+    ...day.alerts.map(item => item.sessionId),
+  ])]));
+  for (const session of data.sessions) {
+    const start = storedTime(session.startedAt);
+    const end = session.endedAt ? storedTime(session.endedAt) : to.getTime();
+    if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+    for (const day of days) {
+      const dayStart = midnight(parseDate(day.date)).getTime();
+      const dayEnd = addDays(new Date(dayStart), 1).getTime();
+      const overlap = Math.max(0, Math.min(end, dayEnd, to.getTime()) - Math.max(start, dayStart, from.getTime()));
+      const startsInDay = start >= Math.max(dayStart, from.getTime()) && start < Math.min(dayEnd, to.getTime());
+      const hasSavedRecords = recordedSessions.get(day.date)!.has(session.id);
+      // An old, unclosed row may be left by an interrupted application. Do not
+      // extrapolate it into activity on later days without saved observations.
+      if (session.endedAt ? overlap > 0 || startsInDay : startsInDay || hasSavedRecords) day.sessions.push(session);
+      if (session.endedAt && end > start && session.durationSeconds > 0 && overlap > 0) {
+        day.sessionSeconds += session.durationSeconds * overlap / (end - start);
+      }
+    }
+  }
+  return days;
+}
+
+export function buildReport(data: ReportData, period: ReportPeriod, anchor: string, now = new Date()): PostureReport {
+  const range = reportRange(period, anchor, now);
+  const days = periodDays(data, range.currentStart, range.currentEnd, range.end);
+  const previousDays = periodDays(data, range.previousStart, range.previousEndExclusive, range.previousEnd);
+  const buckets = Array.from({ length: 144 }, () => [] as PostureMetricSnapshot[]);
+  for (const snapshot of days.flatMap(day => day.postureSnapshots)) {
+    const time = new Date(storedTime(snapshot.timestamp));
+    buckets[time.getHours() * 6 + Math.floor(time.getMinutes() / 10)].push(snapshot);
+  }
+  const hours = Array.from({ length: 24 }, (_, hour) => {
+    const cells = buckets.slice(hour * 6, hour * 6 + 6);
+    return {
+      hour, averageScore: summarizePosture(cells.flat()).averageScore,
+      summaries: cells.reduce((count, cell) => count + cell.length, 0),
+      cells: cells.map((cell, index) => ({ minute: index * 10, percent: summarizePosture(cell).adequateSummaryPercentage, summaries: cell.length })),
+    };
+  });
+  return {
+    period, start: range.start, end: range.end, previousStart: range.previousStartKey,
+    previousEnd: range.previousEnd, partial: range.partial, days,
+    summary: summarize(days), previous: summarize(previousDays), hours,
+    points: period === "day" ? hours.map(hour => ({ label: `${String(hour.hour).padStart(2, "0")}h`, value: hour.averageScore }))
+      : days.map(day => ({ label: formatDate(day.date, { day: "2-digit", month: "2-digit" }), value: summarizePosture(day.postureSnapshots).averageScore })),
   };
 }

@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod report;
 pub mod dashboard;
 pub mod session_history;
 pub mod company;
