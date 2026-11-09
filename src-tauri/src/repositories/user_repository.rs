@@ -23,7 +23,7 @@ fn map_user_row(row: &rusqlite::Row<'_>) -> Result<StoredUser, rusqlite::Error> 
     })
 }
 
-pub fn find_by_id(conn: &Connection, id: i64) -> Result<Option<StoredUser>, rusqlite::Error> {
+pub fn find_by_id(conn: &Connection, id: &str) -> Result<Option<StoredUser>, rusqlite::Error> {
     let query = format!("SELECT {} FROM users WHERE id = ?1", SELECT_USER_FIELDS);
     conn.query_row(&query, params![id], map_user_row).optional()
 }
@@ -37,13 +37,14 @@ pub fn find_by_email(
         .optional()
 }
 
-pub fn insert(conn: &Connection, user: &NewUser) -> Result<i64, rusqlite::Error> {
+pub fn insert(conn: &Connection, user: &NewUser) -> Result<(), rusqlite::Error> {
     conn.execute(
         "INSERT INTO users (
-            external_id, first_name, last_name, birth_date, password_hash,
+            id, external_id, first_name, last_name, birth_date, password_hash,
             email, phone, photo, theme_preference
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
+            user.id,
             user.external_id,
             user.first_name,
             user.last_name,
@@ -55,12 +56,12 @@ pub fn insert(conn: &Connection, user: &NewUser) -> Result<i64, rusqlite::Error>
             ThemePreference::default(),
         ],
     )?;
-    Ok(conn.last_insert_rowid())
+    Ok(())
 }
 
 pub fn update(
     conn: &Connection,
-    id: i64,
+    id: &str,
     first_name: &str,
     last_name: &str,
     birth_date: &str,
