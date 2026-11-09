@@ -25,11 +25,11 @@ impl SystemReminderType {
         }
     }
 
-    pub fn reminder_id(self, user_id: i64) -> String {
+    pub fn reminder_id(self, user_id: &str) -> String {
         format!("system-reminder:{user_id}:{}", self.as_str())
     }
 
-    pub fn from_reminder_id(id: &str, user_id: Option<i64>) -> Option<Self> {
+    pub fn from_reminder_id(id: &str, user_id: Option<&str>) -> Option<Self> {
         let user_id = user_id?;
         Self::ALL
             .into_iter()
@@ -119,7 +119,7 @@ impl FromSql for ReminderFrequency {
 #[serde(rename_all = "camelCase")]
 pub struct Reminder {
     pub id: String,
-    pub user_id: Option<i64>,
+    pub user_id: Option<String>,
     /// Derived from a server-owned ID; custom reminders use UUIDs.
     #[serde(default)]
     pub system_type: Option<SystemReminderType>,
@@ -154,7 +154,7 @@ impl Reminder {
 #[serde(rename_all = "camelCase")]
 pub struct ReminderAlarm {
     pub id: String,
-    pub user_id: i64,
+    pub user_id: String,
     pub title: String,
     pub message: String,
     pub notification_tone: bool,
