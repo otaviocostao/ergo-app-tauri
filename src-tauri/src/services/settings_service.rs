@@ -11,7 +11,7 @@ use crate::services::reminder_service;
 const AUTHENTICATION_REQUIRED: &str = "Authentication is required to manage settings";
 
 /// Accounts get their row on first use, with every module enabled.
-fn find_or_create(conn: &Connection, user_id: i64) -> Result<Settings, String> {
+fn find_or_create(conn: &Connection, user_id: &str) -> Result<Settings, String> {
     settings_repository::insert(conn, &Uuid::new_v4().to_string(), user_id)
         .map_err(|error| error.to_string())?;
     settings_repository::find_by_user_id(conn, user_id)
@@ -20,7 +20,7 @@ fn find_or_create(conn: &Connection, user_id: i64) -> Result<Settings, String> {
 }
 
 /// A missing row means the defaults, so every module is enabled.
-pub fn is_module_enabled(conn: &Connection, user_id: i64, module: Module) -> Result<bool, String> {
+pub fn is_module_enabled(conn: &Connection, user_id: &str, module: Module) -> Result<bool, String> {
     Ok(settings_repository::find_by_user_id(conn, user_id)
         .map_err(|error| error.to_string())?
         .is_none_or(|settings| settings.is_module_enabled(module)))
@@ -119,20 +119,21 @@ mod tests {
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
     }
 
-    fn authenticate(conn: &Connection, state: &AuthState, email: &str) -> i64 {
+    fn authenticate(conn: &Connection, state: &AuthState, email: &str) -> String {
         let user_id = user_repository::find_by_email(conn, email)
             .unwrap()
             .map(|stored| stored.user.id)
             .unwrap_or_else(|| {
+                let user_id = Uuid::new_v4().to_string();
                 conn.execute(
-                    "INSERT INTO users (first_name, last_name, birth_date, password_hash, email, phone)
-                     VALUES ('Test', 'User', '1995-05-20', 'test-hash', ?1, '75999999999')",
-                    [email],
+                    "INSERT INTO users (id, first_name, last_name, birth_date, password_hash, email, phone)
+                     VALUES (?2, 'Test', 'User', '1995-05-20', 'test-hash', ?1, '75999999999')",
+                    rusqlite::params![email, user_id],
                 )
                 .unwrap();
-                conn.last_insert_rowid()
+                user_id
             });
-        let user = user_repository::find_by_id(conn, user_id)
+        let user = user_repository::find_by_id(conn, &user_id)
             .unwrap()
             .unwrap()
             .user;
@@ -143,7 +144,7 @@ mod tests {
             },
         )
         .unwrap();
-        reminder_service::ensure_system_reminders(conn, user_id).unwrap();
+        reminder_service::ensure_system_reminders(conn, &user_id).unwrap();
         user_id
     }
 
@@ -170,7 +171,7 @@ mod tests {
             .collect()
     }
 
-    fn activate_all_notices(conn: &Connection, state: &AuthState, user_id: i64) {
+    fn activate_all_notices(conn: &Connection, state: &AuthState, user_id: &str) {
         for kind in SystemReminderType::ALL {
             set_status(conn, state, &kind.reminder_id(user_id), "ativo").unwrap();
         }
@@ -182,9 +183,9 @@ mod tests {
         let state = AuthState::new().unwrap();
         let user_id = authenticate(&conn, &state, "owner@example.com");
         for module in Module::ALL {
-            assert!(is_module_enabled(&conn, user_id, module).unwrap());
+            assert!(is_module_enabled(&conn, &user_id, module).unwrap());
         }
-        assert!(settings_repository::find_by_user_id(&conn, user_id)
+        assert!(settings_repository::find_by_user_id(&conn, &user_id)
             .unwrap()
             .is_none());
 
@@ -209,7 +210,7 @@ mod tests {
         let typing_off = set(&conn, &state, Module::TypingAnalysis, false);
         assert!(!typing_off.is_module_enabled(Module::TypingAnalysis));
         assert!(typing_off.is_module_enabled(Module::PosturalAnalysis));
-        assert!(!is_module_enabled(&conn, user_id, Module::TypingAnalysis).unwrap());
+        assert!(!is_module_enabled(&conn, &user_id, Module::TypingAnalysis).unwrap());
 
         let payload: UpdateSettingsPayload = serde_json::from_value(serde_json::json!({
             "posturalAnalysis": false, "ocularAnalysis": false, "typingAnalysis": true
@@ -226,7 +227,7 @@ mod tests {
         assert!(!delete_settings(&conn, &state).unwrap());
         assert!(Module::ALL
             .iter()
-            .all(|&module| is_module_enabled(&conn, user_id, module).unwrap()));
+            .all(|&module| is_module_enabled(&conn, &user_id, module).unwrap()));
         assert!(get_settings(&conn, &state)
             .unwrap()
             .is_module_enabled(Module::OcularAnalysis));
@@ -271,7 +272,7 @@ mod tests {
         for category in CATEGORIES {
             create_custom(&conn, &state, category, "ativo").unwrap();
         }
-        activate_all_notices(&conn, &state, user_id);
+        activate_all_notices(&conn, &state, &user_id);
 
         set(&conn, &state, Module::TypingAnalysis, false);
         assert!(statuses(&conn, &state)
@@ -362,10 +363,10 @@ mod tests {
         let conn = setup_database();
         let state = AuthState::new().unwrap();
         let user_id = authenticate(&conn, &state, "owner@example.com");
-        activate_all_notices(&conn, &state, user_id);
+        activate_all_notices(&conn, &state, &user_id);
         set(&conn, &state, Module::OcularAnalysis, false);
-        let visual = SystemReminderType::VisualBreak.reminder_id(user_id);
-        let posture = SystemReminderType::PostureCheck.reminder_id(user_id);
+        let visual = SystemReminderType::VisualBreak.reminder_id(&user_id);
+        let posture = SystemReminderType::PostureCheck.reminder_id(&user_id);
 
         let error = set_status(&conn, &state, &visual, "ativo").unwrap_err();
         assert!(
@@ -404,7 +405,7 @@ mod tests {
         let conn = setup_database();
         let state = AuthState::new().unwrap();
         let user_id = authenticate(&conn, &state, "owner@example.com");
-        activate_all_notices(&conn, &state, user_id);
+        activate_all_notices(&conn, &state, &user_id);
         get_settings(&conn, &state).unwrap();
         conn.execute_batch(
             "CREATE TRIGGER block_notice_updates BEFORE UPDATE ON reminders
@@ -420,7 +421,7 @@ mod tests {
             }
         )
         .is_err());
-        assert!(is_module_enabled(&conn, user_id, Module::PosturalAnalysis).unwrap());
+        assert!(is_module_enabled(&conn, &user_id, Module::PosturalAnalysis).unwrap());
         conn.execute_batch("DROP TRIGGER block_notice_updates;")
             .unwrap();
         assert!(statuses(&conn, &state)
@@ -436,10 +437,10 @@ mod tests {
         initialize_database(&conn);
         let state = AuthState::new().unwrap();
         let first = authenticate(&conn, &state, "first@example.com");
-        activate_all_notices(&conn, &state, first);
+        activate_all_notices(&conn, &state, &first);
         set(&conn, &state, Module::PosturalAnalysis, false);
         let second = authenticate(&conn, &state, "second@example.com");
-        activate_all_notices(&conn, &state, second);
+        activate_all_notices(&conn, &state, &second);
         assert!(get_settings(&conn, &state)
             .unwrap()
             .is_module_enabled(Module::PosturalAnalysis));
@@ -454,7 +455,7 @@ mod tests {
         assert!(!get_settings(&conn, &state)
             .unwrap()
             .is_module_enabled(Module::PosturalAnalysis));
-        assert!(is_module_enabled(&conn, second, Module::PosturalAnalysis).unwrap());
+        assert!(is_module_enabled(&conn, &second, Module::PosturalAnalysis).unwrap());
     }
 
     #[test]
@@ -480,7 +481,7 @@ mod tests {
             .is_err());
             assert!(delete_settings(&conn, &state).is_err());
         }
-        assert!(settings_repository::find_by_user_id(&conn, user_id)
+        assert!(settings_repository::find_by_user_id(&conn, &user_id)
             .unwrap()
             .is_none());
     }
@@ -571,7 +572,7 @@ mod tests {
         let state = AuthState::new().unwrap();
         let user_id = authenticate(&conn, &state, "owner@example.com");
         for invalid in [
-            serde_json::json!({ "posturalAnalysis": false, "userId": 2 }),
+            serde_json::json!({ "posturalAnalysis": false, "userId": "00000000-0000-4000-8000-000000000002" }),
             serde_json::json!({ "postural_analysis": false }),
             serde_json::json!({ "posturalAnalysis": 0 }),
         ] {
@@ -588,17 +589,17 @@ mod tests {
         assert!(conn
             .execute(
                 "UPDATE settings SET ocular_analysis = 2 WHERE user_id = ?1",
-                [user_id]
+                [&user_id]
             )
             .is_err());
         assert!(conn
             .execute(
                 "INSERT INTO settings (id, user_id) VALUES ('duplicate', ?1)",
-                [user_id]
+                [&user_id]
             )
             .is_err());
         assert_eq!(
-            settings_repository::insert(&conn, "duplicate", user_id).unwrap(),
+            settings_repository::insert(&conn, "duplicate", &user_id).unwrap(),
             0
         );
     }
