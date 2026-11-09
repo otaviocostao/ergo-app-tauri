@@ -20,7 +20,7 @@ pub fn start_monitoring_session(
     let (has_auth, auth_uid, module_enabled) =
         typing_monitor_service::resolve_typing_access(&conn, &auth_state)?;
     let can_capture = has_auth && auth_uid == session.user_id && module_enabled;
-    let _ = typing_monitor.attach_session(session.user_id, session.id.clone(), can_capture);
+    let _ = typing_monitor.attach_session(session.user_id.clone(), session.id.clone(), can_capture);
     Ok(session)
 }
 
@@ -40,10 +40,10 @@ pub fn end_monitoring_session(
 #[tauri::command]
 pub fn get_monitoring_sessions(
     state: State<'_, AppState>,
-    user_id: Option<i64>,
+    user_id: Option<String>,
 ) -> Result<Vec<MonitoringSession>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    monitoring_session_service::get_monitoring_sessions(&conn, user_id)
+    monitoring_session_service::get_monitoring_sessions(&conn, user_id.as_deref())
 }
 
 #[tauri::command]
@@ -58,10 +58,10 @@ pub fn get_monitoring_session_by_id(
 #[tauri::command]
 pub fn get_active_monitoring_session(
     state: State<'_, AppState>,
-    user_id: Option<i64>,
+    user_id: Option<String>,
 ) -> Result<Option<MonitoringSession>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    monitoring_session_service::get_active_monitoring_session(&conn, user_id)
+    monitoring_session_service::get_active_monitoring_session(&conn, user_id.as_deref())
 }
 
 #[tauri::command]
