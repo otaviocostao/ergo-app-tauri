@@ -21,7 +21,7 @@ export type SystemReminderType = "POSTURE_CHECK" | "VISUAL_BREAK" | "MOVEMENT_BR
 
 export interface ReminderItem {
   id: string;
-  userId?: number | null;
+  userId?: string | null;
   systemType?: SystemReminderType | null;
   title: string;
   message: string;
