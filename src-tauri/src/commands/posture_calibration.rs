@@ -16,10 +16,10 @@ pub fn save_posture_calibration(
 #[tauri::command]
 pub fn get_active_calibration(
     state: State<'_, AppState>,
-    user_id: Option<i64>,
+    user_id: Option<String>,
 ) -> Result<Option<PostureCalibration>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    posture_calibration_service::get_active_calibration(&conn, user_id)
+    posture_calibration_service::get_active_calibration(&conn, user_id.as_deref())
 }
 
 #[tauri::command]
