@@ -6,7 +6,7 @@ import {
 
 export const postureCalibrationService = {
   async getActiveCalibration(
-    userId?: number | null,
+    userId?: string | null,
   ): Promise<PostureCalibrationDTO | null> {
     if (!isTauri()) {
       return null;
