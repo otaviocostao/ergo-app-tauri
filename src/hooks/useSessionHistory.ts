@@ -8,7 +8,7 @@ import { SESSION_HISTORY_UPDATED_EVENT, type SessionHistoryUpdatedDetail } from 
 
 const REFRESH_MS = 5_000;
 interface HistoryState {
-  owner: number | null;
+  owner: string | null;
   data: SessionHistory | null;
   session: MonitoringSessionItem | null;
   loading: boolean;
@@ -16,7 +16,7 @@ interface HistoryState {
 }
 
 /** Read after session start/end, then poll without overlapping requests or leaking account data. */
-export function useSessionHistory(userId: number | null, recordingStatus: RecordingStatus, isVisible: boolean) {
+export function useSessionHistory(userId: string | null, recordingStatus: RecordingStatus, isVisible: boolean) {
   const [retryKey, setRetryKey] = useState(0);
   const [state, setState] = useState<HistoryState>({ owner: userId, data: null, session: null, loading: userId !== null, error: null });
 
