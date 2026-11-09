@@ -425,7 +425,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     await act(async () => root.render(<WebcamFeed isMonitoring calibration={baseline}
       onClassificationUpdate={classificationUpdate} onOcularUpdate={ocularUpdate}
       moduleSettings={{
-        id: "settings-1", userId: 1, posturalAnalysis: false, ocularAnalysis: true,
+        id: "settings-1", userId: "00000000-0000-4000-8000-000000000001", posturalAnalysis: false, ocularAnalysis: true,
         typingAnalysis: true, webCam: null, createdAt: "", updatedAt: ""
       }} />));
     mounted = true; await advance(300);
