@@ -28,14 +28,12 @@ pub fn start_monitoring_session(
     let now = Utc::now().to_rfc3339();
     let payload = payload.unwrap_or_default();
 
-    if let Some(uid) = payload.user_id {
-        if uid <= 0 {
-            return Err("User ID must be a positive integer".to_string());
-        }
+    if let Some(uid) = payload.user_id.as_deref() {
+        Uuid::parse_str(uid).map_err(|_| "User ID must be a valid UUID".to_string())?;
     }
 
     // Auto-close any dangling active session for this user
-    if let Ok(Some(mut active)) = monitoring_session_repository::find_active(conn, payload.user_id) {
+    if let Ok(Some(mut active)) = monitoring_session_repository::find_active(conn, payload.user_id.as_deref()) {
         active.ended_at = Some(now.clone());
         active.updated_at = Some(now.clone());
         if let (Ok(start), Ok(end)) = (
@@ -190,7 +188,7 @@ pub fn update_monitoring_session(
 
 pub fn get_monitoring_sessions(
     conn: &Connection,
-    user_id: Option<i64>,
+    user_id: Option<&str>,
 ) -> Result<Vec<MonitoringSession>, String> {
     monitoring_session_repository::find_all(conn, user_id).map_err(|e| e.to_string())
 }
@@ -206,7 +204,7 @@ pub fn get_monitoring_session_by_id(
 
 pub fn get_active_monitoring_session(
     conn: &Connection,
-    user_id: Option<i64>,
+    user_id: Option<&str>,
 ) -> Result<Option<MonitoringSession>, String> {
     monitoring_session_repository::find_active(conn, user_id).map_err(|e| e.to_string())
 }
@@ -226,9 +224,9 @@ mod tests {
             .unwrap();
         conn.execute(
             "INSERT INTO users (id, first_name, last_name, birth_date, password_hash, email, phone)
-             VALUES (1, 'User', 'One', '1990-01-01', 'hash', 'u1@test.com', '1234'),
-                    (2, 'User', 'Two', '1990-01-01', 'hash', 'u2@test.com', '1234'),
-                    (3, 'User', 'Three', '1990-01-01', 'hash', 'u3@test.com', '1234')",
+             VALUES ('00000000-0000-4000-8000-000000000001', 'User', 'One', '1990-01-01', 'hash', 'u1@test.com', '1234'),
+                    ('00000000-0000-4000-8000-000000000002', 'User', 'Two', '1990-01-01', 'hash', 'u2@test.com', '1234'),
+                    ('00000000-0000-4000-8000-000000000003', 'User', 'Three', '1990-01-01', 'hash', 'u3@test.com', '1234')",
             [],
         )
         .unwrap();
@@ -239,16 +237,16 @@ mod tests {
     fn test_start_and_get_active_session() {
         let conn = setup_test_db();
         let payload = CreateSessionPayload {
-            user_id: Some(1),
+            user_id: Some("00000000-0000-4000-8000-000000000001".into()),
             started_at: None,
         };
 
         let session = start_monitoring_session(&conn, Some(payload)).unwrap();
-        assert_eq!(session.user_id, Some(1));
+        assert_eq!(session.user_id, Some("00000000-0000-4000-8000-000000000001".into()));
         assert!(session.ended_at.is_none());
         assert_eq!(session.average_score, 100.0);
 
-        let active = get_active_monitoring_session(&conn, Some(1)).unwrap();
+        let active = get_active_monitoring_session(&conn, Some("00000000-0000-4000-8000-000000000001")).unwrap();
         assert!(active.is_some());
         assert_eq!(active.unwrap().id, session.id);
     }
@@ -259,7 +257,7 @@ mod tests {
         let session1 = start_monitoring_session(
             &conn,
             Some(CreateSessionPayload {
-                user_id: Some(2),
+                user_id: Some("00000000-0000-4000-8000-000000000002".into()),
                 started_at: None,
             }),
         )
@@ -268,7 +266,7 @@ mod tests {
         let session2 = start_monitoring_session(
             &conn,
             Some(CreateSessionPayload {
-                user_id: Some(2),
+                user_id: Some("00000000-0000-4000-8000-000000000002".into()),
                 started_at: None,
             }),
         )
@@ -279,7 +277,7 @@ mod tests {
         let previous = get_monitoring_session_by_id(&conn, &session1.id).unwrap();
         assert!(previous.ended_at.is_some());
 
-        let active = get_active_monitoring_session(&conn, Some(2)).unwrap();
+        let active = get_active_monitoring_session(&conn, Some("00000000-0000-4000-8000-000000000002")).unwrap();
         assert_eq!(active.unwrap().id, session2.id);
     }
 
@@ -289,7 +287,7 @@ mod tests {
         let session = start_monitoring_session(
             &conn,
             Some(CreateSessionPayload {
-                user_id: Some(3),
+                user_id: Some("00000000-0000-4000-8000-000000000003".into()),
                 started_at: Some("2026-10-10T12:00:00Z".to_string()),
             }),
         )
@@ -315,13 +313,27 @@ mod tests {
         assert_eq!(ended.total_alerts_count, 3);
         assert_eq!(ended.ended_at, Some("2026-10-10T12:30:00Z".to_string()));
 
-        let active = get_active_monitoring_session(&conn, Some(3)).unwrap();
+        let active = get_active_monitoring_session(&conn, Some("00000000-0000-4000-8000-000000000003")).unwrap();
         assert!(active.is_none());
     }
 
     #[test]
     fn test_validations_reject_invalid_values() {
         let conn = setup_test_db();
+        assert!(serde_json::from_value::<CreateSessionPayload>(
+            serde_json::json!({ "userId": 1 })
+        )
+        .is_err());
+        for user_id in ["1", "invalid-uuid", ""] {
+            let result = start_monitoring_session(
+                &conn,
+                Some(CreateSessionPayload {
+                    user_id: Some(user_id.into()),
+                    started_at: None,
+                }),
+            );
+            assert_eq!(result.unwrap_err(), "User ID must be a valid UUID");
+        }
         let session = start_monitoring_session(&conn, None).unwrap();
 
         let invalid_score = EndSessionPayload {
