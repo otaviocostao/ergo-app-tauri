@@ -5,7 +5,7 @@ pub const SELECT_REMINDER_FIELDS: &str = "id, title, message, description, categ
 
 pub fn map_reminder_row(row: &rusqlite::Row<'_>) -> Result<Reminder, rusqlite::Error> {
     let id: String = row.get(0)?;
-    let user_id: Option<i64> = row.get(16)?;
+    let user_id: Option<String> = row.get(16)?;
     let notification_tone_int: i32 = row.get(8)?;
     let custom_days_raw: Option<String> = row.get(13)?;
     let custom_days: Option<Vec<String>> = match custom_days_raw {
@@ -14,7 +14,7 @@ pub fn map_reminder_row(row: &rusqlite::Row<'_>) -> Result<Reminder, rusqlite::E
     };
 
     Ok(Reminder {
-        system_type: SystemReminderType::from_reminder_id(&id, user_id),
+        system_type: SystemReminderType::from_reminder_id(&id, user_id.as_deref()),
         id,
         user_id,
         title: row.get(1)?,
@@ -36,7 +36,7 @@ pub fn map_reminder_row(row: &rusqlite::Row<'_>) -> Result<Reminder, rusqlite::E
     })
 }
 
-pub fn find_all(conn: &Connection, user_id: i64) -> Result<Vec<Reminder>, rusqlite::Error> {
+pub fn find_all(conn: &Connection, user_id: &str) -> Result<Vec<Reminder>, rusqlite::Error> {
     let query = format!(
         "SELECT {} FROM reminders WHERE user_id = ?1 ORDER BY datetime(created_at) DESC, id DESC",
         SELECT_REMINDER_FIELDS
@@ -55,7 +55,7 @@ pub fn find_all(conn: &Connection, user_id: i64) -> Result<Vec<Reminder>, rusqli
 
 pub fn find_by_id(
     conn: &Connection,
-    user_id: i64,
+    user_id: &str,
     id: &str,
 ) -> Result<Option<Reminder>, rusqlite::Error> {
     let query = format!(
@@ -149,7 +149,7 @@ pub fn update(conn: &Connection, reminder: &Reminder) -> Result<usize, rusqlite:
     )
 }
 
-pub fn delete(conn: &Connection, user_id: i64, id: &str) -> Result<usize, rusqlite::Error> {
+pub fn delete(conn: &Connection, user_id: &str, id: &str) -> Result<usize, rusqlite::Error> {
     conn.execute(
         "DELETE FROM reminders WHERE id = ?1 AND user_id = ?2",
         params![id, user_id],
@@ -158,7 +158,7 @@ pub fn delete(conn: &Connection, user_id: i64, id: &str) -> Result<usize, rusqli
 
 pub fn update_last_sent_at(
     conn: &Connection,
-    user_id: i64,
+    user_id: &str,
     id: &str,
     last_sent_at: &str,
 ) -> Result<usize, rusqlite::Error> {
@@ -171,7 +171,7 @@ pub fn update_last_sent_at(
 
 pub fn update_status(
     conn: &Connection,
-    user_id: i64,
+    user_id: &str,
     id: &str,
     status: &str,
     updated_at: &str,
