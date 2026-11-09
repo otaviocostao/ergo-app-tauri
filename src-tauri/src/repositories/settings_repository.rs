@@ -20,7 +20,7 @@ pub fn map_settings_row(row: &rusqlite::Row<'_>) -> Result<Settings, rusqlite::E
 
 pub fn find_by_user_id(
     conn: &Connection,
-    user_id: i64,
+    user_id: &str,
 ) -> Result<Option<Settings>, rusqlite::Error> {
     let query = format!(
         "SELECT {} FROM settings WHERE user_id = ?1",
@@ -31,7 +31,7 @@ pub fn find_by_user_id(
 }
 
 /// Creates the user's row with every module enabled; an existing row is kept.
-pub fn insert(conn: &Connection, id: &str, user_id: i64) -> Result<usize, rusqlite::Error> {
+pub fn insert(conn: &Connection, id: &str, user_id: &str) -> Result<usize, rusqlite::Error> {
     conn.execute(
         "INSERT INTO settings (id, user_id) VALUES (?1, ?2) ON CONFLICT(user_id) DO NOTHING",
         params![id, user_id],
@@ -57,6 +57,6 @@ pub fn update(conn: &Connection, settings: &Settings) -> Result<usize, rusqlite:
     )
 }
 
-pub fn delete(conn: &Connection, user_id: i64) -> Result<usize, rusqlite::Error> {
+pub fn delete(conn: &Connection, user_id: &str) -> Result<usize, rusqlite::Error> {
     conn.execute("DELETE FROM settings WHERE user_id = ?1", params![user_id])
 }
