@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct User {
-    pub id: i64,
+    pub id: String,
     pub external_id: Option<String>,
     pub first_name: String,
     pub last_name: String,
@@ -33,7 +33,7 @@ pub struct CreateUserPayload {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateUserPayload {
-    pub id: i64,
+    pub id: String,
     pub first_name: String,
     pub last_name: String,
     pub birth_date: String,
@@ -50,6 +50,7 @@ pub struct StoredUser {
 
 #[derive(Clone, Debug)]
 pub struct NewUser {
+    pub id: String,
     pub external_id: Option<String>,
     pub first_name: String,
     pub last_name: String,
