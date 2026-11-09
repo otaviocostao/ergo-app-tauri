@@ -1,7 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
 export interface User {
-  id: number;
+  id: string;
   externalId: string | null;
   firstName: string;
   lastName: string;
