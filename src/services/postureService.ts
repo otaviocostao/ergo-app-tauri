@@ -30,11 +30,11 @@ export const postureService = {
     monitoringSessionService.startSession(payload),
   endSession: (payload: EndSessionPayload): Promise<MonitoringSessionItem | null> =>
     monitoringSessionService.endSession(payload),
-  getActiveSession: (userId?: number | null): Promise<MonitoringSessionItem | null> =>
+  getActiveSession: (userId?: string | null): Promise<MonitoringSessionItem | null> =>
     monitoringSessionService.getActiveSession(userId),
-  getSessions: (userId?: number | null): Promise<MonitoringSessionItem[]> =>
+  getSessions: (userId?: string | null): Promise<MonitoringSessionItem[]> =>
     monitoringSessionService.getAllSessions(userId),
-  getAllSessions: (userId?: number | null): Promise<MonitoringSessionItem[]> =>
+  getAllSessions: (userId?: string | null): Promise<MonitoringSessionItem[]> =>
     monitoringSessionService.getAllSessions(userId),
 
   // Snapshots
@@ -62,7 +62,7 @@ export const postureService = {
   // Calibration
   saveCalibration: (payload: SaveCalibrationPayload): Promise<PostureCalibrationDTO | null> =>
     postureCalibrationService.saveCalibration(payload),
-  getActiveCalibration: (userId?: number | null): Promise<PostureCalibrationDTO | null> =>
+  getActiveCalibration: (userId?: string | null): Promise<PostureCalibrationDTO | null> =>
     postureCalibrationService.getActiveCalibration(userId),
   getCalibrations: (): Promise<PostureCalibrationDTO[]> =>
     postureCalibrationService.getAllCalibrations(),
