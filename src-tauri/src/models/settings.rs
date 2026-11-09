@@ -32,7 +32,7 @@ impl Module {
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub id: String,
-    pub user_id: i64,
+    pub user_id: String,
     pub postural_analysis: bool,
     pub ocular_analysis: bool,
     pub typing_analysis: bool,
