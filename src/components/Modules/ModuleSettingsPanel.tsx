@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { AlertCircle, Eye, Keyboard, Loader2, PersonStanding, RotateCw, type LucideIcon } from "lucide-react";
 import { useModuleSettings } from "../../hooks/useModuleSettings";
 import { Module, MODULES, MODULE_DESCRIPTIONS, MODULE_LABELS } from "../../enums/module";
@@ -20,6 +20,26 @@ export default function ModuleSettingsPanel() {
   const { settings, setSettings, isLoading, error, reload, userId } = useModuleSettings();
   const [pending, setPending] = useState<ReadonlySet<Module>>(() => new Set());
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [savingGoal, setSavingGoal] = useState(false);
+
+  const handleGoalSave = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!settings || savingGoal) return;
+    const owner = settings.userId;
+    const dailyGoalMinutes = Number(new FormData(event.currentTarget).get("dailyGoalMinutes"));
+    if (!Number.isInteger(dailyGoalMinutes) || dailyGoalMinutes < 1 || dailyGoalMinutes > 1440) return;
+    setSavingGoal(true);
+    setSaveError(null);
+    try {
+      const saved = await settingsService.update({ dailyGoalMinutes });
+      setSettings(current => current?.userId === owner ? { ...current, dailyGoalMinutes: saved.dailyGoalMinutes } : current);
+    } catch (error) {
+      console.error("Failed to update daily posture goal:", error);
+      setSaveError("Não foi possível salvar a meta diária. Tente novamente.");
+    } finally {
+      setSavingGoal(false);
+    }
+  };
 
   const handleChange = async (module: Module, enabled: boolean) => {
     if (!settings || pending.has(module)) return;
@@ -109,6 +129,19 @@ export default function ModuleSettingsPanel() {
             );
           })}
         </div>
+      )}
+
+      {userId !== null && !isLoading && settings && (
+        <form onSubmit={handleGoalSave} className="flex flex-wrap items-end gap-3 border-t border-slate-200 pt-5 dark:border-slate-700">
+          <div>
+            <label htmlFor="daily-posture-goal" className="block text-sm font-semibold text-slate-800 dark:text-white">Meta diária de boa postura (minutos)</label>
+            <p id="daily-posture-goal-help" className="my-2 text-xs text-slate-500 dark:text-slate-400">Defina de 1 a 1440 minutos. O padrão é 360 minutos (6h).</p>
+            <input key={`${settings.userId}:${settings.dailyGoalMinutes}`} id="daily-posture-goal" name="dailyGoalMinutes" type="number" min={1} max={1440} step={1} required
+              aria-describedby="daily-posture-goal-help" defaultValue={settings.dailyGoalMinutes ?? 360} disabled={savingGoal}
+              className="w-32 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-white" />
+          </div>
+          <button type="submit" disabled={savingGoal} className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{savingGoal ? "Salvando..." : "Salvar meta"}</button>
+        </form>
       )}
     </section>
   );
