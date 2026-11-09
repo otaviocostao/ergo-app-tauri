@@ -2,9 +2,11 @@ use rusqlite::{params, Connection};
 
 use super::{
     monitoring_session_repository as sessions, posture_alert_repository as alerts,
-    posture_metric_snapshot_repository as snapshots,
+    posture_metric_snapshot_repository as snapshots, settings_repository,
+    typing_metric_snapshot_repository as typing,
 };
 use crate::models::dashboard::DashboardData;
+use crate::models::settings::DEFAULT_DAILY_GOAL_MINUTES;
 
 /// Read each collection separately so joins never multiply session totals or alerts.
 pub fn find_period(
@@ -15,7 +17,8 @@ pub fn find_period(
 ) -> Result<DashboardData, rusqlite::Error> {
     let session_sql = format!(
         "SELECT {} FROM monitoring_sessions WHERE user_id = ?1
-         AND julianday(started_at) >= julianday(?2) AND julianday(started_at) < julianday(?3)
+         AND julianday(started_at) < julianday(?3)
+         AND (ended_at IS NULL OR julianday(ended_at) > julianday(?2))
          ORDER BY julianday(started_at)",
         sessions::SELECT_MONITORING_SESSION_FIELDS
     );
@@ -55,10 +58,29 @@ pub fn find_period(
         .prepare(&alert_sql)?
         .query_map(params![user_id, start, end], alerts::map_posture_alert_row)?
         .collect::<Result<Vec<_>, _>>()?;
+    let typing_sql = format!(
+        "SELECT {} FROM typing_metrics_snapshots p JOIN monitoring_sessions s ON s.id = p.session_id
+         WHERE s.user_id = ?1 AND julianday(p.timestamp) >= julianday(?2)
+         AND julianday(p.timestamp) < julianday(?3) ORDER BY julianday(p.timestamp)",
+        fields(typing::SELECT_TYPING_SNAPSHOT_FIELDS)
+    );
+    let typing_snapshots = conn
+        .prepare(&typing_sql)?
+        .query_map(
+            params![user_id, start, end],
+            typing::map_typing_snapshot_row,
+        )?
+        .collect::<Result<Vec<_>, _>>()?;
+    let daily_goal_minutes = settings_repository::find_by_user_id(conn, user_id)?
+        .map_or(DEFAULT_DAILY_GOAL_MINUTES, |settings| {
+            settings.daily_goal_minutes
+        });
     Ok(DashboardData {
         sessions,
         snapshots,
         alerts,
+        typing_snapshots,
+        daily_goal_minutes,
     })
 }
 

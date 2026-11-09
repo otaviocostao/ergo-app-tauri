@@ -8,6 +8,55 @@ pub struct AppState {
     pub db: Mutex<Connection>,
 }
 
+/// Upgrade the known previous schema while retaining this project's single initial migration.
+/// Only its exact checksum is accepted; unrelated migration mismatches still fail validation.
+async fn upgrade_daily_goal(
+    pool: &sqlx::SqlitePool,
+    initial: &sqlx::migrate::Migration,
+) -> Result<(), sqlx::Error> {
+    let has_history: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name = '_sqlx_migrations')",
+    )
+    .fetch_one(pool)
+    .await?;
+    if !has_history {
+        return Ok(());
+    }
+    let checksum: Option<Vec<u8>> = sqlx::query_scalar(
+        "SELECT checksum FROM _sqlx_migrations WHERE version = 1 AND success = 1",
+    )
+    .fetch_optional(pool)
+    .await?;
+    // Source checkouts may use either LF or CRLF line endings.
+    let legacy_sql = initial.sql.replace("\r\n", "\n").replace(
+        "    daily_goal_minutes INTEGER NOT NULL DEFAULT 360 CHECK (daily_goal_minutes BETWEEN 1 AND 1440),\n",
+        "",
+    );
+    let recognized = [legacy_sql.clone(), legacy_sql.replace('\n', "\r\n")]
+        .into_iter()
+        .any(|sql| {
+            let legacy = sqlx::migrate::Migration::new(
+                initial.version,
+                initial.description.clone(),
+                initial.migration_type,
+                sql.into(),
+                initial.no_tx,
+            );
+            checksum.as_deref() == Some(legacy.checksum.as_ref())
+        });
+    if recognized {
+        let mut transaction = pool.begin().await?;
+        sqlx::query("ALTER TABLE settings ADD COLUMN daily_goal_minutes INTEGER NOT NULL DEFAULT 360 CHECK (daily_goal_minutes BETWEEN 1 AND 1440)")
+            .execute(&mut *transaction).await?;
+        sqlx::query("UPDATE _sqlx_migrations SET checksum = ?1 WHERE version = 1")
+            .bind(initial.checksum.as_ref())
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+    }
+    Ok(())
+}
+
 fn run_migrations(db_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let result = tauri::async_runtime::block_on(async {
         let pool = SqlitePoolOptions::new()
@@ -20,7 +69,11 @@ fn run_migrations(db_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
             .await
             .map_err(|error| error.to_string())?;
 
-        sqlx::migrate!("./migrations")
+        let migrator = sqlx::migrate!("./migrations");
+        upgrade_daily_goal(&pool, &migrator.migrations[0])
+            .await
+            .map_err(|error| error.to_string())?;
+        migrator
             .run(&pool)
             .await
             .map_err(|error| error.to_string())?;
