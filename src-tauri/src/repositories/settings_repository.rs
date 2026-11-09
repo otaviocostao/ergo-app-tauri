@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::models::settings::Settings;
 
 pub const SELECT_SETTINGS_FIELDS: &str =
-    "id, user_id, postural_analysis, ocular_analysis, typing_analysis, web_cam, created_at, updated_at";
+    "id, user_id, postural_analysis, ocular_analysis, typing_analysis, web_cam, created_at, updated_at, daily_goal_minutes";
 
 pub fn map_settings_row(row: &rusqlite::Row<'_>) -> Result<Settings, rusqlite::Error> {
     Ok(Settings {
@@ -15,6 +15,7 @@ pub fn map_settings_row(row: &rusqlite::Row<'_>) -> Result<Settings, rusqlite::E
         web_cam: row.get(5)?,
         created_at: row.get(6)?,
         updated_at: row.get(7)?,
+        daily_goal_minutes: row.get(8)?,
     })
 }
 
@@ -45,13 +46,15 @@ pub fn update(conn: &Connection, settings: &Settings) -> Result<usize, rusqlite:
             ocular_analysis = ?2,
             typing_analysis = ?3,
             web_cam = ?4,
+            daily_goal_minutes = ?5,
             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        WHERE user_id = ?5",
+        WHERE user_id = ?6",
         params![
             settings.postural_analysis as i32,
             settings.ocular_analysis as i32,
             settings.typing_analysis as i32,
             settings.web_cam,
+            settings.daily_goal_minutes,
             settings.user_id,
         ],
     )
