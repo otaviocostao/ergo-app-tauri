@@ -3,9 +3,15 @@ use rusqlite::Connection;
 use uuid::Uuid;
 
 use crate::models::posture_calibration::{PostureCalibration, SaveCalibrationPayload};
+use crate::models::settings::WEB_CAM_MAX_LENGTH;
 use crate::repositories::posture_calibration_repository;
 
 pub fn validate_calibration_payload(payload: &SaveCalibrationPayload) -> Result<(), String> {
+    if payload.camera_device_id.trim().is_empty()
+        || payload.camera_device_id.len() > WEB_CAM_MAX_LENGTH
+    {
+        return Err("Invalid calibration webcam identifier".to_string());
+    }
     if !payload.baseline_neck_angle.is_finite() {
         return Err("Baseline neck angle must be a valid number".to_string());
     }
@@ -49,9 +55,10 @@ pub fn save_posture_calibration(
     validate_calibration_payload(&payload)?;
 
     let is_active = payload.is_active.unwrap_or(true);
+    let transaction = conn.unchecked_transaction().map_err(|e| e.to_string())?;
 
     if is_active {
-        posture_calibration_repository::deactivate_all(conn, payload.user_id.as_deref())
+        posture_calibration_repository::deactivate_all(&transaction, payload.user_id.as_deref())
             .map_err(|e| e.to_string())?;
     }
 
@@ -61,6 +68,7 @@ pub fn save_posture_calibration(
     let calibration = PostureCalibration {
         id: calibration_id,
         user_id: payload.user_id,
+        camera_device_id: Some(payload.camera_device_id),
         baseline_neck_angle: payload.baseline_neck_angle,
         baseline_shoulder_balance: payload.baseline_shoulder_balance,
         baseline_distance_cm: payload.baseline_distance_cm,
@@ -70,7 +78,9 @@ pub fn save_posture_calibration(
         updated_at: Some(now),
     };
 
-    posture_calibration_repository::insert(conn, &calibration).map_err(|e| e.to_string())?;
+    posture_calibration_repository::insert(&transaction, &calibration)
+        .map_err(|e| e.to_string())?;
+    transaction.commit().map_err(|e| e.to_string())?;
 
     Ok(calibration)
 }
