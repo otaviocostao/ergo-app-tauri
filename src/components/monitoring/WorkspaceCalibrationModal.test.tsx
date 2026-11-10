@@ -60,6 +60,28 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
   let streams: ReturnType<typeof makeStream>[];
   const onCalibrateSubmit = vi.fn();
   const onClose = vi.fn();
+  const existingWorkspace = {
+    id: "existing-workspace", deviceType: "desktop" as const, isWebcamFront: false,
+    hasExternalKeyboard: true, hasExternalMouse: true, adjustableDesk: true,
+    adjustableChair: false, adjustableMonitor: true,
+  };
+
+  async function renderCameraModal(onDeviceSelect = vi.fn<(next: string, previous: string) => void | Promise<void>>()) {
+    vi.mocked(workspaceService.getAll).mockResolvedValue([existingWorkspace]);
+    vi.spyOn(workspaceService, "update").mockResolvedValue(existingWorkspace);
+    vi.mocked(navigator.mediaDevices.enumerateDevices).mockResolvedValue([
+      { kind: "videoinput", deviceId: "camera-1", label: "Webcam 1" },
+      { kind: "videoinput", deviceId: "camera-2", label: "Webcam 2" },
+    ] as MediaDeviceInfo[]);
+    await act(async () => root.render(<WorkspaceCalibrationModal isOpen initialStep="camera"
+      onClose={onClose} onCalibrateSubmit={onCalibrateSubmit} onDeviceSelect={onDeviceSelect} />));
+    mounted = true; await advance(200);
+  }
+
+  async function selectCamera(id = "camera-2") {
+    const select = document.querySelector('[role="dialog"] select[aria-label="Selecionar câmera"]') as HTMLSelectElement;
+    await act(async () => { select.value = id; select.dispatchEvent(new Event("change", { bubbles: true })); });
+  }
 
   function makeStream() {
     const track = {
@@ -183,6 +205,7 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
       adjustableMonitor: true,
     });
     vi.spyOn(postureService, "saveCalibration").mockResolvedValue({
+      cameraDeviceId: "camera-1",
       id: "calib-456",
       userId: null,
       baselineNeckAngle: 0,
@@ -207,6 +230,51 @@ describe("WorkspaceCalibrationModal Posture Baseline Calibration", () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  it("opens directly at the camera using the loaded workspace guide", async () => {
+    await renderCameraModal();
+    expect(document.querySelector('[role="dialog"] video')).not.toBeNull();
+    expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain("Qual seu dispositivo?");
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalled();
+  });
+
+  it("falls back to setup when camera entry has no saved workspace", async () => {
+    await act(async () => root.render(<WorkspaceCalibrationModal isOpen initialStep="camera"
+      onClose={onClose} onCalibrateSubmit={onCalibrateSubmit} />));
+    mounted = true;
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Qual seu dispositivo?");
+    expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it.each(["countdown", "completed"])("changes camera immediately and discards the %s collection", async phase => {
+    const saveDevice = vi.fn();
+    await renderCameraModal(saveDevice);
+    await clickButton("Iniciar Calibração");
+    await advance(phase === "completed" ? 5100 : 2000);
+    await selectCamera(); await advance(200);
+    expect(saveDevice).toHaveBeenCalledExactlyOnceWith("camera-2", "camera-1");
+    expect((document.querySelector('[role="dialog"] select[aria-label="Selecionar câmera"]') as HTMLSelectElement).value).toBe("camera-2");
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Iniciar Calibração");
+    expect(postureService.saveCalibration).not.toHaveBeenCalled();
+    await clickButton("Salvar"); await advance(5100);
+    expect(postureService.saveCalibration).toHaveBeenCalledWith(expect.objectContaining({ cameraDeviceId: "camera-2" }));
+  });
+
+  it("locks selection while saving and restores the prior camera on failure", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let rejectSave!: (error: Error) => void;
+    const saveDevice = vi.fn(() => new Promise<void>((_resolve, reject) => { rejectSave = reject; }));
+    await renderCameraModal(saveDevice);
+    await selectCamera(); await advance(100);
+    const select = document.querySelector('[role="dialog"] select[aria-label="Selecionar câmera"]') as HTMLSelectElement;
+    expect(select.value).toBe("camera-2"); expect(select.disabled).toBe(true);
+    await act(async () => (document.querySelector('[aria-label="Fechar modal"]') as HTMLButtonElement).click());
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => rejectSave(new Error("database locked"))); await advance(200);
+    expect(select.value).toBe("camera-1"); expect(select.disabled).toBe(false);
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Não foi possível salvar a câmera");
+    expect(postureService.saveCalibration).not.toHaveBeenCalled();
   });
 
   it("guides the user through a 5-second countdown and collects stable averages", async () => {
