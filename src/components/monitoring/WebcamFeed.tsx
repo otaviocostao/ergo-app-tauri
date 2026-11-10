@@ -19,7 +19,7 @@ import { DEFAULT_POSTURE_CLASSIFICATION_CONFIG, type PostureClassificationConfig
 import { PostureStatus } from "../../enums/postureStatus";
 import type { PostureClassification } from "../../types/postureClassification";
 import { createOcularMetricsState, isScreenDistancePoseUsable, updateOcularMetrics, type OcularMetrics, type ScreenDistanceReference } from "../../services/vision/ocularMetrics";
-import type { PostureCalibrationFrame } from "../../services/vision/postureCalibration";
+import { isCalibrationCompatible, type PostureCalibrationFrame } from "../../services/vision/postureCalibration";
 import type { PostureCalibrationDTO } from "../../types/postureCalibration";
 import type { UserPresenceState } from "../../types/vision";
 import { CanvasPose, metricColor } from "./canvasFeedback";
@@ -37,8 +37,12 @@ export interface WebcamFeedProps {
   disabledMessage?: string | null;
   /** Saved default webcam; used whenever it is connected, otherwise the first camera. */
   preferredDeviceId?: string | null;
+  /** Controlled selection: user choices are requests until the parent applies them. */
+  selectedDeviceId?: string;
+  onResolvedDeviceChange?: (deviceId: string) => void;
+  deviceSelectionDisabled?: boolean;
   /** Called only when the user picks a camera in the select, never for automatic choices. */
-  onDeviceSelect?: (deviceId: string) => void;
+  onDeviceSelect?: (deviceId: string, previousDeviceId: string) => void;
   recordingStatus?: RecordingStatus;
   onCalibrate?: () => void;
   onPostureUpdate?: (metrics: {
@@ -95,6 +99,9 @@ export default function WebcamFeed({
   isMonitoring,
   disabledMessage = null,
   preferredDeviceId = null,
+  selectedDeviceId: controlledDeviceId,
+  onResolvedDeviceChange,
+  deviceSelectionDisabled = false,
   onDeviceSelect,
   recordingStatus,
   onCalibrate,
@@ -118,6 +125,7 @@ export default function WebcamFeed({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const cameraRequestRef = useRef(0);
+  const captureDeviceIdRef = useRef<string | null>(null);
   const postureFilterRef = useRef(new TemporalPostureFilter());
   const overlayRef = useRef(new CanvasPose());
   const ocularStateRef = useRef(createOcularMetricsState());
@@ -140,7 +148,10 @@ export default function WebcamFeed({
 
   // Estados de dispositivos e permissão
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
+  // The first request must already target the intended camera, before enumeration resolves.
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>(controlledDeviceId ?? preferredDeviceId ?? "");
+  const onResolvedDeviceChangeRef = useRef(onResolvedDeviceChange);
+  onResolvedDeviceChangeRef.current = onResolvedDeviceChange;
   const preferredDeviceIdRef = useRef(preferredDeviceId);
   preferredDeviceIdRef.current = preferredDeviceId;
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
@@ -314,16 +325,31 @@ export default function WebcamFeed({
   // Applied once per value, so later enumerations keep a camera the user picked in the meantime.
   const appliedPreferredDeviceIdRef = useRef<string | null>(null);
   useEffect(() => {
+    if (controlledDeviceId !== undefined) {
+      if (controlledDeviceId && devices.some(d => d.deviceId === controlledDeviceId)) {
+        setSelectedDeviceId(controlledDeviceId);
+      }
+      return;
+    }
     if (preferredDeviceId && preferredDeviceId !== appliedPreferredDeviceIdRef.current &&
       devices.some((d) => d.deviceId === preferredDeviceId)) {
       appliedPreferredDeviceIdRef.current = preferredDeviceId;
       setSelectedDeviceId(preferredDeviceId);
     }
-  }, [preferredDeviceId, devices]);
+  }, [preferredDeviceId, devices, controlledDeviceId]);
+
+  useEffect(() => {
+    if (selectedDeviceId && (controlledDeviceId === undefined || controlledDeviceId === selectedDeviceId ||
+      !devices.some(d => d.deviceId === controlledDeviceId))) {
+      onResolvedDeviceChangeRef.current?.(selectedDeviceId);
+    }
+  }, [selectedDeviceId, controlledDeviceId, devices]);
 
   const stopCurrentStream = useCallback(() => {
     resetOcularTracking();
     cameraRequestRef.current += 1;
+    captureDeviceIdRef.current = null;
+    derivedDistanceRef.current = null;
     postureFilterRef.current.reset();
     overlayRef.current.reset();
     isCameraMutedRef.current = false;
@@ -401,6 +427,9 @@ export default function WebcamFeed({
       onStreamChangeRef.current?.(stream);
 
       const videoTrack = stream.getVideoTracks()[0];
+      // An exact request identifies the camera even when a driver omits getSettings().deviceId.
+      captureDeviceIdRef.current = videoTrack?.getSettings?.().deviceId || selectedDeviceId || null;
+      if (captureDeviceIdRef.current) onResolvedDeviceChangeRef.current?.(captureDeviceIdRef.current);
       if (videoTrack) {
         videoTrack.onended = () => {
           if (isMonitoringRef.current && !isHardwareBusyRef.current) {
@@ -600,8 +629,10 @@ export default function WebcamFeed({
             detectionTimestampMs = detection.timestamp;
             isCalibrationPoseUsable = isScreenDistancePoseUsable(detection.faceTransformationMatrix);
             let refToUse = distanceReferenceRef.current;
-            if (!refToUse && calibrationRef.current && video.videoWidth > 0 && video.videoHeight > 0) {
-              const cal = calibrationRef.current;
+            const compatibleCalibration = isCalibrationCompatible(calibrationRef.current, captureDeviceIdRef.current)
+              ? calibrationRef.current : null;
+            if (!refToUse && compatibleCalibration && video.videoWidth > 0 && video.videoHeight > 0) {
+              const cal = compatibleCalibration;
               if (cal.baselineEyeDistancePx > 0 && cal.baselineDistanceCm > 0) {
                 const hasIris = Boolean(
                   detection.faceLandmarks &&
@@ -713,6 +744,7 @@ export default function WebcamFeed({
               calibrationFrame = {
                 timestampMs: detectionTimestampMs,
                 captureId: cameraRequestRef.current,
+                cameraDeviceId: captureDeviceIdRef.current,
                 frameWidth: video.videoWidth,
                 frameHeight: video.videoHeight,
                 ipd: frameOcular.ipd,
@@ -735,7 +767,8 @@ export default function WebcamFeed({
           shoulderAngle: filteredAngles?.shoulderAngle ?? null,
           distanceCm: frameOcular?.distanceCm ?? null,
           blinkRate: frameOcular?.available ? frameOcular.blinkRate : null,
-        }, calibrationRef.current, classificationConfigRef.current), moduleSettingsRef.current);
+        }, isCalibrationCompatible(calibrationRef.current, captureDeviceIdRef.current)
+          ? calibrationRef.current : null, classificationConfigRef.current), moduleSettingsRef.current);
         lastClassificationRef.current = classification;
         onClassificationUpdateRef.current?.(classification);
         if (currentTime - uiPublishedAtRef.current >= 250) {
@@ -896,9 +929,12 @@ export default function WebcamFeed({
                 aria-label="Selecionar câmera"
                 selectSize="sm"
                 value={selectedDeviceId}
+                disabled={deviceSelectionDisabled}
                 onChange={(e) => {
-                  setSelectedDeviceId(e.target.value);
-                  onDeviceSelect?.(e.target.value);
+                  const nextId = e.target.value;
+                  if (nextId === selectedDeviceId || deviceSelectionDisabled) return;
+                  if (controlledDeviceId === undefined) setSelectedDeviceId(nextId);
+                  onDeviceSelect?.(nextId, selectedDeviceId);
                 }}
                 options={devices.map((d, i) => ({
                   label: d.label || `Câmera ${i + 1}`,
