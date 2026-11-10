@@ -12,6 +12,7 @@ const ipc = vi.hoisted(() => ({ invoke: vi.fn(), desktop: true }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: ipc.invoke, isTauri: () => ipc.desktop }));
 
 const baseline: PostureCalibrationDTO = {
+  cameraDeviceId: "camera-1",
   id: "base", userId: "00000000-0000-4000-8000-000000000007", isActive: true, baselineNeckAngle: 10,
   baselineShoulderBalance: 80, baselineDistanceCm: 60, baselineEyeDistancePx: 200,
 };
