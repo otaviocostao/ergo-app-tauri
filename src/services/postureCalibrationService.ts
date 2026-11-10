@@ -23,6 +23,7 @@ export const postureCalibrationService = {
       return {
         id: "mock-calibration-id",
         userId: payload.userId ?? null,
+        cameraDeviceId: payload.cameraDeviceId,
         baselineNeckAngle: payload.baselineNeckAngle,
         baselineShoulderBalance: payload.baselineShoulderBalance,
         baselineDistanceCm: payload.baselineDistanceCm,
