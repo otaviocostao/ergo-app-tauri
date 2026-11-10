@@ -110,6 +110,7 @@ mod tests {
         let cal = save_posture_calibration(
             &conn,
             SaveCalibrationPayload {
+                camera_device_id: "camera-1".to_string(),
                 user_id: Some("00000000-0000-4000-8000-000000000001".into()),
                 baseline_neck_angle: 15.0,
                 baseline_shoulder_balance: 0.98,
