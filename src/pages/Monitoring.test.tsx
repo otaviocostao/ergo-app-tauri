@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, StrictMode } from "react";
+import { act, StrictMode, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Monitoring from "./Monitoring";
@@ -39,12 +39,17 @@ const view = vi.hoisted(() => ({
   userId: "00000000-0000-4000-8000-000000000001",
 }));
 vi.mock("../auth/AuthContext", () => ({ useOptionalAuth: () => ({ session: { kind: "authenticated", user: { id: view.userId } } }) }));
-vi.mock("../components/monitoring/WebcamFeed", () => ({ default: (props: WebcamFeedProps) => { view.feed = props; return null; } }));
+vi.mock("../components/monitoring/WebcamFeed", () => ({ default: (props: WebcamFeedProps) => {
+  view.feed = props;
+  useEffect(() => { props.onResolvedDeviceChange?.(props.selectedDeviceId ?? props.preferredDeviceId ?? "camera-1"); }, [props.selectedDeviceId, props.preferredDeviceId]);
+  return null;
+} }));
 vi.mock("../components/monitoring/WorkspaceCalibrationModal", () => ({ default: (props: WorkspaceCalibrationModalProps) => { view.modal = props; return null; } }));
 vi.mock("../components/monitoring/KeyboardMonitorCard", () => ({ default: (props: KeyboardMonitorCardProps) => { view.keyboard = props; return null; } }));
 vi.mock("../components/monitoring/PostureHistoryLog", () => ({ default: ({ logs }: { logs: LogEvent[] }) => { view.logs = logs; return null; } }));
 
 const baseline: PostureCalibrationDTO = {
+  cameraDeviceId: "camera-1",
   id: "base", userId: "00000000-0000-4000-8000-000000000001", isActive: true, baselineNeckAngle: 10,
   baselineShoulderBalance: 80, baselineDistanceCm: 60, baselineEyeDistancePx: 200,
 };
@@ -235,6 +240,7 @@ describe("Monitoring classification and temporal alerts", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(15_000); view.feed!.onPresenceChange!("ABSENT"); });
     expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(0);
     await act(async () => view.modal!.onClose());
+    await toggleMonitoring();
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000); view.feed!.onPresenceChange!("ABSENT"); });
     expect(view.logs.filter(log => log.message === "Usuário ausente do posto de trabalho")).toHaveLength(1);
   });
@@ -309,12 +315,13 @@ describe("Monitoring classification and temporal alerts", () => {
       view.modal!.onCalibrateSubmit({ ...baseline, id: "new", baselineNeckAngle: 35 });
       view.modal!.onClose();
     });
+    await toggleMonitoring();
     await publish(40_100, 70_000, { neckAngle: 35 });
     expect(alerts()).toEqual([]);
     expect(container.textContent).toContain("Postura Excelente");
   });
 
-  it("can alert on low blink frequency without a posture baseline, after valid warm-up", async () => {
+  it("requires calibration before camera monitoring and ignores uncalibrated blink callbacks", async () => {
     vi.mocked(postureService.getActiveCalibration).mockResolvedValue(null);
     await render();
     const warmUp = { blinkCount: 0, observedMs: 29_000, blinksPerMinute: null, isWarmingUp: true };
@@ -324,9 +331,9 @@ describe("Monitoring classification and temporal alerts", () => {
     await publish(30_100, 50_100, { blinkRate: measured });
     expect(alerts()).toEqual([]);
     await publish(50_200, 50_200, { blinkRate: measured });
-    expect(alerts()).toHaveLength(1);
-    expect(alerts()[0].message).toBe("Frequência de piscadas reduzida");
-    expect(container.textContent).toContain("Aguardando calibração");
+    expect(alerts()).toHaveLength(0);
+    expect(view.modal!.isOpen).toBe(true);
+    expect(view.feed!.isMonitoring).toBe(false);
   });
 
   it("resets delivery history when the authenticated account changes", async () => {
@@ -416,36 +423,153 @@ describe("Monitoring classification and temporal alerts", () => {
       expect(view.modal!.preferredDeviceId).toBe("camera-2");
     });
 
-    it("saves the camera picked in the select as the new default", async () => {
+    const choose = async (next = "camera-2", previous = "camera-1") => {
+      await act(async () => view.feed!.onDeviceSelect!(next, previous));
+    };
+    const dialogButton = (text: string) => [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')]
+      .find(button => button.textContent?.trim() === text)!;
+    const confirm = async () => { await act(async () => dialogButton("Trocar câmera e recalibrar").click()); };
+
+    it("ends once, defers the choice until confirmation and requires a manual new session", async () => {
+      vi.spyOn(settingsService, "get").mockResolvedValue(saved("camera-1"));
+      await render(); await choose();
+      expect(updates()).toEqual([]);
+      expect(view.feed!.selectedDeviceId).toBe("camera-1");
+      expect(view.feed!.isMonitoring).toBe(false);
+      expect(ipc.invoke.mock.calls.filter(([command]) => command === "end_monitoring_session")).toHaveLength(1);
+      expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Troca de câmera exige nova calibragem");
+      await confirm();
+      expect(updates()).toEqual([{ payload: { webCam: "camera-2" } }]);
+      expect(view.feed!.selectedDeviceId).toBe("camera-2");
+      expect(view.modal!.preferredDeviceId).toBe("camera-2");
+      expect(view.modal!.isOpen).toBe(true);
+      expect(view.modal!.initialStep).toBe("camera");
+      await act(async () => {
+        view.modal!.onCalibrateSubmit({ ...baseline, id: "new-calibration", cameraDeviceId: "camera-2" });
+        view.modal!.onClose();
+      });
+      expect(view.feed!.isMonitoring).toBe(false);
+      expect(ipc.invoke.mock.calls.filter(([command]) => command === "start_monitoring_session")).toHaveLength(1);
+      await toggleMonitoring();
+      expect(view.feed!.isMonitoring).toBe(true);
+      expect(ipc.invoke.mock.calls.filter(([command]) => command === "start_monitoring_session")).toHaveLength(2);
+    });
+
+    it.each(["button", "close", "escape", "backdrop", "navigation"])("cancels through %s and preserves camera and calibration", async exit => {
+      vi.spyOn(settingsService, "get").mockResolvedValue(saved("camera-1"));
+      await render(); await choose();
+      await act(async () => {
+        if (exit === "button") dialogButton("Manter câmera anterior").click();
+        else if (exit === "close") (document.querySelector('[aria-label="Fechar modal"]') as HTMLButtonElement).click();
+        else if (exit === "escape") document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        else if (exit === "backdrop") (document.querySelector('[role="dialog"]')!.previousElementSibling as HTMLElement).click();
+        else root.render(<Monitoring isVisible={false} />);
+      });
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(updates()).toEqual([]);
+      expect(view.feed!.selectedDeviceId).toBe("camera-1");
+      expect(view.feed!.calibration).toEqual(baseline);
+      expect(view.feed!.isMonitoring).toBe(false);
+      if (exit !== "navigation") { await toggleMonitoring(); expect(view.feed!.isMonitoring).toBe(true); }
+    });
+
+    it("ignores the same device", async () => {
+      vi.spyOn(settingsService, "get").mockResolvedValue(saved("camera-1"));
+      await render(); await choose("camera-1");
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(view.feed!.isMonitoring).toBe(true);
+      expect(updates()).toEqual([]);
+    });
+
+    it("waits for pending session writes before enabling confirmation", async () => {
       vi.spyOn(settingsService, "get").mockResolvedValue(saved("camera-1"));
       await render();
-      await act(async () => view.feed!.onDeviceSelect!("camera-2"));
-      expect(updates()).toEqual([{ payload: { webCam: "camera-2" } }]);
-      expect(view.feed!.preferredDeviceId).toBe("camera-2");
-      expect(view.modal!.preferredDeviceId).toBe("camera-2");
-
-      await act(async () => view.modal!.onDeviceSelect!("camera-3"));
-      expect(updates()).toEqual([{ payload: { webCam: "camera-2" } }, { payload: { webCam: "camera-3" } }]);
-      expect(view.feed!.preferredDeviceId).toBe("camera-3");
+      let finish!: () => void;
+      const invoke = ipc.invoke.getMockImplementation()!;
+      ipc.invoke.mockImplementation((command: string, args?: object) => command === "end_monitoring_session"
+        ? new Promise<void>(resolve => { finish = resolve; }) : invoke(command, args));
+      await choose();
+      expect(dialogButton("Trocar câmera e recalibrar").disabled).toBe(true);
+      await confirm(); expect(updates()).toEqual([]);
+      await act(async () => finish());
+      expect(dialogButton("Trocar câmera e recalibrar").disabled).toBe(false);
     });
 
-    it("keeps the chosen camera and reports when the default cannot be saved", async () => {
-      vi.spyOn(settingsService, "get").mockResolvedValue(saved(null));
-      vi.spyOn(console, "error").mockImplementation(() => { });
-      await render();
-      ipc.invoke.mockRejectedValueOnce("database locked");
-      await act(async () => view.feed!.onDeviceSelect!("camera-2"));
-      expect(updates()).toEqual([{ payload: { webCam: "camera-2" } }]);
-      expect(view.feed!.preferredDeviceId).toBe("camera-2");
-      expect(view.logs[0]).toMatchObject({ type: "error", message: "Não foi possível salvar a câmera padrão." });
+    it("preserves the previous preference on save failure and supports retry", async () => {
+      vi.spyOn(settingsService, "get").mockResolvedValue(saved("camera-1"));
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      await render(); await choose();
+      vi.spyOn(settingsService, "setWebCam").mockRejectedValueOnce(new Error("database locked"));
+      await confirm();
+      expect(view.feed!.selectedDeviceId).toBe("camera-1");
+      expect(view.feed!.preferredDeviceId).toBe("camera-1");
+      expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Não foi possível salvar a câmera");
+      await confirm(); expect(view.modal!.isOpen).toBe(true);
+      expect(view.feed!.selectedDeviceId).toBe("camera-2");
     });
 
-    it("does not save anything without account settings", async () => {
+    it("saves calibration choices immediately and blocks restarting after cancellation", async () => {
+      vi.spyOn(settingsService, "get").mockResolvedValue(saved("camera-1"));
+      await render(); await act(async () => view.feed!.onCalibrate!());
+      await act(async () => view.modal!.onDeviceSelect!("camera-3", "camera-1"));
+      expect(updates()).toEqual([{ payload: { webCam: "camera-3" } }]);
+      expect(view.feed!.selectedDeviceId).toBe("camera-3");
+      await act(async () => view.modal!.onClose());
+      await toggleMonitoring();
+      expect(view.feed!.isMonitoring).toBe(false);
+      expect(view.modal!.isOpen).toBe(true);
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+    });
+
+    it("defers persistence even when the account has no loaded settings", async () => {
       vi.spyOn(settingsService, "get").mockResolvedValue(null);
       await render();
       expect(view.feed!.preferredDeviceId).toBeNull();
-      await act(async () => view.feed!.onDeviceSelect!("camera-2"));
+      await act(async () => view.feed!.onDeviceSelect!("camera-2", "camera-1"));
       expect(updates()).toEqual([]);
+      await confirm();
+      expect(updates()).toEqual([{ payload: { webCam: "camera-2" } }]);
+      expect(view.feed!.preferredDeviceId).toBe("camera-2");
+    });
+
+    it("keeps confirmation disabled after a failed session end and supports retry", async () => {
+      vi.spyOn(settingsService, "get").mockResolvedValue(saved("camera-1"));
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      await render();
+      const invoke = ipc.invoke.getMockImplementation()!;
+      let failEnd = true;
+      ipc.invoke.mockImplementation(async (command: string, args?: object) => {
+        if (command === "end_monitoring_session" && failEnd) { failEnd = false; throw new Error("database locked"); }
+        return invoke(command, args);
+      });
+      await choose();
+      expect(dialogButton("Trocar câmera e recalibrar").disabled).toBe(true);
+      expect(updates()).toEqual([]);
+      await act(async () => dialogButton("Tentar novamente").click());
+      expect(dialogButton("Trocar câmera e recalibrar").disabled).toBe(false);
+      await confirm(); expect(view.modal!.isOpen).toBe(true);
+    });
+
+    it("ignores repeated confirmation and does not reopen calibration after navigation during save", async () => {
+      vi.spyOn(settingsService, "get").mockResolvedValue(saved("camera-1"));
+      await render(); await choose();
+      let finishSave!: (settings: ModuleSettings) => void;
+      const save = vi.spyOn(settingsService, "setWebCam").mockReturnValue(new Promise(resolve => { finishSave = resolve; }));
+      await confirm(); await confirm();
+      expect(save).toHaveBeenCalledTimes(1);
+      await act(async () => root.render(<Monitoring isVisible={false} />));
+      await act(async () => finishSave(saved("camera-2")));
+      expect(view.modal!.isOpen).toBe(false);
+      expect(view.feed!.isMonitoring).toBe(false);
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+    });
+
+    it("requires calibration again after mounting with a saved incompatible camera", async () => {
+      vi.spyOn(settingsService, "get").mockResolvedValue(saved("camera-2"));
+      await render();
+      expect(view.feed!.isMonitoring).toBe(false);
+      expect(view.modal!.isOpen).toBe(true);
+      expect(ipc.invoke.mock.calls.filter(([command]) => command === "start_monitoring_session")).toHaveLength(0);
     });
   });
 
@@ -457,6 +581,15 @@ describe("Monitoring classification and temporal alerts", () => {
     const inactiveCards = () => [...container.querySelectorAll("[data-module-inactive] h3")].map(title => title.textContent);
     const persisted = (command: string) => ipc.invoke.mock.calls.filter(([name]) => name === command);
     const lowBlinks = { blinkCount: 0, observedMs: 30_000, blinksPerMinute: 0, isWarmingUp: false };
+
+    it("allows typing-only monitoring with an incompatible camera calibration", async () => {
+      modules({ posturalAnalysis: false, ocularAnalysis: false, webCam: "camera-2" });
+      await render();
+      expect(view.feed!.isMonitoring).toBe(false);
+      expect(view.modal!.isOpen).toBe(false);
+      expect(view.keyboard!.isPaused).toBe(false);
+      expect(persisted("start_monitoring_session")).toHaveLength(1);
+    });
 
     beforeEach(() => {
       ipc.desktop = true;
@@ -510,6 +643,8 @@ describe("Monitoring classification and temporal alerts", () => {
       await toggleMonitoring();
       expect(view.feed!.isMonitoring).toBe(false);
       await act(async () => resolve(null));
+      expect(view.feed!.isMonitoring).toBe(false);
+      await toggleMonitoring();
       expect(view.feed!.isMonitoring).toBe(true);
       expect(persisted("start_monitoring_session")).toEqual([["start_monitoring_session", { payload: { userId: "00000000-0000-4000-8000-000000000001" } }]]);
     });
