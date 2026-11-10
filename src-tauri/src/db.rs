@@ -104,6 +104,7 @@ mod tests {
             ("reminders", "user_id"),
             ("settings", "user_id"),
             ("posture_calibrations", "user_id"),
+            ("posture_calibrations", "camera_device_id"),
             ("monitoring_sessions", "user_id"),
         ] {
             let column_type: String = conn
