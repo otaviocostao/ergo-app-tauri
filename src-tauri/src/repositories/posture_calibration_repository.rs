@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::models::posture_calibration::PostureCalibration;
 
 pub const SELECT_POSTURE_CALIBRATION_FIELDS: &str =
-    "id, user_id, baseline_neck_angle, baseline_shoulder_balance, baseline_distance_cm, baseline_eye_distance_px, is_active, created_at, updated_at";
+    "id, user_id, baseline_neck_angle, baseline_shoulder_balance, baseline_distance_cm, baseline_eye_distance_px, is_active, created_at, updated_at, camera_device_id";
 
 pub fn map_posture_calibration_row(
     row: &rusqlite::Row<'_>,
@@ -13,6 +13,7 @@ pub fn map_posture_calibration_row(
     Ok(PostureCalibration {
         id: row.get(0)?,
         user_id: row.get(1)?,
+        camera_device_id: row.get(9)?,
         baseline_neck_angle: row.get(2)?,
         baseline_shoulder_balance: row.get(3)?,
         baseline_distance_cm: row.get(4)?,
@@ -122,8 +123,8 @@ pub fn insert(
         "INSERT INTO posture_calibrations (
             id, user_id, baseline_neck_angle, baseline_shoulder_balance,
             baseline_distance_cm, baseline_eye_distance_px, is_active,
-            created_at, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            created_at, updated_at, camera_device_id
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             calibration.id,
             calibration.user_id,
@@ -134,6 +135,7 @@ pub fn insert(
             is_active_int,
             calibration.created_at,
             calibration.updated_at,
+            calibration.camera_device_id,
         ],
     )?;
 
@@ -154,7 +156,8 @@ pub fn update(
             baseline_distance_cm = ?4,
             baseline_eye_distance_px = ?5,
             is_active = ?6,
-            updated_at = ?7
+            updated_at = ?7,
+            camera_device_id = ?9
         WHERE id = ?8",
         params![
             calibration.user_id,
@@ -165,6 +168,7 @@ pub fn update(
             is_active_int,
             calibration.updated_at,
             calibration.id,
+            calibration.camera_device_id,
         ],
     )
 }
