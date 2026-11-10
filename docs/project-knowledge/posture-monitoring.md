@@ -88,7 +88,8 @@ A migration inicial define 4 tabelas centrais com integridade referencial:
 
 1. **`posture_calibrations`**:
    - Guarda a referência antropométrica neutra salva pelo usuário ao calibrar a câmera.
-   - Colunas: `id` (UUID PK), `user_id` (FK `users.id` com `ON DELETE SET NULL`), `baseline_neck_angle` (REAL), `baseline_shoulder_balance` (REAL), `baseline_distance_cm` (REAL), `baseline_eye_distance_px` (REAL), `is_active` (INTEGER 0 ou 1), `created_at`, `updated_at`.
+   - Colunas: `id` (UUID PK), `user_id` (FK `users.id` com `ON DELETE SET NULL`), `camera_device_id` (TEXT), `baseline_neck_angle` (REAL), `baseline_shoulder_balance` (REAL), `baseline_distance_cm` (REAL), `baseline_eye_distance_px` (REAL), `is_active` (INTEGER 0 ou 1), `created_at`, `updated_at`.
+   - A referência só é aplicada à câmera que produziu a coleta. O [fluxo de troca de webcam](../troca-webcam-calibragem.md) descreve confirmação, recalibragem e retomada manual.
    - Índices: `idx_posture_calibrations_active`, `idx_posture_calibrations_user_id`.
 
 2. **`monitoring_sessions`**:

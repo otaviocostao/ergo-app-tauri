@@ -6,7 +6,7 @@ import {
 function frames(): PostureCalibrationFrame[] {
   return Array.from({ length: 55 }, (_, index) => ({
     timestampMs: 100 + index * 90,
-    captureId: 1,
+    captureId: 1, cameraDeviceId: "camera-1",
     frameWidth: 1280,
     frameHeight: 720,
     ipd: { source: "iris", distancePx: 200 },
@@ -16,6 +16,13 @@ function frames(): PostureCalibrationFrame[] {
 }
 
 describe("posture calibration quality", () => {
+  it("rejects missing camera identity and camera changes within the same capture", () => {
+    const unidentified = frames().map(frame => ({ ...frame, cameraDeviceId: null }));
+    expect(evaluatePostureCalibration(unidentified, 0, 5000)).toEqual({ ok: false, reason: "invalid-frame" });
+    const changed = frames();
+    changed[30] = { ...changed[30], cameraDeviceId: "camera-2" };
+    expect(evaluatePostureCalibration(changed, 0, 5000)).toEqual({ ok: false, reason: "capture-changed" });
+  });
   it("averages a stable five-second capture without display rounding or input mutation", () => {
     const samples = frames();
     const original = JSON.stringify(samples);
@@ -23,6 +30,7 @@ describe("posture calibration quality", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error(result.reason);
     expect(result.frameWidth).toBe(1280);
+    expect(result.cameraDeviceId).toBe("camera-1");
     expect(result.baseline.baselineNeckAngle).toBeCloseTo(1.25, 10);
     expect(result.baseline.baselineShoulderBalance).toBeCloseTo(98.75, 10);
     expect(result.baseline.baselineEyeDistancePx).toBeCloseTo(200, 10);

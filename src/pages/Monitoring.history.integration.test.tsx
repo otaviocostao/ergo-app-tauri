@@ -25,6 +25,7 @@ vi.mock("../components/monitoring/WorkspaceCalibrationModal", () => ({
 }));
 
 const baseline: PostureCalibrationDTO = {
+  cameraDeviceId: "camera-1",
   id: "base", userId: "00000000-0000-4000-8000-000000000001", isActive: true, baselineNeckAngle: 0,
   baselineShoulderBalance: 100, baselineDistanceCm: 60, baselineEyeDistancePx: 200
 };
@@ -55,7 +56,7 @@ describe("monitoring messages from real detection callbacks through recording an
   const count = (message: string) => [...container.querySelectorAll("span")].filter(item => item.textContent === message).length;
   async function advance(ms: number) { await act(async () => { await vi.advanceTimersByTimeAsync(ms); }); }
   async function click(label: string) {
-    const button = [...container.querySelectorAll("button")].find(item => item.textContent?.trim() === label);
+    const button = [...document.querySelectorAll("button")].find(item => item.textContent?.trim() === label);
     expect(button, label).toBeDefined(); await act(async () => button!.click());
   }
   async function mountAndStart() {
@@ -238,12 +239,14 @@ it("keeps the calibration success visible when the real recording lifecycle repl
   await click("Calibrar Postura Base"); await advance(6000);
   expect(count(ABSENCE)).toBe(0);
   await click("Concluir teste da calibração");
+  expect(sessions).toHaveLength(1);
+  await click("Iniciar Monitoramento");
   expect(sessions).toHaveLength(2);
   expect(count("Ambiente de trabalho salvo com sucesso")).toBe(1);
   await advance(200); expect(count("Ambiente de trabalho salvo com sucesso")).toBe(1);
 });
 
-it("shows camera interruption once and starts the absence clock on the replacement capture", async () => {
+it("shows camera interruption once and stops the session when another camera is requested", async () => {
   vi.spyOn(console, "warn").mockImplementation(() => { });
   posePresent = true; await mountAndStart(); await advance(300);
   await act(async () => tracks[tracks.length - 1].onended?.(new Event("ended")));
@@ -253,7 +256,10 @@ it("shows camera interruption once and starts the absence clock on the replaceme
   const select = container.querySelector('[aria-label="Selecionar câmera"]') as HTMLSelectElement;
   await act(async () => { select.value = "camera-2"; select.dispatchEvent(new Event("change", { bubbles: true })); });
   await advance(4999); expect(count(ABSENCE)).toBe(0);
-  await advance(1); expect(count(ABSENCE)).toBe(1);
+  await advance(1); expect(count(ABSENCE)).toBe(0);
+  expect(sessions[0].endedAt).not.toBeNull();
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Troca de câmera exige nova calibragem");
+  expect(select.value).toBe("camera-1");
 });
 
 it("shows camera preference failures even after the recorded session has ended", async () => {
@@ -263,7 +269,9 @@ it("shows camera preference failures even after the recorded session has ended",
   failNextCommand = "update_settings";
   const select = container.querySelector('[aria-label="Selecionar câmera"]') as HTMLSelectElement;
   await act(async () => { select.value = "camera-2"; select.dispatchEvent(new Event("change", { bubbles: true })); });
-  expect(count("Não foi possível salvar a câmera padrão.")).toBe(1);
+  await click("Trocar câmera e recalibrar");
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Não foi possível salvar a câmera");
+  expect(select.value).toBe("camera-1");
 });
 
 it("does not hide live presence messages behind an old session when only ocular analysis is enabled", async () => {
@@ -310,14 +318,13 @@ it("colors partial-presence minutes from their valid readings and paints gray on
   expect(blocks[3].className).toContain("border-dashed");
 });
 
-it("does not paint gray when the person is present but no calibration provides valid posture measurements", async () => {
-  activeCalibration = null; posePresent = true; await mountAndStart(); await advance(60_000);
-  expect(snapshots).toHaveLength(1);
-  expect(snapshots[0]).toMatchObject({ dominantStatus: "unavailable", samplesCount: 0 });
-  const first = container.querySelector('[aria-label="Qualidade postural por minuto"]')!.children[0];
-  expect(first.className).toContain("bg-transparent");
-  expect(first.className).not.toContain("bg-slate-400");
-  expect(first.getAttribute("title")).toContain("Sem leituras válidas");
+it("does not record a session or gray minutes before the camera has a valid calibration", async () => {
+  activeCalibration = null; posePresent = true;
+  await act(async () => root.render(<Monitoring />));
+  await click("Iniciar Monitoramento"); await advance(60_000);
+  expect(snapshots).toHaveLength(0);
+  expect(sessions).toHaveLength(0);
+  expect(count(ABSENCE)).toBe(0);
 });
 
 it("does not invent a full-minute absence when camera permission is denied", async () => {

@@ -49,7 +49,8 @@ export interface WorkspaceCalibrationModalProps {
   userId?: string | null;
   /** The user's default webcam, so calibration uses the same camera as monitoring. */
   preferredDeviceId?: WebcamFeedProps["preferredDeviceId"];
-  onDeviceSelect?: WebcamFeedProps["onDeviceSelect"];
+  onDeviceSelect?: (deviceId: string, previousDeviceId: string) => void | Promise<void>;
+  initialStep?: "setup" | "camera";
 }
 
 export interface SetupStep {
@@ -70,6 +71,7 @@ export default function WorkspaceCalibrationModal({
   userId: propUserId,
   preferredDeviceId,
   onDeviceSelect,
+  initialStep = "setup",
 }: WorkspaceCalibrationModalProps) {
   const auth = useOptionalAuth();
   const currentUserId = propUserId ?? (auth?.session.kind === "authenticated" ? auth.session.user.id : null);
@@ -90,6 +92,10 @@ export default function WorkspaceCalibrationModal({
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const savingRef = useRef(false);
+  const [cameraDeviceId, setCameraDeviceId] = useState<string | undefined>();
+  const [isSavingDevice, setIsSavingDevice] = useState(false);
+  const savingDeviceRef = useRef(false);
+  const operationGenerationRef = useRef(0);
 
   const [isFrameReady, setIsFrameReady] = useState(false);
   const [sampleCount, setSampleCount] = useState(0);
@@ -141,7 +147,7 @@ export default function WorkspaceCalibrationModal({
   };
 
   const handleSave = async (resultToPersist?: CompletedCalibration | null) => {
-    if (savingRef.current || isCalibratingRef.current || isLoadingWorkspace || loadError || !isFinalWebcamStep) return;
+    if (savingRef.current || savingDeviceRef.current || isCalibratingRef.current || isLoadingWorkspace || loadError || !isFinalWebcamStep) return;
 
     const result = resultToPersist ?? completedCalibration;
 
@@ -156,6 +162,11 @@ export default function WorkspaceCalibrationModal({
     }
 
     const { baseline } = result;
+    if (!result.cameraDeviceId || result.cameraDeviceId !== cameraDeviceId) {
+      cancelCalibration();
+      setCalibrationError("A câmera mudou. Realize uma nova calibração antes de salvar.");
+      return;
+    }
     const validation = validateCalibrationIPD(baseline.baselineEyeDistancePx, result.frameWidth);
     if (validation !== "valid" && !allowOverrideWarning) {
       setDistanceWarning(validation);
@@ -164,6 +175,7 @@ export default function WorkspaceCalibrationModal({
     }
 
     savingRef.current = true;
+    const generation = operationGenerationRef.current;
     setIsSaving(true);
     setSaveError(null);
 
@@ -181,10 +193,12 @@ export default function WorkspaceCalibrationModal({
       const workspace = workspaceId
         ? await workspaceService.update({ id: workspaceId, ...payload })
         : await workspaceService.create(payload);
+      if (generation !== operationGenerationRef.current) return;
       setWorkspaceId(workspace.id);
 
       const calibrationPayload: SaveCalibrationPayload = {
         userId: currentUserId,
+        cameraDeviceId: result.cameraDeviceId,
         baselineNeckAngle: baseline.baselineNeckAngle,
         baselineShoulderBalance: baseline.baselineShoulderBalance,
         baselineDistanceCm: baseline.baselineDistanceCm,
@@ -193,14 +207,18 @@ export default function WorkspaceCalibrationModal({
       };
 
       const savedCalibration = await postureService.saveCalibration(calibrationPayload);
+      if (generation !== operationGenerationRef.current) return;
       onCalibrateSubmit(savedCalibration);
       onClose();
     } catch (error) {
+      if (generation !== operationGenerationRef.current) return;
       console.error("Failed to save workspace configuration or posture calibration:", error);
       setSaveError("Não foi possível salvar seu ambiente de trabalho ou a calibração de postura. Tente novamente.");
     } finally {
-      savingRef.current = false;
-      setIsSaving(false);
+      if (generation === operationGenerationRef.current) {
+        savingRef.current = false;
+        setIsSaving(false);
+      }
     }
   };
 
@@ -242,7 +260,7 @@ export default function WorkspaceCalibrationModal({
   });
 
   const startCalibration = (autoSave = false) => {
-    if (savingRef.current || isCalibratingRef.current) return;
+    if (savingRef.current || savingDeviceRef.current || isCalibratingRef.current) return;
     if (countdownTimerRef.current) {
       clearInterval(countdownTimerRef.current);
       countdownTimerRef.current = null;
@@ -277,6 +295,12 @@ export default function WorkspaceCalibrationModal({
   }, []);
 
   useEffect(() => {
+    operationGenerationRef.current++;
+    savingRef.current = false;
+    savingDeviceRef.current = false;
+    setIsSaving(false);
+    setIsSavingDevice(false);
+    setCameraDeviceId(undefined);
     if (!isOpen) {
       setCurrentStepIndex(0);
       setIsFrameReady(false);
@@ -306,6 +330,10 @@ export default function WorkspaceCalibrationModal({
         setAdjustableDesk(workspace?.adjustableDesk ?? false);
         setAdjustableChair(workspace?.adjustableChair ?? true);
         setAdjustableMonitor(workspace?.adjustableMonitor ?? true);
+        if (initialStep === "camera" && workspace) {
+          const guide = buildCalibrationGuide(workspace);
+          setCurrentStepIndex(guide.length + 1);
+        }
       } catch (error) {
         if (cancelled) return;
         console.error("Failed to load workspace configuration:", error);
@@ -316,8 +344,41 @@ export default function WorkspaceCalibrationModal({
     }
 
     void loadWorkspace();
-    return () => { cancelled = true; };
-  }, [isOpen, loadAttempt]);
+    return () => { cancelled = true; operationGenerationRef.current++; };
+  }, [isOpen, loadAttempt, currentUserId, initialStep]);
+
+  const handleCameraResolved = (deviceId: string) => {
+    if (deviceId === cameraDeviceId) return;
+    cancelCalibration();
+    setIsFrameReady(false);
+    setCameraDeviceId(deviceId);
+  };
+
+  const handleDeviceSelect = async (deviceId: string, previousDeviceId: string) => {
+    if (savingDeviceRef.current || savingRef.current) return;
+    savingDeviceRef.current = true;
+    const generation = operationGenerationRef.current;
+    cancelCalibration();
+    setIsFrameReady(false);
+    setSaveError(null);
+    setCameraDeviceId(deviceId);
+    setIsSavingDevice(true);
+    try {
+      await onDeviceSelect?.(deviceId, previousDeviceId);
+    } catch (error) {
+      if (generation !== operationGenerationRef.current) return;
+      console.error("Failed to save calibration webcam:", error);
+      cancelCalibration();
+      setIsFrameReady(false);
+      setCameraDeviceId(previousDeviceId);
+      setSaveError("Não foi possível salvar a câmera. O dispositivo anterior foi mantido. Tente novamente.");
+    } finally {
+      if (generation === operationGenerationRef.current) {
+        savingDeviceRef.current = false;
+        setIsSavingDevice(false);
+      }
+    }
+  };
 
   const handleNext = () => {
     if (isLoadingWorkspace || loadError || savingRef.current || isCalibratingRef.current) return;
@@ -327,7 +388,7 @@ export default function WorkspaceCalibrationModal({
   };
 
   const handlePrev = () => {
-    if (savingRef.current || isCalibratingRef.current) return;
+    if (savingRef.current || savingDeviceRef.current || isCalibratingRef.current) return;
     cancelCalibration();
     setSaveError(null);
     setCalibrationError(null);
@@ -338,7 +399,7 @@ export default function WorkspaceCalibrationModal({
   };
 
   const handleClose = () => {
-    if (!savingRef.current && !isCalibratingRef.current) {
+    if (!savingRef.current && !savingDeviceRef.current && !isCalibratingRef.current) {
       cancelCalibration();
       onClose();
     }
@@ -584,14 +645,17 @@ export default function WorkspaceCalibrationModal({
               isMonitoring={isOpen}
               showMetricBadges={false}
               preferredDeviceId={preferredDeviceId}
-              onDeviceSelect={onDeviceSelect}
+              selectedDeviceId={cameraDeviceId}
+              onResolvedDeviceChange={handleCameraResolved}
+              onDeviceSelect={handleDeviceSelect}
+              deviceSelectionDisabled={isSaving || isSavingDevice}
               onPostureUpdate={onPostureUpdate}
               onPresenceChange={onPresenceChange}
               onCalibrationFrame={(frame) => {
                 setIsFrameReady(frame !== null);
                 const startedAt = startedAtRef.current;
                 if (frame && isCalibratingRef.current && startedAt !== null &&
-                  frame.timestampMs >= startedAt && frame.timestampMs <= startedAt + POSTURE_CALIBRATION_LIMITS.durationMs) {
+                  !savingDeviceRef.current && frame.timestampMs >= startedAt && frame.timestampMs <= startedAt + POSTURE_CALIBRATION_LIMITS.durationMs) {
                   samplesRef.current.push(frame);
                   setSampleCount(samplesRef.current.length);
                 }
@@ -848,7 +912,7 @@ export default function WorkspaceCalibrationModal({
                 variant="secondary"
                 size="md"
                 onClick={handlePrev}
-                disabled={isSaving || calibrationStatus === "countdown"}
+                disabled={isSaving || isSavingDevice || calibrationStatus === "countdown"}
               >
                 Voltar
               </Button>
@@ -859,6 +923,7 @@ export default function WorkspaceCalibrationModal({
                 isLoading={isSaving}
                 disabled={
                   calibrationStatus === "countdown" ||
+                  isSavingDevice ||
                   Boolean(distanceWarning && distanceWarning !== "valid" && !allowOverrideWarning)
                 }
                 className="flex items-center gap-1.5"

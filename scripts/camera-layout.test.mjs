@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -127,7 +127,35 @@ test("camera layout remains stable at scrollbar thresholds", { timeout: 90000 },
       assert.deepEqual(overflowing.frames[0].video, before.frames[0].video, "Adding a scrollbar changes camera dimensions.");
       assert.deepEqual(restored.frames[0].video, before.frames[0].video, "Removing a scrollbar changes camera dimensions.");
     });
-    await t.test("recovers from a failed virtual camera in monitoring", verifyFailedCameraRecovery);
+    await t.test("stops monitoring and preserves the camera until confirmation, including on a narrow screen", async () => {
+      await evaluate('window.cameraLayoutFixture.selectCamera("second")');
+      const pending = await evaluate("window.cameraLayoutFixture.monitoringState()");
+      assert.equal(pending.selected, "first");
+      assert.equal(pending.hasStream, false);
+      assert.equal(pending.liveTracks, 0);
+      assert.ok(pending.dialog.includes("Troca de câmera exige nova calibragem"));
+      await viewport(390, 844);
+      await delay(150);
+      assert.equal(await evaluate(`(() => {
+        const dialog = document.querySelector('[role="dialog"]');
+        const bounds = dialog.getBoundingClientRect();
+        return bounds.left >= 0 && bounds.right <= innerWidth && dialog.scrollWidth <= dialog.clientWidth;
+      })()`), true, "Confirmation must fit a narrow viewport.");
+      const screenshot = await send("Page.captureScreenshot", { format: "png" }, sessionId);
+      await writeFile(path.join(os.tmpdir(), "ergo-webcam-confirmation.png"), Buffer.from(screenshot.data, "base64"));
+      await evaluate('window.cameraLayoutFixture.click("Manter câmera anterior")');
+      const cancelled = await evaluate("window.cameraLayoutFixture.monitoringState()");
+      assert.equal(cancelled.dialog, null);
+      assert.equal(cancelled.selected, "first");
+      assert.equal(cancelled.liveTracks, 0);
+      await viewport(1440, 2000);
+      await evaluate('window.cameraLayoutFixture.click("Iniciar Monitoramento")');
+    });
+    await t.test("confirms a failed virtual camera and recovers inside recalibration", async () => {
+      await evaluate('window.cameraLayoutFixture.selectCamera("unavailable")');
+      await evaluate('window.cameraLayoutFixture.click("Trocar câmera e recalibrar")');
+      await verifyFailedCameraRecovery();
+    });
     assert.deepEqual(exceptions, [], "Browser runtime errors.");
     await evaluate("window.cameraLayoutFixture.stop()");
     await send("Browser.close");

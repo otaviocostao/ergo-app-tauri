@@ -126,7 +126,7 @@ describe("blink frequency classification", () => {
 
 describe("per-frame calibrated posture classification", () => {
   const baseline = Object.freeze({ id: "base", isActive: true, baselineNeckAngle: 10, baselineShoulderBalance: 80,
-    baselineDistanceCm: 60, baselineEyeDistancePx: 200 });
+    cameraDeviceId: "camera-1", baselineDistanceCm: 60, baselineEyeDistancePx: 200 });
   const sample: PostureObservation = Object.freeze({ timestampMs: 100, captureId: 1,
     neckAngle: 22, shoulderAngle: 5, distanceCm: 60, blinkRate: null });
 

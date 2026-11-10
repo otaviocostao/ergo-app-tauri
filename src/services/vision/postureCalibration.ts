@@ -2,10 +2,20 @@ import type { IPDMeasurement } from "./ocularLandmarks";
 import type { PostureAngles } from "./temporalPostureFilter";
 import type { PostureCalibrationDTO } from "../../types/postureCalibration";
 
+/** The saved neutral pose is usable only with the camera that produced it. */
+export function isCalibrationCompatible(
+  calibration: PostureCalibrationDTO | null | undefined,
+  deviceId: string | null | undefined,
+): calibration is PostureCalibrationDTO {
+  return Boolean(calibration?.isActive && calibration.cameraDeviceId && deviceId &&
+    calibration.cameraDeviceId === deviceId);
+}
+
 /** One inference, before display rounding. Never combine observations from different frames. */
 export interface PostureCalibrationFrame {
   readonly timestampMs: number;
   readonly captureId: number;
+  readonly cameraDeviceId: string | null;
   readonly frameWidth: number;
   readonly frameHeight: number;
   readonly ipd: IPDMeasurement;
@@ -35,7 +45,7 @@ export type CalibrationFailure = "insufficient-data" | "invalid-frame" | "captur
 
 export type CalibrationEvaluation =
   | { readonly ok: false; readonly reason: CalibrationFailure }
-  | { readonly ok: true; readonly baseline: CalibratedBaseline; readonly frameWidth: number };
+  | { readonly ok: true; readonly baseline: CalibratedBaseline; readonly frameWidth: number; readonly cameraDeviceId: string };
 
 function validAngles(angles: PostureAngles): boolean {
   return Number.isFinite(angles.neckAngle) && angles.neckAngle >= 0 && angles.neckAngle <= 180 &&
@@ -61,12 +71,13 @@ export function evaluatePostureCalibration(
       .every(Number.isFinite) || frame.timestampMs < startedAtMs || frame.timestampMs > deadlineMs ||
       frame.frameWidth <= 0 || frame.frameHeight <= 0 || frame.ipd.distancePx <= 0 ||
       !Number.isInteger(frame.captureId) || frame.captureId < 0 ||
+      !frame.cameraDeviceId?.trim() ||
       !["iris", "eye-corners"].includes(frame.ipd.source) ||
       !validAngles(frame.rawAngles) || !validAngles(frame.filteredAngles) ||
       (index > 0 && frame.timestampMs <= frames[index - 1].timestampMs)) {
       return { ok: false, reason: "invalid-frame" };
     }
-    if (frame.captureId !== first.captureId || frame.frameWidth !== first.frameWidth ||
+    if (frame.cameraDeviceId !== first.cameraDeviceId || frame.captureId !== first.captureId || frame.frameWidth !== first.frameWidth ||
       frame.frameHeight !== first.frameHeight || frame.ipd.source !== first.ipd.source) {
       return { ok: false, reason: "capture-changed" };
     }
@@ -96,6 +107,7 @@ export function evaluatePostureCalibration(
   return {
     ok: true,
     frameWidth: first.frameWidth,
+    cameraDeviceId: first.cameraDeviceId!,
     baseline: {
       baselineNeckAngle: mean(frames.map(frame => frame.filteredAngles.neckAngle)),
       baselineShoulderBalance: mean(frames.map(frame => Math.max(0, 100 - frame.filteredAngles.shoulderAngle * 10))),

@@ -8,6 +8,7 @@ import * as biomechanics from "../../services/vision/biomechanics";
 import WorkspaceCalibrationModal from "./WorkspaceCalibrationModal";
 import Monitoring from "../../pages/Monitoring";
 import { workspaceService } from "../../services/workspaceService";
+import { postureService } from "../../services/postureService";
 import { FACE_EAR_INDEX, TemporalPostureFilter, type OcularMetrics, type PostureCalibrationFrame, type ScreenDistanceReference } from "../../services/vision";
 import type { PostureCalibrationDTO } from "../../types/postureCalibration";
 import type { PostureClassification } from "../../types/postureClassification";
@@ -115,6 +116,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     faceTransformationMatrix = faceMatrix(0);
     faceLandmarks = null;
     baseline = {
+      cameraDeviceId: "camera-1",
       id: "base", baselineNeckAngle: 0, baselineShoulderBalance: 100,
       baselineDistanceCm: 60, baselineEyeDistancePx: 200, isActive: true
     };
@@ -262,7 +264,8 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     expect(startButton?.disabled).toBe(true);
   });
 
-  it.each([true, false])("hands the camera to calibration and restores the previous monitoring state (%s)", async running => {
+  it.each([true, false])("hands the camera to calibration and waits for manual restart (%s)", async running => {
+    vi.spyOn(postureService, "getActiveCalibration").mockResolvedValue(baseline);
     await act(async () => root.render(<Monitoring />)); mounted = true;
     if (running) await clickButton("Iniciar Monitoramento");
     await advance(200);
@@ -274,7 +277,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     await act(async () => (document.querySelector('[aria-label="Fechar modal"]') as HTMLButtonElement).click());
     await advance(200);
     expect(calibrationTracks.every(item => item.track.stop.mock.calls.length === 1)).toBe(true);
-    expect(streams.filter(item => item.track.stop.mock.calls.length === 0)).toHaveLength(running ? 1 : 0);
+    expect(streams.filter(item => item.track.stop.mock.calls.length === 0)).toHaveLength(0);
   });
 
   it.each([-80, -45, 45, 80])("detects vertical head rotation of %s degrees even with a centered 2D neck vector", async (pitch) => {
@@ -623,6 +626,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
   });
 
   it("pauses the monitoring page until a valid measurement after unmute", async () => {
+    vi.spyOn(postureService, "getActiveCalibration").mockResolvedValue(baseline);
     await act(async () => root.render(<Monitoring />)); mounted = true;
     await clickButton("Iniciar Monitoramento");
     await advance(200);
@@ -786,7 +790,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
         select.dispatchEvent(new Event("change", { bubbles: true }));
       });
       await advance(100);
-      expect(deviceSelect).toHaveBeenCalledExactlyOnceWith("camera-1");
+      expect(deviceSelect).toHaveBeenCalledExactlyOnceWith("camera-1", "camera-2");
       expect(requestedDevice()).toBe("camera-1");
     });
 
@@ -807,6 +811,35 @@ describe("WebcamFeed and deterministic biomechanics", () => {
       expect(deviceSelect).not.toHaveBeenCalled();
     });
 
+    it("requests a controlled choice without switching streams until the parent applies it", async () => {
+      const resolved = vi.fn();
+      await act(async () => root.render(<WebcamFeed isMonitoring selectedDeviceId="camera-1"
+        onDeviceSelect={deviceSelect} onResolvedDeviceChange={resolved} />));
+      mounted = true; await advance(200);
+      const requests = getUserMedia.mock.calls.length;
+      const select = container.querySelector("select")!;
+      await act(async () => { select.value = "camera-2"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+      await advance(200);
+      expect(deviceSelect).toHaveBeenCalledExactlyOnceWith("camera-2", "camera-1");
+      expect(select.value).toBe("camera-1");
+      expect(getUserMedia).toHaveBeenCalledTimes(requests);
+      expect(resolved).toHaveBeenCalledWith("camera-1");
+      await act(async () => root.render(<WebcamFeed isMonitoring selectedDeviceId="camera-2" onDeviceSelect={deviceSelect} />));
+      await advance(200);
+      expect(select.value).toBe("camera-2");
+      expect(requestedDevice()).toBe("camera-2");
+    });
+
+    it("blocks device requests during a transition", async () => {
+      await act(async () => root.render(<WebcamFeed isMonitoring selectedDeviceId="camera-1" deviceSelectionDisabled onDeviceSelect={deviceSelect} />));
+      mounted = true; await advance(200);
+      const select = container.querySelector("select")!;
+      expect(select.disabled).toBe(true);
+      await act(async () => { select.value = "camera-2"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+      expect(deviceSelect).not.toHaveBeenCalled();
+      expect(requestedDevice()).toBe("camera-1");
+    });
+
     it("calibrates with the saved webcam", async () => {
       await act(async () => root.render(<WorkspaceCalibrationModal isOpen onClose={vi.fn()} onCalibrateSubmit={vi.fn()}
         preferredDeviceId="camera-2" onDeviceSelect={deviceSelect} />));
@@ -814,6 +847,25 @@ describe("WebcamFeed and deterministic biomechanics", () => {
       await reachCalibrationCamera(); await advance(200);
       expect(container.ownerDocument.querySelector<HTMLSelectElement>('select[aria-label="Selecionar câmera"]')!.value).toBe("camera-2");
       expect(requestedDevice()).toBe("camera-2");
+    });
+
+    it("uses the preferred calibration camera from the first capture request", async () => {
+      getUserMedia.mockImplementation(async constraints => {
+        const exact = typeof constraints.video === "object" ? constraints.video.deviceId : null;
+        const id = typeof exact === "object" && exact !== null && "exact" in exact ? exact.exact : "camera-1";
+        const item = makeStream();
+        Object.assign(item.track, { getSettings: () => ({ deviceId: id }) });
+        streams.push(item);
+        return item.stream;
+      });
+      await act(async () => root.render(<WorkspaceCalibrationModal isOpen onClose={vi.fn()} onCalibrateSubmit={vi.fn()}
+        preferredDeviceId="camera-2" />));
+      mounted = true;
+      await reachCalibrationCamera(); await advance(200);
+      expect(getUserMedia.mock.calls.every(([constraints]) =>
+        typeof constraints.video === "object" &&
+        (constraints.video.deviceId as ConstrainDOMStringParameters)?.exact === "camera-2")).toBe(true);
+      expect(document.querySelector<HTMLSelectElement>('[role="dialog"] select[aria-label="Selecionar câmera"]')!.value).toBe("camera-2");
     });
   });
 
@@ -950,15 +1002,15 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     expect(update.mock.lastCall?.[0]).toMatchObject({ distanceCm: null, status: null });
   });
 
-  it("renders blink warm-up and uncalibrated distance without an early fatigue classification", async () => {
+  it("requires a camera calibration before starting the monitoring page", async () => {
     faceLandmarks = ocularFace();
     await act(async () => root.render(<Monitoring />)); mounted = true;
     await clickButton("Iniciar Monitoramento");
     await advance(200);
     expect(container.textContent).toContain("Taxa de Piscadas");
-    expect(container.textContent).toContain("Aguardando dados");
-    expect(container.textContent).toContain("Coletando dados");
-    expect(container.textContent).toContain("Aguardando calibração");
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.textContent).toContain("calibração compatível");
+    expect(streams.filter(item => item.track.stop.mock.calls.length === 0)).toHaveLength(0);
     expect(container.textContent).not.toContain("Fadiga Visual:");
     expect(container.textContent).not.toContain("Muito baixa");
   });
@@ -973,6 +1025,7 @@ describe("WebcamFeed and deterministic biomechanics", () => {
           onPostureUpdate={update}
           onOcularUpdate={ocularUpdate}
           calibration={{
+            cameraDeviceId: "camera-1",
             id: "cal-1",
             baselineNeckAngle: 12,
             baselineShoulderBalance: 95,
@@ -986,6 +1039,28 @@ describe("WebcamFeed and deterministic biomechanics", () => {
     mounted = true;
     await advance(200);
     expect(ocularUpdate.mock.lastCall?.[0]).toMatchObject({ available: true, ear: 0.3, distanceCm: 60 });
+  });
+
+  it.each(["camera-2", null])("rejects a baseline belonging to %s inside the inference loop", async cameraDeviceId => {
+    baseline = { ...baseline!, cameraDeviceId };
+    faceLandmarks = ocularFace();
+    await render(); await advance(200);
+    expect(ocularUpdate.mock.lastCall?.[0]?.distanceCm).toBeNull();
+    expect(classificationUpdate.mock.lastCall?.[0]).toMatchObject({ baselineId: null,
+      metrics: { neck: { value: null }, shoulders: { value: null }, distance: { value: null } } });
+  });
+
+  it("uses the actual track device ID for calibration samples and compatibility", async () => {
+    faceLandmarks = ocularFace();
+    getUserMedia.mockImplementation(async () => {
+      const item = makeStream();
+      Object.assign(item.track, { getSettings: () => ({ deviceId: "physical-camera" }) });
+      streams.push(item); return item.stream;
+    });
+    await render(); await advance(200);
+    expect(calibrationUpdate.mock.lastCall?.[0]?.cameraDeviceId).toBe("physical-camera");
+    expect(ocularUpdate.mock.lastCall?.[0]?.distanceCm).toBeNull();
+    expect(classificationUpdate.mock.lastCall?.[0]?.baselineId).toBeNull();
   });
 
   it("publishes synchronized calibration data without display rounding", async () => {

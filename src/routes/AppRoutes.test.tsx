@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, StrictMode } from "react";
+import { act, StrictMode, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Link, MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -38,6 +38,7 @@ vi.mock("../components/auth/AuthLayout", () => ({ default: () => <p>Área de ace
 vi.mock("../components/monitoring/WebcamFeed", () => ({
   default: (props: WebcamFeedProps) => {
     view.feed = props;
+    useEffect(() => { props.onResolvedDeviceChange?.(props.selectedDeviceId ?? props.preferredDeviceId ?? "camera-1"); }, [props.selectedDeviceId, props.preferredDeviceId]);
     return <video data-testid="monitoring-camera" />;
   }
 }));
@@ -50,6 +51,7 @@ vi.mock("../components/monitoring/WorkspaceCalibrationModal", () => ({
 vi.mock("../components/monitoring/KeyboardMonitorCard", () => ({ default: () => null }));
 
 const baseline: PostureCalibrationDTO = {
+  cameraDeviceId: "camera-1",
   id: "base", userId: "00000000-0000-4000-8000-000000000001", isActive: true, baselineNeckAngle: 10,
   baselineShoulderBalance: 80, baselineDistanceCm: 60, baselineEyeDistancePx: 200,
 };
@@ -188,14 +190,14 @@ describe("monitoring across authenticated routes", () => {
     expect(calls("end_monitoring_session")).toHaveLength(0);
     await act(async () => { await settingsService.setModuleEnabled(Module.POSTURAL_ANALYSIS, false); });
     expect(calls("end_monitoring_session")).toHaveLength(0);
-    expect(view.feed!.isMonitoring).toBe(true);
+    expect(view.feed!.isMonitoring).toBe(false);
     expect(view.feed!.moduleSettings?.posturalAnalysis).toBe(false);
     await act(async () => { await settingsService.setModuleEnabled(Module.OCULAR_ANALYSIS, false); });
     expect(view.feed!.isMonitoring).toBe(false);
     await act(async () => { await settingsService.setModuleEnabled(Module.TYPING_ANALYSIS, false); });
     expect(calls("end_monitoring_session")).toHaveLength(1);
     await act(async () => { await settingsService.setModuleEnabled(Module.POSTURAL_ANALYSIS, true); });
-    expect(view.feed!.isMonitoring).toBe(true);
+    expect(view.feed!.isMonitoring).toBe(false);
     expect(calls("start_monitoring_session")).toHaveLength(2);
     await navigate("Monitorar");
     expect(camera()).toBe(originalCamera);
@@ -219,10 +221,10 @@ describe("monitoring across authenticated routes", () => {
     expect(view.feed!.isMonitoring).toBe(false);
     await navigate("Configurações");
     expect(view.modal!.isOpen).toBe(false);
-    expect(view.feed!.isMonitoring).toBe(true);
+    expect(view.feed!.isMonitoring).toBe(false);
     await navigate("Monitorar");
     expect(view.modal!.isOpen).toBe(false);
-    expect(view.feed!.isMonitoring).toBe(true);
+    expect(view.feed!.isMonitoring).toBe(false);
   });
 
   it("does not cancel a pending session start when changing routes", async () => {

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import Button from "../components/Button";
+import Modal from "../components/Modal";
 import Header from "../components/Header";
 import { useSyncTopbarMonitoring } from "../components/Topbar";
 import WebcamFeed from "../components/monitoring/WebcamFeed";
@@ -36,6 +37,7 @@ import {
 
 import type { UserPresenceState } from "../types/vision";
 import type { OcularMetrics } from "../services/vision/ocularMetrics";
+import { isCalibrationCompatible } from "../services/vision/postureCalibration";
 
 const ALERT_MESSAGES: Record<PostureMetric, string> = {
   neck: "Ajuste a posição do pescoço",
@@ -77,8 +79,26 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
   const userId = auth?.session.kind === "authenticated" ? auth.session.user.id : null;
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
+  const [initialCalibrationStep, setInitialCalibrationStep] = useState<"setup" | "camera">("setup");
+  const [currentCameraId, setCurrentCameraId] = useState<string | undefined>();
+  const [pendingCameraChange, setPendingCameraChange] = useState<{ previousId: string; nextId: string } | null>(null);
+  const [cameraChangeError, setCameraChangeError] = useState<string | null>(null);
+  const [isSavingCamera, setIsSavingCamera] = useState(false);
+  const savingCameraRef = useRef(false);
+  const cameraOperationRef = useRef(0);
+  const mountedRef = useRef(false);
   useEffect(() => {
-    if (!isVisible) setIsCalibrationOpen(false);
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+  const visibleRef = useRef(isVisible);
+  visibleRef.current = isVisible;
+  useEffect(() => {
+    if (!isVisible) {
+      setIsCalibrationOpen(false);
+      setPendingCameraChange(null);
+      cameraOperationRef.current++;
+    }
   }, [isVisible]);
   const uiPublishedAtRef = useRef(-Infinity);
   const ocularPublishedAtRef = useRef(-Infinity);
@@ -92,6 +112,8 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
   const typingPaused = !isMonitoring || isCalibrationOpen;
   const monitoringContextRef = useRef({ enabled: false, userId, modules: moduleSettings });
   const [calibration, setCalibration] = useState<PostureCalibrationDTO | null>(null);
+  const [calibrationLoading, setCalibrationLoading] = useState(true);
+  const cameraCalibrationRequired = !isCalibrationCompatible(calibration, currentCameraId);
   const [sessionBlinkCount, setSessionBlinkCount] = useState(0);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [ocularMetrics, setOcularMetrics] = useState<OcularMetrics | null>(null);
@@ -133,11 +155,17 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
     isPaused: typingPaused,
   });
   const captureEnabled = isMonitoring && !isCalibrationOpen && cameraModulesEnabled &&
+    !cameraCalibrationRequired &&
     (!(posturalEnabled || typingEnabled) || recording.status === RecordingStatus.ACTIVE);
   monitoringContextRef.current = { enabled: captureEnabled, userId, modules: moduleSettings };
 
   const toggleMonitoring = () => {
-    if (transitionRequestedRef.current || recording.status === RecordingStatus.STARTING || recording.status === RecordingStatus.ENDING) return;
+    if (transitionRequestedRef.current || pendingCameraChange || isSavingCamera || modulesLoading || calibrationLoading || recording.status === RecordingStatus.STARTING || recording.status === RecordingStatus.ENDING) return;
+    if (!isMonitoring && recording.status !== RecordingStatus.ERROR && cameraModulesEnabled && cameraCalibrationRequired) {
+      setInitialCalibrationStep("camera");
+      setIsCalibrationOpen(true);
+      return;
+    }
     transitionRequestedRef.current = true;
     if (recording.status === RecordingStatus.ERROR) { recording.retry(); return; }
     if (!isMonitoring) {
@@ -276,6 +304,11 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
 
   useEffect(() => {
     let isMounted = true;
+    cameraOperationRef.current++;
+    setPendingCameraChange(null);
+    setIsSavingCamera(false);
+    savingCameraRef.current = false;
+    setCalibrationLoading(true);
     setCalibration(null);
     setClassification(null);
     setLogs([]);
@@ -292,9 +325,13 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
       })
       .catch((err) => {
         console.error("Erro ao carregar calibração ativa:", err);
+      })
+      .finally(() => {
+        if (isMounted) setCalibrationLoading(false);
       });
     return () => {
       isMounted = false;
+      cameraOperationRef.current++;
     };
   }, [userId]);
 
@@ -306,7 +343,7 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
       postureService
         .getActiveCalibration(userId)
         .then((cal) => {
-          if (cal) {
+          if (cal && monitoringContextRef.current.userId === userId) {
             setCalibration(cal);
           }
         })
@@ -325,27 +362,74 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
     setLogs((prev) => [newLog, ...prev]);
   };
 
-  // The chosen camera becomes the account's default for every visual analysis.
-  const handleWebCamSelect = (deviceId: string) => {
-    if (!moduleSettings) return;
-    const owner = moduleSettings.userId;
-    setModuleSettings(current => current?.userId === owner ? { ...current, webCam: deviceId } : current);
-    settingsService.setWebCam(deviceId).catch(error => {
-      console.error("Failed to save the default webcam:", error);
-      setLogs(previous => [{
-        id: crypto.randomUUID(),
-        occurredAt: new Date().toISOString(),
-        timestamp: new Date().toLocaleTimeString("pt-BR"),
-        type: "error",
-        scope: "account" as const,
-        userId: owner,
-        message: "Não foi possível salvar a câmera padrão.",
-        detail: "A câmera escolhida continua em uso nesta sessão.",
-      }, ...previous]);
-    });
+  useEffect(() => {
+    if (moduleSettings?.webCam) setCurrentCameraId(moduleSettings.webCam);
+  }, [moduleSettings?.webCam]);
+
+  const stopForCalibration = () => {
+    monitoringContextRef.current.enabled = false;
+    recording.pause();
+    setIsMonitoring(false);
+    setClassification(null);
+    setOcularMetrics(null);
+    setSessionBlinkCount(0);
+    pendingBlinksRef.current = 0;
+    alertState.hysteresis.resetContinuity();
+    alertState.cooldown.reset();
+    uiPublishedAtRef.current = ocularPublishedAtRef.current = -Infinity;
+  };
+
+  const openCalibration = (step: "setup" | "camera") => {
+    stopForCalibration();
+    setInitialCalibrationStep(step);
+    setIsCalibrationOpen(true);
+  };
+
+  const handleMonitoringCameraSelect = (nextId: string, previousId: string) => {
+    if (nextId === previousId || pendingCameraChange || savingCameraRef.current ||
+      recording.status === RecordingStatus.STARTING || recording.status === RecordingStatus.ENDING) return;
+    stopForCalibration();
+    setCurrentCameraId(previousId);
+    setCameraChangeError(null);
+    setPendingCameraChange({ previousId, nextId });
+  };
+
+  // Calibration applies a choice immediately and awaits persistence before collecting again.
+  const saveCameraPreference = async (deviceId: string) => {
+    const owner = userId;
+    const operation = cameraOperationRef.current;
+    if (userId !== null) {
+      const saved = await settingsService.setWebCam(deviceId);
+      if (!mountedRef.current || operation !== cameraOperationRef.current || monitoringContextRef.current.userId !== owner || saved.userId !== owner) return;
+      setModuleSettings(current => current ? { ...current, webCam: saved.webCam } : saved);
+    }
+    if (mountedRef.current && operation === cameraOperationRef.current && monitoringContextRef.current.userId === owner) setCurrentCameraId(deviceId);
+  };
+
+  const confirmCameraChange = async () => {
+    if (!pendingCameraChange || savingCameraRef.current || recording.status !== RecordingStatus.IDLE) return;
+    const operation = cameraOperationRef.current;
+    savingCameraRef.current = true;
+    setIsSavingCamera(true);
+    setCameraChangeError(null);
+    try {
+      await saveCameraPreference(pendingCameraChange.nextId);
+      if (operation !== cameraOperationRef.current || !visibleRef.current) return;
+      setPendingCameraChange(null);
+      openCalibration("camera");
+    } catch (error) {
+      console.error("Failed to save the monitoring webcam:", error);
+      if (mountedRef.current && operation === cameraOperationRef.current) setCameraChangeError("Não foi possível salvar a câmera. Tente novamente.");
+    } finally {
+      if (mountedRef.current && monitoringContextRef.current.userId === userId) {
+        savingCameraRef.current = false;
+        setIsSavingCamera(false);
+      }
+    }
   };
 
   const handleOcularUpdate = (metrics: OcularMetrics | null) => {
+    if (metrics && (!monitoringContextRef.current.enabled || monitoringContextRef.current.userId !== userId)) return;
     const now = performance.now();
     if (!metrics || now - ocularPublishedAtRef.current >= 250) {
       ocularPublishedAtRef.current = metrics ? now : -Infinity;
@@ -384,7 +468,7 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
               variant="secondary"
               size="md"
               onClick={toggleMonitoring}
-              disabled={recording.status === RecordingStatus.STARTING || recording.status === RecordingStatus.ENDING}
+              disabled={modulesLoading || calibrationLoading || Boolean(pendingCameraChange) || isSavingCamera || recording.status === RecordingStatus.STARTING || recording.status === RecordingStatus.ENDING}
               isLoading={recording.status === RecordingStatus.STARTING || recording.status === RecordingStatus.ENDING}
             >
               {recording.status === RecordingStatus.STARTING ? (
@@ -409,6 +493,12 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
       {recording.error && <div role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-200">
         {recording.error} <button className="ml-2 font-semibold underline" onClick={recording.retry}>Tentar novamente</button>
       </div>}
+      {cameraModulesEnabled && !calibrationLoading && cameraCalibrationRequired && (
+        <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          A câmera selecionada precisa de uma calibração compatível para iniciar as análises com câmera.
+          <button className="ml-2 font-semibold underline" onClick={() => openCalibration("camera")}>Calibrar câmera</button>
+        </div>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <div className="lg:col-span-7 flex flex-col gap-6">
           <WebcamFeed
@@ -418,12 +508,15 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
             disabledMessage={modulesLoading || posturalEnabled || ocularEnabled ? null
               : "As análises postural e ocular estão desativadas em Configurações → Módulos. A câmera fica desligada até que uma delas seja ativada."}
             preferredDeviceId={moduleSettings?.webCam ?? null}
-            onDeviceSelect={handleWebCamSelect}
+            selectedDeviceId={currentCameraId}
+            onResolvedDeviceChange={setCurrentCameraId}
+            onDeviceSelect={handleMonitoringCameraSelect}
+            deviceSelectionDisabled={modulesLoading || calibrationLoading || Boolean(pendingCameraChange) || isSavingCamera || recording.status === RecordingStatus.STARTING || recording.status === RecordingStatus.ENDING}
             calibration={calibration}
             classificationConfig={classificationConfig}
             moduleSettings={moduleSettings}
             onClassificationUpdate={handleClassificationUpdate}
-            onCalibrate={() => setIsCalibrationOpen(true)}
+            onCalibrate={() => openCalibration("setup")}
             onPostureUpdate={handlePostureUpdate}
             onPresenceChange={handlePresenceChange}
             onPresenceObservation={recording.observePresence}
@@ -623,13 +716,33 @@ export default function Monitoring({ isVisible = true }: { isVisible?: boolean }
         </div >
       </div >
 
+      <Modal
+        isOpen={Boolean(pendingCameraChange) && isVisible}
+        onClose={() => { if (!savingCameraRef.current) setPendingCameraChange(null); }}
+        title="Troca de câmera exige nova calibragem"
+        maxWidth="lg"
+        footer={<div className="flex w-full flex-col gap-3 sm:flex-row sm:justify-end">
+          <Button variant="secondary" disabled={isSavingCamera} onClick={() => setPendingCameraChange(null)}>
+            Manter câmera anterior
+          </Button>
+          <Button variant="primary" isLoading={isSavingCamera} disabled={isSavingCamera || recording.status !== RecordingStatus.IDLE} onClick={() => void confirmCameraChange()}>
+            Trocar câmera e recalibrar
+          </Button>
+        </div>}
+      >
+        <p>O monitoramento foi interrompido. Outra câmera pode alterar as medições de postura e distância. Para utilizá-la, realize uma nova calibragem.</p>
+        {(recording.status === RecordingStatus.STARTING || recording.status === RecordingStatus.ENDING) && <p role="status" className="mt-3">Encerrando a sessão atual...</p>}
+        {recording.error && <p role="alert" className="mt-3 text-rose-600">{recording.error} <button className="underline" onClick={recording.retry}>Tentar novamente</button></p>}
+        {cameraChangeError && <p role="alert" className="mt-3 text-rose-600">{cameraChangeError}</p>}
+      </Modal>
       <WorkspaceCalibrationModal
         isOpen={isCalibrationOpen && isVisible}
         onClose={() => setIsCalibrationOpen(false)}
         onCalibrateSubmit={handleCalibrateSubmit}
         activeStream={cameraStream}
-        preferredDeviceId={moduleSettings?.webCam ?? null}
-        onDeviceSelect={handleWebCamSelect}
+        preferredDeviceId={currentCameraId ?? moduleSettings?.webCam ?? null}
+        onDeviceSelect={saveCameraPreference}
+        initialStep={initialCalibrationStep}
         onPostureUpdate={handlePostureUpdate}
         onPresenceChange={handlePresenceChange}
         userId={userId}

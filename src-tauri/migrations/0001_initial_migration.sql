@@ -88,6 +88,7 @@ CREATE VIEW IF NOT EXISTS workspace AS SELECT * FROM workspaces;
 CREATE TABLE IF NOT EXISTS posture_calibrations (
     id TEXT PRIMARY KEY NOT NULL,
     user_id TEXT,
+    camera_device_id TEXT,
     baseline_neck_angle REAL NOT NULL,
     baseline_shoulder_balance REAL NOT NULL,
     baseline_distance_cm REAL NOT NULL,

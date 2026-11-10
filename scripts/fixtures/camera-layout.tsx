@@ -6,6 +6,7 @@ import { AuthProvider } from "../../src/auth/AuthContext";
 import { ThemeProvider } from "../../src/theme/ThemeContext";
 import { poseDetector } from "../../src/services/vision";
 import { workspaceService } from "../../src/services/workspaceService";
+import { postureService } from "../../src/services/postureService";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 poseDetector.initialize = async () => {};
@@ -15,7 +16,17 @@ poseDetector.detectFrame = (_, timestamp) => ({
   timestamp, hasPose: false, hasFace: false, poseLandmarks: null,
   worldLandmarks: null, faceLandmarks: null, faceTransformationMatrix: null,
 });
-workspaceService.getAll = async () => [];
+workspaceService.getAll = async () => [{
+  id: "layout-workspace", deviceType: "notebook", isWebcamFront: true,
+  hasExternalKeyboard: true, hasExternalMouse: true,
+  adjustableDesk: false, adjustableChair: true, adjustableMonitor: true,
+}];
+// A synthetic reference allows monitoring to start without collecting biometric data.
+postureService.getActiveCalibration = async () => ({
+  id: "layout-calibration", cameraDeviceId: "first", isActive: true,
+  baselineNeckAngle: 0, baselineShoulderBalance: 100,
+  baselineDistanceCm: 60, baselineEyeDistancePx: 200,
+});
 
 const sources = [[1280, 720], [640, 480]].map(([width, height]) => {
   const canvas = document.createElement("canvas");
@@ -61,6 +72,17 @@ const pressure = document.createElement("div");
 
 const fixture = {
   ready: false,
+  click,
+  monitoringState() {
+    const main = document.querySelector("main")!;
+    const video = main.querySelector("video")!;
+    return {
+      selected: main.querySelector("select")?.value,
+      hasStream: Boolean(video.srcObject),
+      dialog: document.querySelector('[role="dialog"]')?.textContent ?? null,
+      liveTracks: streams.flatMap(stream => stream.getTracks()).filter(track => track.readyState === "live").length,
+    };
+  },
   async openCalibration() {
     await click("Calibrar Postura Base");
     // The guide length depends on the reported setup; advance until the camera step.
