@@ -2,9 +2,11 @@
 
 O último passo do assistente coleta uma referência durante cinco segundos. A distância de referência é **60 cm assumidos pelo posicionamento do usuário**, não uma medição absoluta da webcam. A IPD é a separação medida em pixels entre os centros das íris ou, quando necessário, entre os pontos médios dos cantos dos olhos.
 
+Cada referência salva identifica sua câmera em `cameraDeviceId`. Trocar de webcam no monitoramento encerra a sessão e solicita confirmação; no assistente, a troca é imediata e descarta a coleta anterior. A retomada é manual. O [guia de troca de webcam](troca-webcam-calibragem.md) detalha os fluxos, a migration única e o roteiro com dois dispositivos.
+
 ## Aquisição por frame
 
-`WebcamFeed.onCalibrationFrame` fornece postura e IPD da mesma inferência, timestamp monotônico, resolução, identificador da captura e método de IPD. O callback envia `null` quando corpo, olhos ou orientação facial não permitem a coleta; também invalida a leitura ao interromper a captura. O rosto deve passar pelo bloqueio existente de pitch/yaw de até 25°.
+`WebcamFeed.onCalibrationFrame` fornece postura e IPD da mesma inferência, timestamp monotônico, resolução, identificadores da câmera e da captura e método de IPD. O callback envia `null` quando corpo, olhos ou orientação facial não permitem a coleta; também invalida a leitura ao interromper a captura. O rosto deve passar pelo bloqueio existente de pitch/yaw de até 25°.
 
 A calibração recebe os ângulos brutos para verificar movimento e os ângulos filtrados pelo One Euro para calcular a média. A precisão decimal é preservada até a persistência; somente os valores apresentados no modal são arredondados. EAR e a disponibilidade da taxa de piscadas não são requisitos para medir uma IPD válida.
 
